@@ -2,11 +2,10 @@
   "name": "meds-new",
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "dev": "npm run electron:dev",
+    "electron:dev": "concurrently \"cross-env BROWSER=none npm run tailwind:dev\" \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "build": "npm run tailwind:build && tsc && vite build && electron-builder",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"cross-env BROWSER=none vite\" \"wait-on tcp:5173 && electron .\"",
-    "electron:build": "tsc && vite build && electron-builder",
     "type-check": "tsc",
     "tailwind:dev": "tailwindcss -i ./src/index.css -o ./dist/output.css --watch",
     "tailwind:build": "tailwindcss -i ./src/index.css -o ./dist/output.css --minify"
