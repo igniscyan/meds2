@@ -1,11 +1,62 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
+import express from 'express';
+import { AddressInfo } from 'net';
+import { WebSocket, WebSocketServer } from 'ws';
 import fs from 'fs';
 
 const isDev = !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
-let pocketbaseProcess: any = null;
+let pocketbaseProcess: ChildProcess | null = null;
+const expressApp = express();
+const PORT = 3000;
+
+// Keep track of connected clients
+const connectedClients = new Set<WebSocket>();
+
+// Create WebSocket server
+const wss = new WebSocketServer({ noServer: true });
+
+wss.on('connection', (ws) => {
+  connectedClients.add(ws);
+  broadcastConnectedUsers();
+
+  ws.on('close', () => {
+    connectedClients.delete(ws);
+    broadcastConnectedUsers();
+  });
+});
+
+function broadcastConnectedUsers() {
+  const message = JSON.stringify({
+    connectedUsers: connectedClients.size
+  });
+
+  for (const client of connectedClients) {
+    client.send(message);
+  }
+}
+
+// Serve static files from the dist directory
+expressApp.use(express.static(path.join(__dirname, '..', 'dist')));
+
+// Handle all routes for client-side routing
+expressApp.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
+});
+
+const server = expressApp.listen(PORT, '0.0.0.0', () => {
+  const address = server.address() as AddressInfo;
+  console.log(`Server running at http://localhost:${address.port}`);
+});
+
+// Handle WebSocket upgrade
+server.on('upgrade', (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
+});
 
 function getDataDirectory() {
   // Get the appropriate data directory based on the platform
@@ -137,28 +188,28 @@ async function createWindow() {
     height: 800,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      webSecurity: false // Allow loading local resources
     }
   });
 
-  if (isDev) {
-    try {
-      await mainWindow.loadURL('http://localhost:5173');
-      mainWindow.webContents.openDevTools();
-      
-      mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-        console.error('Failed to load:', errorDescription);
-        setTimeout(() => {
-          if (mainWindow) {
-            mainWindow.loadURL('http://localhost:5173');
-          }
-        }, 1000);
-      });
-    } catch (error) {
-      console.error('Error loading dev server:', error);
+  // Load the admin interface
+  try {
+    const adminPath = isDev 
+      ? path.join(__dirname, 'admin.html')
+      : path.join(process.resourcesPath, 'app', 'dist-electron', 'admin.html');
+    
+    console.log('Loading admin interface from:', adminPath);
+    
+    if (!fs.existsSync(adminPath)) {
+      console.error('Admin file not found at:', adminPath);
+      throw new Error('Admin file not found');
     }
-  } else {
-    await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+
+    await mainWindow.loadFile(adminPath);
+    mainWindow.webContents.openDevTools(); // Open DevTools for debugging
+  } catch (error) {
+    console.error('Error loading admin interface:', error);
   }
 }
 
@@ -170,11 +221,14 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    if (pocketbaseProcess) {
-      pocketbaseProcess.kill();
-    }
     app.quit();
   }
+  
+  // Close all WebSocket connections
+  for (const client of connectedClients) {
+    client.close();
+  }
+  connectedClients.clear();
 });
 
 app.on('activate', () => {

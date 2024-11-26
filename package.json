@@ -1,61 +1,34 @@
 {
   "name": "meds-new",
   "version": "1.0.0",
+  "description": "Medical Records Application",
+  "author": "Your Name",
+  "license": "ISC",
+  "main": "dist-electron/main.js",
   "scripts": {
-
     "dev": "npm run electron:dev",
     "electron:tsc": "tsc -p electron/tsconfig.json",
     "electron:dev": "concurrently \"cross-env BROWSER=none npm run tailwind:dev\" \"vite\" \"npm run electron:tsc && wait-on tcp:5173 && electron dist-electron/main.js\"",
-    "build": "npm run tailwind:build && tsc && vite build && electron-builder",
+    "build": "npm run electron:tsc && vite build && copy electron\\admin.html dist-electron\\admin.html && electron-packager . \"Medical Records\" --platform=win32 --arch=x64 --out=release --asar=false --overwrite --extra-resource=pocketbase",
     "preview": "vite preview",
     "type-check": "tsc",
     "tailwind:dev": "tailwindcss -i ./src/index.css -o ./dist/output.css --watch",
     "tailwind:build": "tailwindcss -i ./src/index.css -o ./dist/output.css --minify"
   },
-  "main": "electron/main.ts",
-  "build": {
-    "appId": "com.medical.records",
-    "files": [
-      "dist/**/*",
-      "electron/**/*"
-    ],
-    "directories": {
-      "buildResources": "assets",
-      "output": "release"
-    },
-    "win": {
-      "target": "nsis"
-    },
-    "linux": {
-      "target": "AppImage"
-    },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
-    "description": "",
-    "dependencies": {
-      "@vitejs/plugin-react": "^4.3.3",
-      "pocketbase": "^0.21.5",
-      "react": "^18.3.1",
-      "react-dom": "^18.3.1",
-      "react-router-dom": "^6.28.0"
-    },
-    "devDependencies": {
-      "@types/node": "^22.9.0",
-      "@types/react": "^18.3.12",
-      "@types/react-dom": "^18.3.1",
-      "concurrently": "^9.1.0",
-      "electron": "^33.2.0",
-      "electron-builder": "^25.1.8",
-      "typescript": "^5.6.3",
-      "vite": "^5.4.10",
-      "wait-on": "^8.0.1"
-    }
+  "dependencies": {
+    "express": "^4.18.2",
+    "pocketbase": "^0.21.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "ws": "^8.16.0"
   },
   "devDependencies": {
-    "@types/node": "^22.9.0",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.8.10",
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^8.13.0",
     "@typescript-eslint/parser": "^8.13.0",
     "@vitejs/plugin-react": "^4.3.3",
@@ -63,7 +36,7 @@
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8",
+    "electron-packager": "^17.1.2",
     "eslint": "^9.14.0",
     "eslint-plugin-react": "^7.37.2",
     "eslint-plugin-react-hooks": "^5.0.0",
@@ -73,11 +46,5 @@
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
     "wait-on": "^8.0.1"
-  },
-  "dependencies": {
-    "pocketbase": "^0.21.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
   }
 }
