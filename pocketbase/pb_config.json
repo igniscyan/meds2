@@ -3,7 +3,12 @@
         "address": "0.0.0.0:8090",
         "cors": {
             "enabled": true,
-            "allowOrigins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+            "allowOrigins": [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://localhost:3000",
+                "http://127.0.0.1:3000"
+            ],
             "allowMethods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
             "allowHeaders": ["*"],
             "allowCredentials": true,
