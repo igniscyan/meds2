@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "scripts": {
 
-     "dev": "vite",
-    // "dev": "npm run electron:dev",
+    "dev": "npm run electron:dev",
     "electron:tsc": "tsc -p electron/tsconfig.json",
     "electron:dev": "concurrently \"cross-env BROWSER=none npm run tailwind:dev\" \"vite\" \"npm run electron:tsc && wait-on tcp:5173 && electron dist-electron/main.js\"",
     "build": "npm run tailwind:build && tsc && vite build && electron-builder",

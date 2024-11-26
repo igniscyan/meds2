@@ -11,15 +11,40 @@ let mainWindow = null;
 let pocketbaseProcess = null;
 function startPocketBase() {
     const platform = process.platform;
-    const pocketbasePath = isDev
-        ? path_1.default.join(__dirname, '..', 'pocketbase', platform === 'win32' ? 'pocketbase.exe' : 'pocketbase')
-        : path_1.default.join(process.resourcesPath, 'pocketbase', platform === 'win32' ? 'pocketbase.exe' : 'pocketbase');
-    pocketbaseProcess = (0, child_process_1.spawn)(pocketbasePath, ['serve', '--http=127.0.0.1:8090']);
+    let pocketbasePath;
+    if (platform === 'win32') {
+        pocketbasePath = isDev
+            ? path_1.default.join(__dirname, '..', 'pocketbase', 'pocketbase.exe')
+            : path_1.default.join(process.resourcesPath, 'pocketbase', 'pocketbase.exe');
+    }
+    else {
+        pocketbasePath = isDev
+            ? path_1.default.join(__dirname, '..', 'pocketbase', 'linux', 'pocketbase')
+            : path_1.default.join(process.resourcesPath, 'pocketbase', 'linux', 'pocketbase');
+    }
+    // Make the Linux binary executable if needed
+    if (platform !== 'win32') {
+        try {
+            require('fs').chmodSync(pocketbasePath, '755');
+        }
+        catch (error) {
+            console.error('Error making PocketBase executable:', error);
+        }
+    }
+    console.log('Starting PocketBase from:', pocketbasePath);
+    pocketbaseProcess = (0, child_process_1.spawn)(pocketbasePath, ['serve', '--http=0.0.0.0:8090']);
     pocketbaseProcess.stdout.on('data', (data) => {
         console.log(`PocketBase: ${data}`);
     });
     pocketbaseProcess.stderr.on('data', (data) => {
         console.error(`PocketBase Error: ${data}`);
+    });
+    pocketbaseProcess.on('error', (error) => {
+        console.error('Failed to start PocketBase:', error);
+    });
+    pocketbaseProcess.on('exit', (code) => {
+        console.log(`PocketBase process exited with code ${code}`);
+        pocketbaseProcess = null;
     });
 }
 async function createWindow() {
@@ -58,6 +83,9 @@ electron_1.app.whenReady().then(() => {
 });
 electron_1.app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
+        if (pocketbaseProcess) {
+            pocketbaseProcess.kill();
+        }
         electron_1.app.quit();
     }
 });
