@@ -23,6 +23,23 @@ func init() {
 			}
 		}
 
+		// Create test user if it doesn't exist
+		users, err := dao.FindCollectionByNameOrId("users")
+		if err == nil {
+			_, err := dao.FindFirstRecordByData("users", "email", "user@example.com")
+			if err != nil {
+				record := models.NewRecord(users)
+				record.Set("username", "testuser")
+				record.Set("email", "user@example.com")
+				record.Set("emailVisibility", true)
+				record.SetPassword("password123")
+				record.Set("verified", true)
+				if err := dao.SaveRecord(record); err != nil {
+					return err
+				}
+			}
+		}
+
 		// Ensure inventory collection exists
 		inventory, err := dao.FindCollectionByNameOrId("inventory")
 		if err != nil {
@@ -333,6 +350,7 @@ func init() {
 			questions.UpdateRule = nil
 			questions.DeleteRule = nil
 
+			maxSelect := 1
 			questions.Schema = schema.NewSchema(
 				&schema.SchemaField{
 					Name:     "question_text",
@@ -362,7 +380,7 @@ func init() {
 					Type: "relation",
 					Options: &schema.RelationOptions{
 						CollectionId: "encounter_question_categories",
-						MaxSelect:    1,
+						MaxSelect:    &maxSelect,
 					},
 					Required: true,
 				},
@@ -473,6 +491,9 @@ func init() {
 					Name:     "response_value",
 					Type:     "json",
 					Required: true,
+					Options: &schema.JsonOptions{
+						MaxSize: 2097152, // 2MB in bytes
+					},
 				},
 			)
 		}
@@ -565,11 +586,36 @@ func init() {
 					Type:     "select",
 					Required: false,
 					Options: &schema.SelectOptions{
-						MaxSelect: 2,
+						MaxSelect: 1, // or more if you want multiple selections
 						Values: []string{
-							"sample1",
-							"sample2",
-							"sample3",
+							"ABDOMINAL PAIN",
+							"ANXIETY/NERVOUSNESS",
+							"BACK PAIN",
+							"CHEST PAIN",
+							"COUGH",
+							"DEPRESSION",
+							"DIARRHEA",
+							"DIZZINESS",
+							"EARACHE",
+							"FATIGUE",
+							"FEVER/CHILLS/SWEATS",
+							"HEADACHE",
+							"JOINT PAIN",
+							"NAUSEA",
+							"NECK MASS",
+							"NUMBNESS",
+							"PALPITATIONS",
+							"RASH",
+							"SHORTNESS OF BREATH",
+							"SOFT TISSUE INJURY",
+							"SORE THROAT",
+							"SWOLLEN GLANDS",
+							"TENDER NECK",
+							"UPPER RESPIRATORY SYMPTOMS",
+							"URINARY SYMPTOMS",
+							"VAGINAL DISCHARGE",
+							"VOMITING",
+							"VISION CHANGES",
 						},
 					},
 				},
@@ -602,7 +648,7 @@ func init() {
 					Options: &schema.RelationOptions{
 						CollectionId: "patients",
 						MinSelect:    nil,
-						MaxSelect:    nil,
+						MaxSelect:    &[]int{1}[0],
 					},
 				},
 				&schema.SchemaField{
@@ -610,7 +656,22 @@ func init() {
 					Type:     "select",
 					Required: true,
 					Options: &schema.SelectOptions{
-						Values: []string{"waiting", "in_progress", "completed"},
+						MaxSelect: 1,
+						Values: []string{
+							"checked_in",     // Initial state when patient arrives
+							"with_care_team", // Assigned to and being seen by care team
+							"ready_pharmacy", // Care team finished, waiting for pharmacy
+							"with_pharmacy",  // Currently being handled by pharmacy
+							"completed",      // Checked out after receiving medications
+						},
+					},
+				},
+				&schema.SchemaField{
+					Name:     "line_number",
+					Type:     "number",
+					Required: true,
+					Options: &schema.NumberOptions{
+						Min: float64Ptr(1),
 					},
 				},
 				&schema.SchemaField{
@@ -620,7 +681,7 @@ func init() {
 					Options: &schema.RelationOptions{
 						CollectionId: "users",
 						MinSelect:    nil,
-						MaxSelect:    nil,
+						MaxSelect:    &[]int{1}[0],
 					},
 				},
 				&schema.SchemaField{
@@ -647,9 +708,50 @@ func init() {
 						Max: float64Ptr(5.0),
 					},
 				},
+				&schema.SchemaField{
+					Name:     "encounter",
+					Type:     "relation",
+					Required: false,
+					Options: &schema.RelationOptions{
+						CollectionId: "encounters",
+						MaxSelect:    &[]int{1}[0],
+					},
+				},
 			)
 
 			// Set validation rules
+			queueRule := "@request.auth.id != ''"
+			queueCollection.ListRule = &queueRule
+			queueCollection.ViewRule = &queueRule
+			queueCollection.CreateRule = &queueRule
+			queueCollection.UpdateRule = &queueRule
+			queueCollection.DeleteRule = &queueRule
+
+			// First save the collection to create the table
+			if err := dao.SaveCollection(queueCollection); err != nil {
+				return err
+			}
+
+			// Create trigger for auto-incrementing line_number
+			_, err = db.NewQuery(`
+				CREATE TRIGGER IF NOT EXISTS tr_queue_line_number
+				AFTER INSERT ON queue
+				BEGIN
+					UPDATE queue 
+					SET line_number = (
+						SELECT COALESCE(MAX(line_number), 0) + 1 
+						FROM queue 
+						WHERE strftime('%Y-%m-%d', created) = strftime('%Y-%m-%d', NEW.created)
+					)
+					WHERE id = NEW.id AND NEW.line_number IS NULL;
+				END;
+			`).Execute()
+
+			if err != nil {
+				return err
+			}
+		} else {
+			// Update existing collection with new rules
 			queueRule := "@request.auth.id != ''"
 			queueCollection.ListRule = &queueRule
 			queueCollection.ViewRule = &queueRule

@@ -36,7 +36,7 @@ interface Encounter extends Record {
   heart_rate: number;
   systolic_pressure: number;
   diastolic_pressure: number;
-  chief_complaint: string[];
+  chief_complaint: string;
   created: string;
 }
 
@@ -139,7 +139,7 @@ const PatientDashboard: React.FC = () => {
                   {new Date(encounter.created).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  {encounter.chief_complaint.join(', ')}
+                  {encounter.chief_complaint}
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2">BP: {encounter.systolic_pressure}/{encounter.diastolic_pressure}</Typography>

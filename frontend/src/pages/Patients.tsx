@@ -12,6 +12,10 @@ import {
   TableRow,
   TextField,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -43,6 +47,9 @@ const Patients: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
   const { records: patients, loading, error } = useRealtimeSubscription<Patient>('patients');
+  const [checkInDialogOpen, setCheckInDialogOpen] = useState(false);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [lineNumber, setLineNumber] = useState<number>(0);
 
   useEffect(() => {
     console.log('Patients updated:', patients);
@@ -50,6 +57,8 @@ const Patients: React.FC = () => {
 
   const handleCreatePatient = async (data: PatientSubmitData) => {
     try {
+      let patientId: string;
+      
       if (selectedPatient) {
         // Update existing patient
         await pb.collection('patients').update(selectedPatient.id, {
@@ -60,9 +69,10 @@ const Patients: React.FC = () => {
           age: data.age,
           smoker: data.smoker,
         });
+        patientId = selectedPatient.id;
       } else {
         // Create new patient
-        await pb.collection('patients').create({
+        const newPatient = await pb.collection('patients').create({
           first_name: data.firstName,
           last_name: data.lastName,
           dob: data.dateOfBirth,
@@ -71,7 +81,24 @@ const Patients: React.FC = () => {
           smoker: data.smoker,
           date_created: new Date().toISOString(),
         });
+        patientId = newPatient.id;
       }
+
+      // Add to queue if requested
+      if (data.addToQueue) {
+        await pb.collection('queue').create({
+          patient: patientId,
+          status: 'checked_in',
+          check_in_time: new Date().toISOString(),
+          line_number: data.lineNumber,
+          priority: 3,
+          assigned_to: null,
+          start_time: null,
+          end_time: null,
+          encounter: null,
+        });
+      }
+
       handleCloseModal();
     } catch (error) {
       console.error('Error saving patient:', error);
@@ -90,6 +117,38 @@ const Patients: React.FC = () => {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setSelectedPatient(null);
+  };
+
+  const handleCheckIn = async (patientId: string) => {
+    setSelectedPatientId(patientId);
+    setCheckInDialogOpen(true);
+  };
+
+  const handleCheckInConfirm = async () => {
+    try {
+      const data = {
+        patient: selectedPatientId,
+        status: 'checked_in',
+        check_in_time: new Date().toISOString(),
+        line_number: lineNumber,
+        priority: 3,
+        assigned_to: null,
+        start_time: null,
+        end_time: null,
+        encounter: null,
+      };
+
+      await pb.collection('queue').create(data);
+      alert('Patient checked in successfully');
+      setCheckInDialogOpen(false);
+    } catch (error) {
+      console.error('Error checking in patient:', error);
+      if (error instanceof Error) {
+        alert(`Failed to check in patient: ${error.message}`);
+      } else {
+        alert('Failed to check in patient');
+      }
+    }
   };
 
   const filteredPatients = useMemo(() => {
@@ -204,7 +263,7 @@ const Patients: React.FC = () => {
                     <IconButton
                       color="primary"
                       size="small"
-                      onClick={() => navigate(`/encounter/${patient.id}/new`)}
+                      onClick={() => navigate(`/encounter/${patient.id}`)}
                       title="New Encounter"
                     >
                       <AddCircleIcon />
@@ -223,6 +282,27 @@ const Patients: React.FC = () => {
         onSubmit={handleCreatePatient}
         initialData={selectedPatient || undefined}
       />
+
+      <Dialog open={checkInDialogOpen} onClose={() => setCheckInDialogOpen(false)}>
+        <DialogTitle>Check In Patient</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            label="Line Number"
+            type="number"
+            value={lineNumber}
+            onChange={(e) => setLineNumber(parseInt(e.target.value))}
+            margin="normal"
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCheckInDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleCheckInConfirm} variant="contained" color="primary">
+            Check In
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -3,6 +3,7 @@ import { Box, Button, TextField, Typography, Paper } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSetAtom } from 'jotai';
 import { authModelAtom, AuthModel, pb } from '../atoms/auth';
+import { AuthResponse } from 'pocketbase';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -16,14 +17,14 @@ const Login: React.FC = () => {
   const searchParams = new URLSearchParams(location.search);
   const redirectTo = searchParams.get('redirect') || '/patients';
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError('');
 
     try {
-      const authData = await pb.collection('users').authWithPassword(email, password);
+      const authData = await pb.collection('users').authWithPassword(email, password) as AuthResponse;
       console.log('Login successful:', authData);
-      setAuthModel(authData.record as AuthModel);
+      setAuthModel(authData.record as unknown as AuthModel);
       navigate(redirectTo, { replace: true });
     } catch (err: any) {
       console.error('Login error:', err);

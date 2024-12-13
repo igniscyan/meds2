@@ -19,8 +19,35 @@ import {
 import ArrowBack from '@mui/icons-material/ArrowBack';
 import { pb } from '../atoms/auth';
 import { Record } from 'pocketbase';
-import DisbursementForm from '../components/DisbursementForm';
+import { DisbursementForm } from '../components/DisbursementForm';
 import type { DisbursementItem, MedicationRecord } from '../components/DisbursementForm';
+import EncounterQuestions from '../components/EncounterQuestions';
+
+type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'completed';
+
+interface QueueItem extends Record {
+  patient: string;
+  status: QueueStatus;
+  assigned_to?: string;
+  check_in_time: string;
+  start_time?: string;
+  end_time?: string;
+  priority: number;
+  line_number: number;
+  expand?: {
+    patient: {
+      first_name: string;
+      last_name: string;
+    };
+    assigned_to?: {
+      id: string;
+      username: string;
+    };
+    encounter?: {
+      id: string;
+    };
+  };
+}
 
 interface Patient extends Record {
   first_name: string;
@@ -52,7 +79,7 @@ interface InventoryItem extends Record {
   notes: string;
 }
 
-interface Encounter extends Record {
+interface EncounterRecord extends Record {
   patient?: string;
   height_inches?: number;
   weight?: number;
@@ -70,12 +97,51 @@ interface Encounter extends Record {
 
 interface EncounterProps {
   mode?: 'create' | 'view' | 'edit';
+  queueItem?: QueueItem;
 }
 
 interface SavedEncounter {
   id: string;
   [key: string]: any;
 }
+
+export interface QuestionResponse extends Record {
+  id: string;
+  encounter: string;
+  question: string;
+  response_value: any;
+}
+
+export const CHIEF_COMPLAINTS: string[] = [
+  "ABDOMINAL PAIN",
+  "ANXIETY/NERVOUSNESS",
+  "BACK PAIN",
+  "CHEST PAIN",
+  "COUGH",
+  "DEPRESSION",
+  "DIARRHEA",
+  "DIZZINESS",
+  "EARACHE",
+  "FATIGUE",
+  "FEVER/CHILLS/SWEATS",
+  "HEADACHE",
+  "JOINT PAIN",
+  "NAUSEA",
+  "NECK MASS",
+  "NUMBNESS",
+  "PALPITATIONS",
+  "RASH",
+  "SHORTNESS OF BREATH",
+  "SOFT TISSUE INJURY",
+  "SORE THROAT",
+  "SWOLLEN GLANDS",
+  "TENDER NECK",
+  "UPPER RESPIRATORY SYMPTOMS",
+  "URINARY SYMPTOMS",
+  "VAGINAL DISCHARGE",
+  "VOMITING",
+  "VISION CHANGES",
+];
 
 const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
   const { patientId, encounterId } = useParams();
@@ -84,7 +150,7 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
   const searchParams = new URLSearchParams(location.search);
   const fromDashboard = searchParams.get('from') === 'dashboard';
   const [patient, setPatient] = useState<Patient | null>(null);
-  const [formData, setFormData] = useState<Partial<Encounter>>({
+  const [formData, setFormData] = useState<Partial<EncounterRecord>>({
     patient: patientId,
     height_inches: 0,
     weight: 0,
@@ -97,17 +163,15 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
     past_medical_history: '',
     assessment: '',
     plan: '',
-    disbursements: [{
-      medication: '',
-      quantity: 1,
-      disbursement_multiplier: 1,
-      notes: '',
-    }],
+    disbursements: [],
   });
   const [loading, setLoading] = useState(true);
   const [chiefComplaints, setChiefComplaints] = useState<ChiefComplaint[]>([]);
   const [showOtherComplaint, setShowOtherComplaint] = useState(false);
   const [otherComplaintValue, setOtherComplaintValue] = useState('');
+  const [questionResponses, setQuestionResponses] = useState<QuestionResponse[]>([]);
+  const [currentQueueItem, setCurrentQueueItem] = useState<QueueItem | null>(null);
+  const [savedEncounter, setSavedEncounter] = useState<SavedEncounter | null>(null);
 
   const OTHER_COMPLAINT_VALUE = '__OTHER__';
 
@@ -175,7 +239,24 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
     loadData();
   }, [patientId, encounterId, mode, navigate]);
 
-  const handleInputChange = (field: keyof Encounter) => (
+  useEffect(() => {
+    const loadQueueItem = async () => {
+      if (patientId) {
+        try {
+          const result = await pb.collection('queue').getFirstListItem(
+            `patient="${patientId}" && status != "completed"`,
+            { expand: 'patient,assigned_to' }
+          ) as QueueItem;
+          setCurrentQueueItem(result);
+        } catch (error) {
+          console.error('Error loading queue item:', error);
+        }
+      }
+    };
+    loadQueueItem();
+  }, [patientId]);
+
+  const handleInputChange = (field: keyof EncounterRecord) => (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const value = event.target.value;
@@ -185,7 +266,7 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
     }));
   };
 
-  const handleComplaintChange = async (event: SelectChangeEvent<string>) => {
+  const handleComplaintChange = (event: SelectChangeEvent<string>) => {
     const value = event.target.value;
     if (value === OTHER_COMPLAINT_VALUE) {
       setShowOtherComplaint(true);
@@ -216,17 +297,10 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      // If there's a custom complaint, add it to the collection first
+      // If there's a custom complaint, add it to the predefined list
       if (showOtherComplaint && otherComplaintValue) {
-        try {
-          const newComplaint = await pb.collection('chief_complaints').create({
-            name: otherComplaintValue
-          });
-          // Add the new complaint to the local state
-          setChiefComplaints(prev => [...prev, newComplaint as ChiefComplaint]);
-        } catch (error) {
-          console.error('Error adding new chief complaint:', error);
-          // Continue with form submission even if complaint creation fails
+        if (!CHIEF_COMPLAINTS.includes(otherComplaintValue)) {
+          CHIEF_COMPLAINTS.push(otherComplaintValue);
         }
       }
 
@@ -247,100 +321,134 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
       };
 
       let savedEncounter: SavedEncounter;
-      if (mode === 'edit' && encounterId) {
-        savedEncounter = await pb.collection('encounters').update(encounterId, encounterData);
-        
-        // Delete existing disbursements
-        const existingDisbursements = await pb.collection('disbursements').getList(1, 50, {
-          filter: `encounter = "${encounterId}"`
-        });
-        
-        // Revert inventory quantities
-        for (const d of existingDisbursements.items as Disbursement[]) {
-          try {
-            const medication = await pb.collection('inventory').getOne(d.medication) as InventoryItem;
-            await pb.collection('inventory').update(d.medication, {
-              stock: medication.stock + d.quantity
-            });
-          } catch (error) {
-            console.error(`Failed to revert inventory for medication ${d.medication}:`, error);
-            // Continue with other disbursements even if one fails
-          }
-        }
-        
-        // Delete old disbursements
-        await Promise.all(existingDisbursements.items.map(d => 
-          pb.collection('disbursements').delete(d.id).catch(error => {
-            console.error(`Failed to delete disbursement ${d.id}:`, error);
-          })
-        ));
-      } else {
-        savedEncounter = await pb.collection('encounters').create(encounterData);
-      }
-
-      // Create disbursements and update inventory
-      if (formData.disbursements && formData.disbursements.length > 0) {
-        const validDisbursements = formData.disbursements.filter(d => d.medication);
-        
-        // First verify all stock levels
-        for (const disbursement of validDisbursements) {
-          const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
-          const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+      try {
+        if (mode === 'edit' && encounterId) {
+          savedEncounter = await pb.collection('encounters').update(encounterId, encounterData);
           
-          if (medication.stock < quantity) {
-            throw new Error(`Not enough stock for ${medication.drug_name}. Available: ${medication.stock}, Requested: ${quantity}`);
+          // Delete existing responses and disbursements
+          const [existingResponses, existingDisbursements] = await Promise.all([
+            pb.collection('encounter_responses').getList(1, 50, {
+              filter: `encounter = "${encounterId}"`
+            }),
+            pb.collection('disbursements').getList(1, 50, {
+              filter: `encounter = "${encounterId}"`
+            })
+          ]);
+          
+          // Revert inventory quantities
+          for (const d of existingDisbursements.items as Disbursement[]) {
+            try {
+              const medication = await pb.collection('inventory').getOne(d.medication) as InventoryItem;
+              await pb.collection('inventory').update(d.medication, {
+                stock: medication.stock + d.quantity
+              });
+            } catch (error: any) {
+              if (!error.message?.includes('autocancelled')) {
+                console.error(`Failed to revert inventory for medication ${d.medication}:`, error);
+              }
+            }
           }
+
+          // Delete old records
+          await Promise.all([
+            ...existingResponses.items.map(response => 
+              pb.collection('encounter_responses').delete(response.id)
+                .catch(error => {
+                  if (!error.message?.includes('autocancelled')) {
+                    console.error(`Failed to delete response ${response.id}:`, error);
+                  }
+                })
+            ),
+            ...existingDisbursements.items.map(d => 
+              pb.collection('disbursements').delete(d.id)
+                .catch(error => {
+                  if (!error.message?.includes('autocancelled')) {
+                    console.error(`Failed to delete disbursement ${d.id}:`, error);
+                  }
+                })
+            )
+          ]);
+        } else {
+          savedEncounter = await pb.collection('encounters').create(encounterData);
         }
-        
-        // Then process all disbursements
-        for (const disbursement of validDisbursements) {
-          try {
+
+        // Save question responses
+        if (questionResponses.length > 0) {
+          await Promise.all(questionResponses.map(response => 
+            pb.collection('encounter_responses').create({
+              encounter: savedEncounter.id,
+              question: response.question,
+              response_value: response.response_value
+            }).catch(error => {
+              if (!error.message?.includes('autocancelled')) {
+                console.error('Failed to save response:', error);
+                throw error;
+              }
+            })
+          ));
+        }
+
+        // Handle disbursements if any exist
+        const validDisbursements = formData.disbursements?.filter(d => d.medication && d.quantity > 0) || [];
+        if (validDisbursements.length > 0) {
+          // First verify all stock levels
+          for (const disbursement of validDisbursements) {
             const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
             const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
             
-            // Update inventory stock
-            await pb.collection('inventory').update(disbursement.medication, {
-              stock: medication.stock - quantity
-            });
-            
-            // Create disbursement record
-            await pb.collection('disbursements').create({
-              encounter: savedEncounter.id,
-              medication: disbursement.medication,
-              quantity: quantity,
-              notes: disbursement.notes || '',
-            });
-          } catch (error: any) {
-            console.error('Error processing disbursement:', error);
-            throw error; // Re-throw to handle in outer catch block
+            if (medication.stock < quantity) {
+              throw new Error(`Not enough stock for ${medication.drug_name}. Available: ${medication.stock}, Requested: ${quantity}`);
+            }
+          }
+          
+          // Then process all disbursements
+          for (const disbursement of validDisbursements) {
+            try {
+              const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
+              const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+              
+              // Update inventory stock
+              await pb.collection('inventory').update(disbursement.medication, {
+                stock: medication.stock - quantity
+              });
+              
+              // Create disbursement record
+              await pb.collection('disbursements').create({
+                encounter: savedEncounter.id,
+                medication: disbursement.medication,
+                quantity: quantity,
+                notes: disbursement.notes || '',
+              });
+            } catch (error: any) {
+              if (!error.message?.includes('autocancelled')) {
+                console.error('Error processing disbursement:', error);
+                throw error;
+              }
+            }
           }
         }
-      }
 
-      // Update queue status if this was from the queue
-      try {
-        const queueItems = await pb.collection('queue').getList(1, 1, {
-          filter: `patient = "${patientId}" && status = "in_progress"`
-        });
-        
-        if (queueItems.items.length > 0) {
-          await pb.collection('queue').update(queueItems.items[0].id, {
-            status: 'completed',
-            end_time: new Date().toISOString()
-          });
+        // Navigate only if everything succeeded
+        navigate(`/patient/${patientId}`);
+      } catch (error: any) {
+        // Only show error if it's not an autocancellation
+        if (!error.message?.includes('autocancelled')) {
+          console.error('Error saving encounter:', error);
+          alert('Failed to save encounter. Please try again.');
         }
-      } catch (error) {
-        console.error('Error updating queue status:', error);
-        // Don't throw here, as the encounter was still saved successfully
       }
-
-      navigate(`/patient/${patientId}`);
     } catch (error: any) {
-      console.error('Error saving encounter:', error);
-      if (error.response?.data) {
-        console.error('Detailed error:', error.response.data);
+      // Handle any other errors
+      if (!error.message?.includes('autocancelled')) {
+        console.error('Error in form submission:', error);
+        alert('An error occurred. Please try again.');
       }
-      alert('Failed to save encounter. Please try again.');
+    }
+
+    if (currentQueueItem && savedEncounter) {
+      await pb.collection('queue').update(currentQueueItem.id, {
+        encounter: savedEncounter.id
+      });
     }
   };
 
@@ -351,6 +459,26 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
   const handleBack = () => {
     // Always go back to patient dashboard when viewing an encounter
     navigate(`/patient/${patientId}`);
+  };
+
+  const handleQueueStatusChange = async (newStatus: QueueStatus) => {
+    if (!currentQueueItem) return;
+
+    try {
+      await pb.collection('queue').update(currentQueueItem.id, {
+        status: newStatus,
+        ...(newStatus === 'completed' ? {
+          end_time: new Date().toISOString()
+        } : {})
+      });
+      
+      if (newStatus === 'completed') {
+        navigate(`/patient/${patientId}`);
+      }
+    } catch (error) {
+      console.error('Error updating queue status:', error);
+      alert('Failed to update queue status');
+    }
   };
 
   if (loading || !patient) {
@@ -477,9 +605,9 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
                       disabled={mode === 'view'}
                       label="Chief Complaint"
                     >
-                      {chiefComplaints.map((complaint) => (
-                        <MenuItem key={complaint.id} value={complaint.name}>
-                          {complaint.name}
+                      {CHIEF_COMPLAINTS.map((complaint) => (
+                        <MenuItem key={complaint} value={complaint}>
+                          {complaint}
                         </MenuItem>
                       ))}
                       {mode !== 'view' && (
@@ -498,7 +626,7 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
                       value={otherComplaintValue}
                       onChange={handleOtherComplaintChange}
                       placeholder="Enter new chief complaint"
-                      helperText="This will be added to the list of available complaints"
+                      helperText="Please use all caps for consistency"
                     />
                   </Grid>
                 )}
@@ -518,15 +646,37 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
                 encounterId={encounterId}
                 disabled={mode === 'view'}
                 initialDisbursements={formData.disbursements}
-                onDisbursementsChange={(disbursements) => 
+                onDisbursementsChange={(disbursements: DisbursementItem[]) => 
                   setFormData(prev => ({ ...prev, disbursements }))
                 }
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
+                Additional Questions
+              </Typography>
+              <EncounterQuestions
+                encounterId={encounterId}
+                disabled={mode === 'view'}
+                onResponsesChange={(responses: QuestionResponse[]) => {
+                  setQuestionResponses(responses);
+                }}
               />
             </Grid>
 
             {/* Action Buttons */}
             <Grid item xs={12}>
               <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 2 }}>
+                {mode !== 'view' && currentQueueItem && (
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    onClick={() => handleQueueStatusChange('ready_pharmacy')}
+                  >
+                    Ready for Pharmacy
+                  </Button>
+                )}
                 {mode !== 'view' && (
                   <>
                     <Button

@@ -1,10 +1,10 @@
 import { atom } from 'jotai';
-import { atomWithStorage } from 'jotai/utils';
-import PocketBase, { Admin, Record, BaseAuthStore } from 'pocketbase';
+import PocketBase from 'pocketbase';
+import { BaseModel } from 'pocketbase';
 import { useEffect } from 'react';
 
 // Define our AuthModel type to match PocketBase's structure
-export interface AuthModel extends Record {
+export interface AuthModel extends BaseModel {
   email: string;
   emailVisibility: boolean;
   username: string;

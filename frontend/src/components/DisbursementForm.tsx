@@ -13,6 +13,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
+import { DisbursementConfirmation } from './DisbursementConfirmation';
 
 export interface MedicationRecord extends Record {
   drug_name: string;
@@ -33,27 +34,29 @@ export interface DisbursementItem {
 
 interface DisbursementFormProps {
   encounterId?: string;
+  queueItemId?: string;
   disabled?: boolean;
   initialDisbursements?: DisbursementItem[];
   onDisbursementsChange: (disbursements: DisbursementItem[]) => void;
+  onDisbursementComplete?: () => void;
 }
 
-const DisbursementForm: React.FC<DisbursementFormProps> = ({
+export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   encounterId,
+  queueItemId,
   disabled = false,
-  initialDisbursements,
+  initialDisbursements = [],
   onDisbursementsChange,
+  onDisbursementComplete,
 }) => {
   const { records: medications, loading, error } = useRealtimeSubscription<MedicationRecord>(
     'inventory',
     { sort: 'drug_name' }
   );
-  const [disbursements, setDisbursements] = useState<DisbursementItem[]>(initialDisbursements || [{
-    medication: '',
-    quantity: 0,
-    disbursement_multiplier: 1,
-    notes: '',
-  }]);
+  const [disbursements, setDisbursements] = useState<DisbursementItem[]>(
+    initialDisbursements.length > 0 ? initialDisbursements : []
+  );
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
   // Initialize disbursements from props if provided
   useEffect(() => {
@@ -85,7 +88,7 @@ const DisbursementForm: React.FC<DisbursementFormProps> = ({
       ...disbursements,
       {
         medication: '',
-        quantity: 0,
+        quantity: 1,
         disbursement_multiplier: 1,
         notes: '',
       },
@@ -143,6 +146,17 @@ const DisbursementForm: React.FC<DisbursementFormProps> = ({
     return disbursement.quantity * disbursement.disbursement_multiplier;
   };
 
+  const handleConfirmDisbursement = () => {
+    setShowConfirmation(true);
+  };
+
+  const handleConfirmationComplete = () => {
+    setShowConfirmation(false);
+    if (onDisbursementComplete) {
+      onDisbursementComplete();
+    }
+  };
+
   return (
     <Box>
       {error && (
@@ -155,123 +169,134 @@ const DisbursementForm: React.FC<DisbursementFormProps> = ({
       ) : (
         <>
           {disbursements.map((disbursement, index) => (
-            <Grid container spacing={2} key={index} sx={{ mb: 2 }}>
-              <Grid item xs={12} sm={4}>
-                <Autocomplete
-                  options={medications || []}
-                  getOptionLabel={(option) => 
-                    typeof option === 'string' ? option : `${option.drug_name} ${option.dose} (${option.unit_size})`
-                  }
-                  isOptionEqualToValue={(option, value) => 
-                    option.id === (typeof value === 'string' ? value : value?.id)
-                  }
-                  value={disbursement.medicationDetails || null}
-                  onChange={(_, newValue) => 
-                    handleDisbursementChange(index, 'medication', newValue)
-                  }
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Medication"
-                      required
-                      fullWidth
-                      error={!disbursement.medication}
-                      helperText={!disbursement.medication ? 'Required' : ''}
+            <Box key={index} sx={{ mb: 2, display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+              <Box sx={{ flex: 1 }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={4}>
+                    <Autocomplete
+                      options={medications || []}
+                      getOptionLabel={(option) => 
+                        typeof option === 'string' ? option : `${option.drug_name} ${option.dose} (${option.unit_size})`
+                      }
+                      isOptionEqualToValue={(option, value) => 
+                        option.id === (typeof value === 'string' ? value : value?.id)
+                      }
+                      value={disbursement.medicationDetails || null}
+                      onChange={(_, newValue) => 
+                        handleDisbursementChange(index, 'medication', newValue)
+                      }
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Medication"
+                          required
+                          fullWidth
+                          error={!disbursement.medication}
+                          helperText={!disbursement.medication ? 'Required' : ''}
+                        />
+                      )}
+                      disabled={disabled}
                     />
-                  )}
-                  disabled={disabled}
-                />
-              </Grid>
-              <Grid item xs={12} sm={2}>
-                <TextField
-                  fullWidth
-                  label="Fixed Quantity"
-                  type="number"
-                  value={disbursement.medicationDetails?.fixed_quantity || disbursement.quantity}
-                  disabled={true}
-                  InputProps={{
-                    readOnly: true,
-                  }}
-                />
-                {disbursement.medicationDetails && (
-                  <Box sx={{ mt: 0.5 }}>
-                    <Typography variant="caption" color="textSecondary">
-                      Current Stock: {disbursement.medicationDetails.stock}
-                    </Typography>
-                    {disbursement.quantity && disbursement.disbursement_multiplier && (
-                      <Typography 
-                        variant="caption" 
-                        sx={{ 
-                          display: 'block',
-                          color: disbursement.disbursement_multiplier >= 1 
-                            ? 'error.main'  // Red for stock decrease
-                            : 'success.main' // Green for stock increase
-                        }}
-                      >
-                        {disbursement.disbursement_multiplier >= 1 
-                          ? `→ ${disbursement.medicationDetails.stock - (disbursement.quantity * disbursement.disbursement_multiplier)}`
-                          : `→ ${disbursement.medicationDetails.stock + (disbursement.quantity * (1 - disbursement.disbursement_multiplier))}`
-                        }
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <TextField
+                      fullWidth
+                      label="Fixed Quantity"
+                      type="number"
+                      value={disbursement.medicationDetails?.fixed_quantity || disbursement.quantity}
+                      disabled={true}
+                      InputProps={{
+                        readOnly: true,
+                      }}
+                    />
+                    {disbursement.medicationDetails && (
+                      <Box sx={{ mt: 0.5 }}>
+                        <Typography variant="caption" color="textSecondary">
+                          Current Stock: {disbursement.medicationDetails.stock}
+                        </Typography>
+                        {disbursement.quantity && disbursement.disbursement_multiplier && (
+                          <Typography 
+                            variant="caption" 
+                            sx={{ 
+                              display: 'block',
+                              color: disbursement.disbursement_multiplier >= 1 
+                                ? 'error.main'  // Red for stock decrease
+                                : 'success.main' // Green for stock increase
+                            }}
+                          >
+                            {disbursement.disbursement_multiplier >= 1 
+                              ? `→ ${disbursement.medicationDetails.stock - (disbursement.quantity * disbursement.disbursement_multiplier)}`
+                              : `→ ${disbursement.medicationDetails.stock + (disbursement.quantity * (1 - disbursement.disbursement_multiplier))}`
+                            }
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <TextField
+                      fullWidth
+                      label="Multiplier"
+                      type="number"
+                      value={disbursement.disbursement_multiplier}
+                      onChange={(e) => 
+                        handleDisbursementChange(index, 'disbursement_multiplier', Number(e.target.value))
+                      }
+                      disabled={disabled}
+                      inputProps={{ min: 1 }}
+                    />
+                    {disbursement.medicationDetails && (
+                      <Typography variant="caption" color="textSecondary">
+                        Total: {calculateTotalQuantity(disbursement)}
                       </Typography>
                     )}
-                  </Box>
-                )}
-              </Grid>
-              <Grid item xs={12} sm={2}>
-                <TextField
-                  fullWidth
-                  label="Multiplier"
-                  type="number"
-                  value={disbursement.disbursement_multiplier}
-                  onChange={(e) => 
-                    handleDisbursementChange(index, 'disbursement_multiplier', Number(e.target.value))
-                  }
-                  disabled={disabled}
-                  inputProps={{ min: 1 }}
-                />
-                {disbursement.medicationDetails && (
-                  <Typography variant="caption" color="textSecondary">
-                    Total: {calculateTotalQuantity(disbursement)}
-                  </Typography>
-                )}
-              </Grid>
-              <Grid item xs={12} sm={3}>
-                <TextField
-                  fullWidth
-                  label="Notes"
-                  value={disbursement.notes}
-                  onChange={(e) => 
-                    handleDisbursementChange(index, 'notes', e.target.value)
-                  }
-                  disabled={disabled}
-                />
-              </Grid>
-              <Grid item xs={12} sm={1} sx={{ display: 'flex', alignItems: 'center' }}>
-                {!disabled && disbursements.length > 1 && (
-                  <IconButton
-                    onClick={() => handleRemoveDisbursement(index)}
-                    color="error"
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                )}
-              </Grid>
-            </Grid>
+                  </Grid>
+                  <Grid item xs={12} sm={3}>
+                    <TextField
+                      fullWidth
+                      label="Notes"
+                      value={disbursement.notes}
+                      onChange={(e) => 
+                        handleDisbursementChange(index, 'notes', e.target.value)
+                      }
+                      disabled={disabled}
+                    />
+                  </Grid>
+                </Grid>
+              </Box>
+              {!disabled && (
+                <IconButton
+                  onClick={() => handleRemoveDisbursement(index)}
+                  color="error"
+                  sx={{ mt: 1 }}
+                >
+                  <DeleteIcon />
+                </IconButton>
+              )}
+            </Box>
           ))}
           {!disabled && (
             <Button
-              startIcon={<AddIcon />}
-              onClick={handleAddDisbursement}
               variant="outlined"
-              sx={{ mt: 1 }}
+              onClick={handleAddDisbursement}
+              startIcon={<AddIcon />}
+              sx={{ mt: 2 }}
             >
               Add Medication
             </Button>
           )}
         </>
       )}
+
+      {showConfirmation && (
+        <DisbursementConfirmation
+          encounterId={encounterId}
+          queueItemId={queueItemId}
+          disbursements={disbursements}
+          onConfirm={handleConfirmationComplete}
+          onCancel={() => setShowConfirmation(false)}
+        />
+      )}
     </Box>
   );
 };
-
-export default DisbursementForm;

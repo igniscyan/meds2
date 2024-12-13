@@ -18,7 +18,6 @@ import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
   People as PeopleIcon,
-  LocalHospital as LocalHospitalIcon,
   Inventory as InventoryIcon,
 } from '@mui/icons-material';
 import { useAtom } from 'jotai';

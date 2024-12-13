@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -11,6 +11,9 @@ import {
   Select,
   MenuItem,
   Grid,
+  FormControlLabel,
+  Checkbox,
+  Box,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -29,15 +32,19 @@ interface PatientModalProps {
     dob: string;
     gender: string;
     smoker: string;
+    age: number;
   };
 }
 
 export interface PatientFormData {
   firstName: string;
   lastName: string;
-  dateOfBirth: Date | null;
+  dateOfBirth: Date;
   gender: string;
+  age: number;
   smoker: string;
+  addToQueue: boolean;
+  lineNumber: number;
 }
 
 export interface PatientSubmitData extends Omit<PatientFormData, 'dateOfBirth'> {
@@ -51,31 +58,20 @@ export const PatientModal: React.FC<PatientModalProps> = ({
   onSubmit,
   initialData,
 }) => {
-  const { control, handleSubmit, reset } = useForm<PatientFormData>({
+  const { control, handleSubmit, watch, setValue } = useForm<PatientFormData>({
     defaultValues: {
       firstName: initialData?.first_name || '',
       lastName: initialData?.last_name || '',
-      dateOfBirth: initialData?.dob ? new Date(initialData.dob) : null,
+      dateOfBirth: initialData?.dob ? new Date(initialData.dob) : new Date(),
       gender: initialData?.gender || '',
-      smoker: initialData?.smoker || '',
-    },
+      age: initialData?.age || 0,
+      smoker: initialData?.smoker || 'no',
+      addToQueue: true,
+      lineNumber: 0,
+    }
   });
 
-  // Reset form when initialData changes
-  React.useEffect(() => {
-    reset({
-      firstName: initialData?.first_name || '',
-      lastName: initialData?.last_name || '',
-      dateOfBirth: initialData?.dob ? new Date(initialData.dob) : null,
-      gender: initialData?.gender || '',
-      smoker: initialData?.smoker || '',
-    });
-  }, [initialData, reset]);
-
-  const handleClose = () => {
-    reset();
-    onClose();
-  };
+  const addToQueue = watch('addToQueue');
 
   const handleFormSubmit = async (data: PatientFormData) => {
     try {
@@ -101,110 +97,144 @@ export const PatientModal: React.FC<PatientModalProps> = ({
       };
 
       await onSubmit(submitData);
-      handleClose();
+      onClose();
     } catch (error) {
       console.error('Error submitting patient data:', error);
     }
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{initialData ? 'Edit Patient' : 'New Patient'}</DialogTitle>
       <form onSubmit={handleSubmit(handleFormSubmit)}>
         <DialogContent>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}>
-              <Controller
-                name="firstName"
-                control={control}
-                rules={{ required: 'First name is required' }}
-                render={({ field, fieldState: { error } }) => (
-                  <TextField
-                    {...field}
-                    label="First Name"
-                    fullWidth
-                    error={!!error}
-                    helperText={error?.message}
-                  />
-                )}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Controller
-                name="lastName"
-                control={control}
-                rules={{ required: 'Last name is required' }}
-                render={({ field, fieldState: { error } }) => (
-                  <TextField
-                    {...field}
-                    label="Last Name"
-                    fullWidth
-                    error={!!error}
-                    helperText={error?.message}
-                  />
-                )}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <LocalizationProvider dateAdapter={AdapterDateFns}>
+          <Box sx={{ mt: 2 }}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
                 <Controller
-                  name="dateOfBirth"
+                  name="firstName"
                   control={control}
-                  rules={{ required: 'Date of birth is required' }}
+                  rules={{ required: 'First name is required' }}
                   render={({ field, fieldState: { error } }) => (
-                    <DatePicker
+                    <TextField
                       {...field}
-                      label="Date of Birth"
-                      slotProps={{
-                        textField: {
-                          fullWidth: true,
-                          error: !!error,
-                          helperText: error?.message,
-                        },
-                      }}
+                      label="First Name"
+                      fullWidth
+                      error={!!error}
+                      helperText={error?.message}
                     />
                   )}
                 />
-              </LocalizationProvider>
-            </Grid>
-            <Grid item xs={12} sm={6}>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="lastName"
+                  control={control}
+                  rules={{ required: 'Last name is required' }}
+                  render={({ field, fieldState: { error } }) => (
+                    <TextField
+                      {...field}
+                      label="Last Name"
+                      fullWidth
+                      error={!!error}
+                      helperText={error?.message}
+                    />
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <LocalizationProvider dateAdapter={AdapterDateFns}>
+                  <Controller
+                    name="dateOfBirth"
+                    control={control}
+                    rules={{ required: 'Date of birth is required' }}
+                    render={({ field, fieldState: { error } }) => (
+                      <DatePicker
+                        {...field}
+                        label="Date of Birth"
+                        slotProps={{
+                          textField: {
+                            fullWidth: true,
+                            error: !!error,
+                            helperText: error?.message,
+                          },
+                        }}
+                      />
+                    )}
+                  />
+                </LocalizationProvider>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="gender"
+                  control={control}
+                  rules={{ required: 'Gender is required' }}
+                  render={({ field, fieldState: { error } }) => (
+                    <FormControl fullWidth error={!!error}>
+                      <InputLabel>Gender</InputLabel>
+                      <Select {...field} label="Gender">
+                        <MenuItem value="Male">Male</MenuItem>
+                        <MenuItem value="Female">Female</MenuItem>
+                        <MenuItem value="Other">Other</MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Controller
+                  name="smoker"
+                  control={control}
+                  rules={{ required: 'Smoking status is required' }}
+                  render={({ field, fieldState: { error } }) => (
+                    <FormControl fullWidth error={!!error}>
+                      <InputLabel>Smoking Status</InputLabel>
+                      <Select {...field} label="Smoking Status">
+                        <MenuItem value="current">Current</MenuItem>
+                        <MenuItem value="prior">Prior</MenuItem>
+                        <MenuItem value="never">Never</MenuItem>
+                      </Select>
+                    </FormControl>
+                  )}
+                />
+              </Grid>
               <Controller
-                name="gender"
+                name="addToQueue"
                 control={control}
-                rules={{ required: 'Gender is required' }}
-                render={({ field, fieldState: { error } }) => (
-                  <FormControl fullWidth error={!!error}>
-                    <InputLabel>Gender</InputLabel>
-                    <Select {...field} label="Gender">
-                      <MenuItem value="Male">Male</MenuItem>
-                      <MenuItem value="Female">Female</MenuItem>
-                      <MenuItem value="Other">Other</MenuItem>
-                    </Select>
-                  </FormControl>
+                render={({ field }) => (
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={field.value}
+                        onChange={(e) => field.onChange(e.target.checked)}
+                      />
+                    }
+                    label="Add to queue"
+                  />
                 )}
               />
+              
+              {addToQueue && (
+                <Controller
+                  name="lineNumber"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      {...field}
+                      fullWidth
+                      label="Line Number"
+                      type="number"
+                      margin="normal"
+                      required
+                    />
+                  )}
+                />
+              )}
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <Controller
-                name="smoker"
-                control={control}
-                rules={{ required: 'Smoking status is required' }}
-                render={({ field, fieldState: { error } }) => (
-                  <FormControl fullWidth error={!!error}>
-                    <InputLabel>Smoking Status</InputLabel>
-                    <Select {...field} label="Smoking Status">
-                      <MenuItem value="current">Current</MenuItem>
-                      <MenuItem value="prior">Prior</MenuItem>
-                      <MenuItem value="never">Never</MenuItem>
-                    </Select>
-                  </FormControl>
-                )}
-              />
-            </Grid>
-          </Grid>
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleClose}>Cancel</Button>
+          <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="contained" color="primary">
             {initialData ? 'Update' : 'Create'}
           </Button>

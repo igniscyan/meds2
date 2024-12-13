@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { ClientResponseError } from 'pocketbase';
 import type { Record as PBRecord } from 'pocketbase';
 import { pb } from '../atoms/auth';
+import { isEqual } from 'lodash';
 
 type RecordSubscription = {
   action: 'create' | 'update' | 'delete';
@@ -18,9 +19,9 @@ export function useRealtimeSubscription<T extends PBRecord>(
   const stableQueryParams = useRef(queryParams);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Update stableQueryParams if queryParams changes
+  // Only update stableQueryParams if queryParams actually changed
   useEffect(() => {
-    if (JSON.stringify(queryParams) !== JSON.stringify(stableQueryParams.current)) {
+    if (!isEqual(queryParams, stableQueryParams.current)) {
       stableQueryParams.current = queryParams;
     }
   }, [queryParams]);
