@@ -106,7 +106,7 @@ const Patients: React.FC = () => {
   };
 
   const handleStartEncounter = (patientId: string) => {
-    navigate(`/encounter/${patientId}`);
+    navigate(`/encounter/${patientId}`, { state: { mode: 'edit' } });
   };
 
   const handleEditPatient = (patient: Patient) => {
@@ -212,7 +212,13 @@ const Patients: React.FC = () => {
             {filteredPatients.map((patient) => (
               <TableRow key={patient.id}>
                 <TableCell
-                  sx={{ cursor: 'pointer' }}
+                  sx={{ 
+                    cursor: 'pointer',
+                    color: 'primary.main',
+                    '&:hover': {
+                      textDecoration: 'underline'
+                    }
+                  }}
                   onClick={() => navigate(`/patient/${patient.id}`)}
                 >
                   {`${patient.first_name} ${patient.last_name}`}

@@ -70,7 +70,7 @@ const PatientDashboard: React.FC = () => {
   }, [patientId, navigate]);
 
   const handleStartEncounter = () => {
-    navigate(`/encounter/${patientId}`);
+    navigate(`/encounter/${patientId}`, { state: { mode: 'edit' } });
   };
 
   // Don't show loading if we have patient data
@@ -149,7 +149,9 @@ const PatientDashboard: React.FC = () => {
                 <TableCell align="right">
                   <Button
                     size="small"
-                    onClick={() => navigate(`/encounter/${patientId}/${encounter.id}`)}
+                    onClick={() => navigate(`/encounter/${patientId}/${encounter.id}`, {
+                      state: { mode: 'view' }
+                    })}
                   >
                     View Details
                   </Button>

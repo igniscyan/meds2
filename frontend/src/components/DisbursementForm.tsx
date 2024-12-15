@@ -25,6 +25,7 @@ export interface MedicationRecord extends Record {
 }
 
 export interface DisbursementItem {
+  id?: string;
   medication: string;
   medicationDetails?: MedicationRecord;
   quantity: number;
@@ -36,6 +37,7 @@ interface DisbursementFormProps {
   encounterId?: string;
   queueItemId?: string;
   disabled?: boolean;
+  mode?: 'create' | 'view' | 'edit' | 'pharmacy';
   initialDisbursements?: DisbursementItem[];
   onDisbursementsChange: (disbursements: DisbursementItem[]) => void;
   onDisbursementComplete?: () => void;
@@ -45,6 +47,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   encounterId,
   queueItemId,
   disabled = false,
+  mode,
   initialDisbursements = [],
   onDisbursementsChange,
   onDisbursementComplete,
@@ -61,25 +64,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   // Initialize disbursements from props if provided
   useEffect(() => {
     if (initialDisbursements?.length) {
-      const disbursementsWithDetails = initialDisbursements.map(async d => {
-        if (d.medication) {
-          try {
-            const medicationRecord = await pb.collection('inventory').getOne(d.medication);
-            return {
-              ...d,
-              medicationDetails: medicationRecord as MedicationRecord
-            };
-          } catch (error) {
-            console.error('Error loading medication details:', error);
-            return d;
-          }
-        }
-        return d;
-      });
-
-      Promise.all(disbursementsWithDetails).then(resolvedDisbursements => {
-        setDisbursements(resolvedDisbursements);
-      });
+      setDisbursements(initialDisbursements);
     }
   }, [initialDisbursements]);
 
@@ -159,6 +144,11 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
 
   return (
     <Box>
+      {mode === 'pharmacy' && (
+        <Typography variant="subtitle1" color="primary" gutterBottom>
+          Please review and dispense the following medications:
+        </Typography>
+      )}
       {error && (
         <Typography color="error" sx={{ mb: 2 }}>
           Error loading medications: {error.message}
@@ -219,15 +209,10 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                             variant="caption" 
                             sx={{ 
                               display: 'block',
-                              color: disbursement.disbursement_multiplier >= 1 
-                                ? 'error.main'  // Red for stock decrease
-                                : 'success.main' // Green for stock increase
+                              color: 'error.main'  // Always red for stock decrease
                             }}
                           >
-                            {disbursement.disbursement_multiplier >= 1 
-                              ? `→ ${disbursement.medicationDetails.stock - (disbursement.quantity * disbursement.disbursement_multiplier)}`
-                              : `→ ${disbursement.medicationDetails.stock + (disbursement.quantity * (1 - disbursement.disbursement_multiplier))}`
-                            }
+                            {!disbursement.id && `→ ${disbursement.medicationDetails.stock - (disbursement.quantity * disbursement.disbursement_multiplier)}`}
                           </Typography>
                         )}
                       </Box>
@@ -275,7 +260,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
               )}
             </Box>
           ))}
-          {!disabled && (
+          {mode !== 'view' && mode !== 'pharmacy' && (
             <Button
               variant="outlined"
               onClick={handleAddDisbursement}

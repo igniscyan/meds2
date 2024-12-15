@@ -248,6 +248,24 @@ func init() {
 			return err
 		}
 
+		// Add "OTHER" to chief complaints if it doesn't exist
+		_, err = dao.FindFirstRecordByData("chief_complaints", "name", "OTHER (Custom Text Input)")
+		if err != nil {
+			record := models.NewRecord(chiefComplaints)
+			record.Set("name", "OTHER (Custom Text Input)")
+			if err := dao.SaveRecord(record); err != nil {
+				return err
+			}
+		}
+
+		// Remove the old "OTHER" entry if it exists
+		oldOther, err := dao.FindFirstRecordByData("chief_complaints", "name", "OTHER")
+		if err == nil {
+			if err := dao.DeleteRecord(oldOther); err != nil {
+				return err
+			}
+		}
+
 		// Seed chief complaints data
 		complaints := []string{
 			"ABDOMINAL PAIN",
@@ -278,6 +296,7 @@ func init() {
 			"VAGINAL DISCHARGE",
 			"VOMITING",
 			"VISION CHANGES",
+			"OTHER (Custom Text Input)",
 		}
 
 		for _, complaint := range complaints {
@@ -316,7 +335,7 @@ func init() {
 					Type:     "select",
 					Required: true,
 					Options: &schema.SelectOptions{
-						Values: []string{"checkbox", "survey"},
+						Values: []string{"counter", "survey"},
 					},
 				},
 				&schema.SchemaField{
@@ -374,6 +393,9 @@ func init() {
 					Name:     "options",
 					Type:     "json",
 					Required: false,
+					Options: &schema.JsonOptions{
+						MaxSize: 2097152, // 2MB in bytes
+					},
 				},
 				&schema.SchemaField{
 					Name: "category",
@@ -388,6 +410,20 @@ func init() {
 					Name:     "order",
 					Type:     "number",
 					Required: true,
+				},
+				&schema.SchemaField{
+					Name:     "required",
+					Type:     "bool",
+					Required: true,
+				},
+				&schema.SchemaField{
+					Name: "depends_on",
+					Type: "relation",
+					Options: &schema.RelationOptions{
+						CollectionId: "encounter_questions",
+						MaxSelect:    &maxSelect,
+					},
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name:     "archived",
@@ -414,9 +450,10 @@ func init() {
 			Type  string
 			Order float64
 		}{
-			{"Standard Items", "checkbox", 1},
+			{"Standard Items", "counter", 1},
 			{"Patient Satisfaction", "survey", 2},
 			{"Treatment Feedback", "survey", 3},
+			{"Medication Experience", "survey", 4},
 		}
 
 		for _, category := range categories {
@@ -431,44 +468,204 @@ func init() {
 		}
 
 		// Seed some initial checkbox questions for standard items
-		standardItems := []struct {
-			Text  string
-			Order float64
-		}{
-			{"Sunglasses", 1},
-			{"Water Bottle", 2},
-			{"Information Packet", 3},
+		type SeedQuestion struct {
+			Text        string
+			InputType   string
+			Category    string
+			Order       float64
+			Required    bool
+			Description string
+			Options     []string
+			DependsOn   string
 		}
 
-		standardCategory, err := dao.FindFirstRecordByData("encounter_question_categories", "name", "Standard Items")
-		if err == nil {
-			for _, item := range standardItems {
-				record := models.NewRecord(questions)
-				record.Set("question_text", item.Text)
-				record.Set("input_type", "checkbox")
-				record.Set("category", standardCategory.Id)
-				record.Set("order", item.Order)
+		// Standard Items (Counter category)
+		standardItems := []SeedQuestion{
+			{
+				Text:      "Sunglasses",
+				InputType: "checkbox",
+				Category:  "Standard Items",
+				Order:     1,
+				Required:  false,
+			},
+			{
+				Text:      "Water Bottle",
+				InputType: "checkbox",
+				Category:  "Standard Items",
+				Order:     2,
+				Required:  false,
+			},
+			{
+				Text:      "Information Packet",
+				InputType: "checkbox",
+				Category:  "Standard Items",
+				Order:     3,
+				Required:  false,
+			},
+		}
+
+		// Patient Satisfaction (Survey category)
+		satisfactionQuestions := []SeedQuestion{
+			{
+				Text:        "How would you rate your overall experience?",
+				InputType:   "select",
+				Category:    "Patient Satisfaction",
+				Order:       1,
+				Required:    true,
+				Description: "Please rate your experience from 1 to 5",
+				Options:     []string{"1 - Poor", "2 - Fair", "3 - Good", "4 - Very Good", "5 - Excellent"},
+			},
+			{
+				Text:      "Would you recommend our clinic to others?",
+				InputType: "select",
+				Category:  "Patient Satisfaction",
+				Order:     2,
+				Required:  true,
+				Options:   []string{"Yes", "No", "Maybe"},
+			},
+			{
+				Text:        "What could we improve?",
+				InputType:   "text",
+				Category:    "Patient Satisfaction",
+				Order:       3,
+				Required:    false,
+				Description: "Please share any suggestions for improvement",
+			},
+		}
+
+		// Treatment Feedback (Survey category)
+		treatmentQuestions := []SeedQuestion{
+			{
+				Text:      "Did the provider explain your treatment clearly?",
+				InputType: "select",
+				Category:  "Treatment Feedback",
+				Order:     1,
+				Required:  true,
+				Options:   []string{"Yes, very clearly", "Somewhat clearly", "No, not clearly"},
+			},
+			{
+				Text:      "Do you have any questions about your medications?",
+				InputType: "checkbox",
+				Category:  "Treatment Feedback",
+				Order:     2,
+				Required:  true,
+			},
+			{
+				Text:        "What questions do you have?",
+				InputType:   "text",
+				Category:    "Treatment Feedback",
+				Order:       3,
+				Required:    false,
+				Description: "Please list your questions about medications",
+				DependsOn:   "Do you have any questions about your medications?",
+			},
+		}
+
+		// Medication Experience (Survey category)
+		medicationQuestions := []SeedQuestion{
+			{
+				Text:      "Have you had any previous reactions to medications?",
+				InputType: "checkbox",
+				Category:  "Medication Experience",
+				Order:     1,
+				Required:  true,
+			},
+			{
+				Text:      "Please describe any previous reactions:",
+				InputType: "text",
+				Category:  "Medication Experience",
+				Order:     2,
+				Required:  false,
+				DependsOn: "Have you had any previous reactions to medications?",
+			},
+			{
+				Text:      "How do you prefer to receive medication instructions?",
+				InputType: "select",
+				Category:  "Medication Experience",
+				Order:     3,
+				Required:  true,
+				Options:   []string{"Written", "Verbal", "Both"},
+			},
+		}
+
+		// Function to save questions and handle dependencies
+		saveSeedQuestions := func(seedQuestions []SeedQuestion, dao *daos.Dao) error {
+			// Map to store question IDs for dependency linking
+			questionIds := make(map[string]string)
+
+			// Get the questions collection
+			questionsCollection, err := dao.FindCollectionByNameOrId("encounter_questions")
+			if err != nil {
+				return err
+			}
+
+			for _, q := range seedQuestions {
+				// Find category
+				category, err := dao.FindFirstRecordByData("encounter_question_categories", "name", q.Category)
+				if err != nil {
+					continue
+				}
+
+				// Create question record
+				record := models.NewRecord(questionsCollection)
+				record.Set("question_text", q.Text)
+				record.Set("input_type", q.InputType)
+				record.Set("category", category.Id)
+				record.Set("order", q.Order)
+				record.Set("required", q.Required)
+				record.Set("description", q.Description)
 				record.Set("archived", false)
+
+				if len(q.Options) > 0 {
+					record.Set("options", q.Options)
+				}
+
 				if err := dao.SaveRecord(record); err != nil {
 					return err
 				}
+
+				// Store question ID for dependency linking
+				questionIds[q.Text] = record.Id
 			}
+
+			// Second pass to set up dependencies
+			for _, q := range seedQuestions {
+				if q.DependsOn != "" {
+					if dependsOnId, ok := questionIds[q.DependsOn]; ok {
+						// Find the question we just created
+						question, err := dao.FindFirstRecordByData("encounter_questions", "question_text", q.Text)
+						if err != nil {
+							continue
+						}
+
+						// Update with dependency
+						question.Set("depends_on", dependsOnId)
+						if err := dao.SaveRecord(question); err != nil {
+							return err
+						}
+					}
+				}
+			}
+
+			return nil
 		}
 
-		// Ensure encounter_responses collection exists
-		responses, err := dao.FindCollectionByNameOrId("encounter_responses")
-		if err != nil {
-			responses = &models.Collection{}
-			responses.Name = "encounter_responses"
-			responses.Type = "base"
-			responses.ListRule = nil
-			responses.ViewRule = nil
-			responses.CreateRule = nil
-			responses.UpdateRule = nil
-			responses.DeleteRule = nil
+		// Save all seed questions
+		allQuestions := append(standardItems, satisfactionQuestions...)
+		allQuestions = append(allQuestions, treatmentQuestions...)
+		allQuestions = append(allQuestions, medicationQuestions...)
+		if err := saveSeedQuestions(allQuestions, dao); err != nil {
+			return err
+		}
 
-			maxSelect := 1
-			responses.Schema = schema.NewSchema(
+		// Create encounter_responses collection
+		maxSelect := 1
+		defaultRule := "@request.auth.id != ''"
+
+		responses := &models.Collection{
+			Name: "encounter_responses",
+			Type: "base",
+			Schema: schema.NewSchema(
 				&schema.SchemaField{
 					Name: "encounter",
 					Type: "relation",
@@ -495,15 +692,13 @@ func init() {
 						MaxSize: 2097152, // 2MB in bytes
 					},
 				},
-			)
+			),
+			CreateRule: &defaultRule,
+			UpdateRule: &defaultRule,
+			DeleteRule: &defaultRule,
+			ListRule:   &defaultRule,
+			ViewRule:   &defaultRule,
 		}
-
-		// Add validation rules for responses
-		responseRule := "@request.auth.id != ''"
-		responses.CreateRule = &responseRule
-		responses.UpdateRule = &responseRule
-		responses.ListRule = &responseRule
-		responses.ViewRule = &responseRule
 
 		if err := dao.SaveCollection(responses); err != nil {
 			return err
@@ -583,41 +778,17 @@ func init() {
 				},
 				&schema.SchemaField{
 					Name:     "chief_complaint",
-					Type:     "select",
+					Type:     "relation",
 					Required: false,
-					Options: &schema.SelectOptions{
-						MaxSelect: 1, // or more if you want multiple selections
-						Values: []string{
-							"ABDOMINAL PAIN",
-							"ANXIETY/NERVOUSNESS",
-							"BACK PAIN",
-							"CHEST PAIN",
-							"COUGH",
-							"DEPRESSION",
-							"DIARRHEA",
-							"DIZZINESS",
-							"EARACHE",
-							"FATIGUE",
-							"FEVER/CHILLS/SWEATS",
-							"HEADACHE",
-							"JOINT PAIN",
-							"NAUSEA",
-							"NECK MASS",
-							"NUMBNESS",
-							"PALPITATIONS",
-							"RASH",
-							"SHORTNESS OF BREATH",
-							"SOFT TISSUE INJURY",
-							"SORE THROAT",
-							"SWOLLEN GLANDS",
-							"TENDER NECK",
-							"UPPER RESPIRATORY SYMPTOMS",
-							"URINARY SYMPTOMS",
-							"VAGINAL DISCHARGE",
-							"VOMITING",
-							"VISION CHANGES",
-						},
+					Options: &schema.RelationOptions{
+						CollectionId: "chief_complaints",
+						MaxSelect:    &maxSelect,
 					},
+				},
+				&schema.SchemaField{
+					Name:     "other_chief_complaint",
+					Type:     "text",
+					Required: false,
 				},
 			)
 		}
@@ -669,7 +840,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "line_number",
 					Type:     "number",
-					Required: true,
+					Required: false,
 					Options: &schema.NumberOptions{
 						Min: float64Ptr(1),
 					},
@@ -837,7 +1008,27 @@ func init() {
 			}
 		}
 
-		return nil
+		// Update users collection to add role field
+		users, err = dao.FindCollectionByNameOrId("users")
+		if err != nil {
+			return err
+		}
+
+		// Add role field if it doesn't exist
+		roleField := users.Schema.GetFieldByName("role")
+		if roleField == nil {
+			users.Schema.AddField(&schema.SchemaField{
+				Name:     "role",
+				Type:     schema.FieldTypeSelect,
+				Required: true,
+				Options: &schema.SelectOptions{
+					Values:    []string{"provider", "pharmacy", "admin"},
+					MaxSelect: 1,
+				},
+			})
+		}
+
+		return dao.SaveCollection(users)
 	}, func(db dbx.Builder) error {
 		dao := daos.New(db)
 

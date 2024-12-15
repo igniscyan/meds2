@@ -10,6 +10,11 @@ interface RoleBasedAccessProps {
   children: React.ReactNode;
 }
 
+/**
+ * RoleBasedAccess - UI Component for role-based feature visibility
+ * Note: This is for UI organization only, not security.
+ * All security checks should be handled server-side.
+ */
 export const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({
   requiredRole,
   children

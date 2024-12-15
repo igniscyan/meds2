@@ -9,6 +9,15 @@ type RecordSubscription = {
   record: PBRecord;
 };
 
+// Add this utility function at the top level
+const isAutoCancelError = (error: any): boolean => {
+  return error?.message?.includes('autocancelled') || 
+         error?.message?.includes('aborted') ||
+         error?.isAbort ||
+         error?.name === 'AbortError' ||
+         error?.status === 0;
+};
+
 export function useRealtimeSubscription<T extends PBRecord>(
   collection: string,
   queryParams: { [key: string]: any } = {}
@@ -48,15 +57,11 @@ export function useRealtimeSubscription<T extends PBRecord>(
         abortControllerRef.current = new AbortController();
 
         console.log('Loading initial data for collection:', collection, 'with params:', queryParams);
-        console.log('Auth state:', {
-          hasModel: !!pb.authStore.model,
-          modelId: pb.authStore.model?.id,
-          token: pb.authStore.token
-        });
         
         const resultList = await pb.collection(collection).getList(1, 50, {
           ...stableQueryParams.current,
-          $cancelKey: collection, // Use collection as cancel key
+          $autoCancel: false,
+          $cancelKey: collection,
           signal: abortControllerRef.current.signal
         });
 
@@ -67,11 +72,13 @@ export function useRealtimeSubscription<T extends PBRecord>(
           setError(null);
         }
       } catch (err: any) {
-        console.error('Error loading data:', err);
-        // Only set error if component is mounted and it's not an auto-cancellation
-        if (isMounted && err instanceof ClientResponseError && !err.isAbort) {
-          setError(err instanceof Error ? err : new Error('Failed to load data'));
-          setLoading(false);
+        // Only log and set error if it's not an auto-cancellation
+        if (!isAutoCancelError(err)) {
+          console.error('Error loading data:', err);
+          if (isMounted) {
+            setError(err instanceof Error ? err : new Error('Failed to load data'));
+            setLoading(false);
+          }
         }
       }
     };
@@ -84,33 +91,63 @@ export function useRealtimeSubscription<T extends PBRecord>(
 
       try {
         console.log('Subscribing to collection:', collection);
-        unsubscribe = await pb.collection(collection).subscribe('*', (data: RecordSubscription) => {
+        unsubscribe = await pb.collection(collection).subscribe('*', async (data: RecordSubscription) => {
           if (!isMounted) return;
           
           console.log('Received realtime update:', data);
           const { action, record } = data;
           
           setRecords(prev => {
-            console.log('Current records:', prev);
-            let newRecords;
-            if (action === 'create') {
-              newRecords = [...prev, record as T];
-            } else if (action === 'update') {
-              newRecords = prev.map(item => item.id === record.id ? record as T : item);
-            } else if (action === 'delete') {
-              newRecords = prev.filter(item => item.id !== record.id);
-            } else {
-              newRecords = prev;
+            try {
+              if (action === 'create') {
+                // For new records, fetch with expanded fields
+                pb.collection(collection).getOne(record.id, {
+                  expand: stableQueryParams.current.expand
+                }).then(expandedRecord => {
+                  if (isMounted) {
+                    setRecords(prev => [...prev, expandedRecord as T]);
+                  }
+                }).catch(err => {
+                  if (!isAutoCancelError(err)) {
+                    console.error('Error fetching expanded record:', err);
+                  }
+                });
+                return prev;
+              } else if (action === 'update') {
+                // For updates, fetch the updated record with expanded fields
+                pb.collection(collection).getOne(record.id, {
+                  expand: stableQueryParams.current.expand
+                }).then(expandedRecord => {
+                  if (isMounted) {
+                    setRecords(prev => 
+                      prev.map(item => item.id === record.id ? expandedRecord as T : item)
+                    );
+                  }
+                }).catch(err => {
+                  if (!isAutoCancelError(err)) {
+                    console.error('Error fetching updated record:', err);
+                  }
+                });
+                return prev;
+              } else if (action === 'delete') {
+                return prev.filter(item => item.id !== record.id);
+              }
+              return prev;
+            } catch (err: any) {
+              if (!isAutoCancelError(err)) {
+                console.error('Error processing realtime update:', err);
+              }
+              return prev;
             }
-            console.log('Updated records:', newRecords);
-            return newRecords;
           });
         });
         console.log('Successfully subscribed to collection:', collection);
       } catch (err: any) {
-        console.error('Error subscribing to collection:', err);
-        if (isMounted && err instanceof ClientResponseError && !err.isAbort) {
-          setError(err instanceof Error ? err : new Error('Failed to subscribe'));
+        if (!isAutoCancelError(err)) {
+          console.error('Error subscribing to collection:', err);
+          if (isMounted) {
+            setError(err instanceof Error ? err : new Error('Failed to subscribe'));
+          }
         }
       }
     };
