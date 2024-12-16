@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,18 @@ func main() {
 		log.Printf("Server started successfully!")
 		log.Printf("Admin UI available at: http://127.0.0.1:8090/_/")
 		log.Printf("Main application available at: http://127.0.0.1:8090")
+		log.Printf("Default user for MEDS interface and pocketbase admin: user@example.com")
+		log.Printf("Default password: password123")
+		log.Printf("Access the MEDS interface at http://127.0.0.1:8090/")
+		log.Printf("To kill the server gracefully, press Ctrl+C. Data will persist in the ./pb_data directory.")
+		//Log the local machine's IP address
+		ip, err := getLocalIP()
+		if err != nil {
+			log.Printf("Warning: Could not determine local IP address: %v", err)
+		} else {
+			log.Printf("Local IP address: %s, other users can access the MEDS interface at http://%s:8090/", ip, ip)
+		}
+
 		return nil
 	})
 
@@ -64,4 +77,19 @@ func main() {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func getLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String(), nil
+			}
+		}
+	}
+	return "127.0.0.1", nil
 }
