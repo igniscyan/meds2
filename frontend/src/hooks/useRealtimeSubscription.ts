@@ -27,11 +27,13 @@ export function useRealtimeSubscription<T extends PBRecord>(
   const [error, setError] = useState<Error | null>(null);
   const stableQueryParams = useRef(queryParams);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const loadedRef = useRef(false);
 
   // Only update stableQueryParams if queryParams actually changed
   useEffect(() => {
     if (!isEqual(queryParams, stableQueryParams.current)) {
       stableQueryParams.current = queryParams;
+      loadedRef.current = false; // Reset loaded state when params change
     }
   }, [queryParams]);
 
@@ -56,20 +58,23 @@ export function useRealtimeSubscription<T extends PBRecord>(
         }
         abortControllerRef.current = new AbortController();
 
-        console.log('Loading initial data for collection:', collection, 'with params:', queryParams);
-        
-        const resultList = await pb.collection(collection).getList(1, 50, {
-          ...stableQueryParams.current,
-          $autoCancel: false,
-          $cancelKey: collection,
-          signal: abortControllerRef.current.signal
-        });
+        if (!loadedRef.current) {
+          console.log('Loading initial data for collection:', collection, 'with params:', queryParams);
+          
+          const resultList = await pb.collection(collection).getList(1, 50, {
+            ...stableQueryParams.current,
+            $autoCancel: false,
+            $cancelKey: collection,
+            signal: abortControllerRef.current.signal
+          });
 
-        if (isMounted) {
-          console.log('Data loaded successfully:', resultList);
-          setRecords(resultList.items as T[]);
-          setLoading(false);
-          setError(null);
+          if (isMounted) {
+            console.log('Data loaded successfully:', resultList);
+            setRecords(resultList.items as T[]);
+            setLoading(false);
+            setError(null);
+            loadedRef.current = true;
+          }
         }
       } catch (err: any) {
         // Only log and set error if it's not an auto-cancellation
@@ -158,6 +163,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
     // Listen for auth changes
     const handleAuthChange = () => {
       console.log('Auth state changed, reloading data...');
+      loadedRef.current = false; // Reset loaded state on auth change
       loadInitialData();
     };
     window.addEventListener('pocketbase-auth-change', handleAuthChange);

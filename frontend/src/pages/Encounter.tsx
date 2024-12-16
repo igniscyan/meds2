@@ -122,19 +122,9 @@ interface SavedEncounter {
 export interface QuestionResponse extends BaseModel {
   encounter: string;
   question: string;
-  response_value: any;
+  response_value: string | boolean | number | null;
   expand?: {
-    question?: {
-      question_text: string;
-      input_type: 'checkbox' | 'text' | 'select';
-      required?: boolean;
-      category: string;
-      expand?: {
-        category?: {
-          type: 'counter' | 'survey';
-        }
-      }
-    }
+    question?: EncounterQuestion;
   }
 }
 
@@ -182,10 +172,16 @@ interface ExistingDisbursement extends BaseModel {
 }
 
 interface EncounterQuestion extends BaseModel {
+  id: string;
   question_text: string;
   input_type: 'checkbox' | 'text' | 'select';
-  required?: boolean;
+  description?: string;
+  options?: string[];
   category: string;
+  order: number;
+  required?: boolean;
+  depends_on?: string;
+  archived?: boolean;
   expand?: {
     category?: {
       type: 'counter' | 'survey';
@@ -196,7 +192,10 @@ interface EncounterQuestion extends BaseModel {
 interface EncounterResponseRecord extends BaseModel {
   encounter: string;
   question: string;
-  response_value: any;
+  response_value: string | boolean | number | null;
+  expand?: {
+    question?: EncounterQuestion;
+  }
 }
 
 const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
@@ -209,13 +208,6 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
   const currentMode = React.useMemo(() => {
     const initialMode = location.state?.mode || mode;
     const computedMode = (initialMode === 'create' || (isNewEncounter && initialMode !== 'pharmacy')) ? 'edit' : initialMode;
-    console.log('Mode computation:', { 
-      initialMode, 
-      isNewEncounter, 
-      computedMode, 
-      locationState: location.state,
-      mode 
-    });
     return computedMode;
   }, [location.state?.mode, mode, isNewEncounter]);
 
@@ -518,7 +510,23 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      console.log('Starting form submission with responses:', questionResponses);
+      console.log('[Form Submit] Starting form submission with responses:', questionResponses);
+
+      // Add detailed logging for ALL responses
+      console.log('[SUBMITTED FOR SAVING] All responses:', questionResponses.map(r => ({
+        question: r.expand?.question?.question_text,
+        type: r.expand?.question?.input_type,
+        value: r.response_value,
+        id: r.id,
+        isDependent: !!r.expand?.question?.depends_on,
+        dependsOn: r.expand?.question?.depends_on,
+        hasParentChecked: r.expand?.question?.depends_on ? 
+          questionResponses.find(pr => pr.question === r.expand?.question?.depends_on)?.response_value : 
+          'not_dependent',
+        parentQuestion: r.expand?.question?.depends_on ? 
+          questionResponses.find(pr => pr.question === r.expand?.question?.depends_on)?.expand?.question?.question_text :
+          'none'
+      })));
 
       // Get all required survey questions first
       const allRequiredQuestions = await pb.collection('encounter_questions').getList<EncounterQuestion>(1, 100, {
@@ -526,21 +534,20 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
         expand: 'category',
       });
 
-      console.log('Found required questions:', allRequiredQuestions.items);
-
       // Filter to only survey questions that are actually required
       const requiredSurveyQuestions = allRequiredQuestions.items.filter(question => 
         question.expand?.category?.type === 'survey' && question.required
       );
 
-      console.log('Filtered survey questions:', requiredSurveyQuestions);
-
       // Check for missing required questions
       const missingRequiredQuestions = requiredSurveyQuestions.filter(question => {
         const response = questionResponses.find(r => r.question === question.id);
-        console.log('Checking question:', question.question_text, 'Response:', response);
+        console.log('[Form Submit] Checking required question:', {
+          question: question.question_text,
+          hasResponse: !!response,
+          responseValue: response?.response_value
+        });
         
-        // If no response exists at all, it's missing
         if (!response) return true;
 
         const value = response.response_value;
@@ -551,18 +558,18 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
           case 'select':
             return !value || value === '';
           case 'text':
-            return !value || value.trim() === '';
+            return !value || (typeof value === 'string' && value.trim() === '');
           case 'checkbox':
-            // For checkboxes, undefined/null is invalid, but false is valid
             return value === undefined || value === null;
           default:
             return true;
         }
       });
 
-      console.log('Missing required questions:', missingRequiredQuestions);
-
       if (missingRequiredQuestions.length > 0) {
+        console.log('[Form Submit] Missing required questions:', 
+          missingRequiredQuestions.map(q => q.question_text)
+        );
         const missingFields = missingRequiredQuestions
           .map(q => q.question_text)
           .filter(Boolean);
@@ -637,79 +644,81 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
           await saveDisbursementChanges();
           
           // Process all responses in a single batch
-          console.log('Processing responses for update:', questionResponses);
-          const responsePromises = questionResponses
-            .filter(response => {
-              const value = response.response_value;
-              console.log('Filtering response:', { 
-                question: response.expand?.question?.question_text,
-                value,
-                type: response.expand?.question?.input_type
-              });
-              // Keep checkbox responses even if false
-              if (response.expand?.question?.input_type === 'checkbox') {
-                return value !== undefined && value !== null;
-              }
-              // Filter out empty/null responses for other types
-              return value !== undefined && value !== '' && value !== null;
-            })
-            .map(async (response) => {
-              try {
-                console.log('Saving response:', {
-                  id: response.id,
-                  question: response.expand?.question?.question_text,
-                  value: response.response_value
-                });
-                if (response.id) {
-                  return pb.collection('encounter_responses').update(response.id, {
-                    response_value: response.response_value
-                  });
-                } else {
-                  return pb.collection('encounter_responses').create({
-                    encounter: encounterId,
-                    question: response.question,
-                    response_value: response.response_value
-                  });
-                }
-              } catch (error) {
-                console.error('Error saving response:', error);
-                throw error;
-              }
-            });
+          console.log('[Form Submit] Processing responses:', 
+            questionResponses.map(r => ({
+              question: r.expand?.question?.question_text,
+              value: r.response_value,
+              type: r.expand?.question?.input_type,
+              isDependent: !!r.expand?.question?.depends_on,
+              hasId: !!r.id,
+              id: r.id
+            }))
+          );
 
-          const results = await Promise.all(responsePromises);
-          console.log('Response save results:', results);
+          // First, get all existing responses for this encounter
+          const existingResponses = await pb.collection('encounter_responses').getList<EncounterResponseRecord>(1, 200, {
+            filter: `encounter = "${encounterId}"`,
+            expand: 'question'
+          });
+
+          // Create a map of existing responses by question ID
+          const existingResponseMap = new Map<string, EncounterResponseRecord>(
+            existingResponses.items.map(r => [r.question, r])
+          );
+
+          // Process responses in sequence to avoid race conditions
+          for (const response of questionResponses) {
+            try {
+              const existingResponse = existingResponseMap.get(response.question);
+              
+              console.log('[Saving Response]', {
+                question: response.expand?.question?.question_text,
+                value: response.response_value,
+                type: response.expand?.question?.input_type,
+                isDependent: !!response.expand?.question?.depends_on,
+                existingId: existingResponse?.id,
+                action: existingResponse ? 'update' : 'create'
+              });
+
+              if (existingResponse) {
+                await pb.collection('encounter_responses').update(existingResponse.id, {
+                  response_value: response.response_value
+                });
+              } else {
+                await pb.collection('encounter_responses').create({
+                  encounter: encounterId,
+                  question: response.question,
+                  response_value: response.response_value
+                });
+              }
+            } catch (error) {
+              console.error('[Save Error]', {
+                question: response.expand?.question?.question_text,
+                error
+              });
+              throw error;
+            }
+          }
         } else {
           // Create new encounter
           savedEncounter = await pb.collection('encounters').create(encounterData);
 
-          // Create initial responses
-          console.log('Creating initial responses:', questionResponses);
-          const responsePromises = questionResponses
-            .filter(response => {
-              const value = response.response_value;
-              console.log('Filtering new response:', {
-                question: response.expand?.question?.question_text,
-                value,
-                type: response.expand?.question?.input_type
-              });
-              // Keep checkbox responses even if false
-              if (response.expand?.question?.input_type === 'checkbox') {
-                return value !== undefined && value !== null;
-              }
-              // Filter out empty/null responses for other types
-              return value !== undefined && value !== '' && value !== null;
-            })
-            .map(response => 
-              pb.collection('encounter_responses').create({
+          // Process responses in sequence to avoid race conditions
+          for (const response of questionResponses) {
+            try {
+              await pb.collection('encounter_responses').create({
                 encounter: savedEncounter.id,
                 question: response.question,
                 response_value: response.response_value
-              })
-            );
-
-          const results = await Promise.all(responsePromises);
-          console.log('Initial response save results:', results);
+              });
+            } catch (error) {
+              console.error('[Save Error]', {
+                question: response.expand?.question?.question_text,
+                error
+              });
+              throw error;
+            }
+          }
         }
 
         // Update queue item with encounter ID if needed
@@ -737,7 +746,7 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
     } catch (error: any) {
       // Handle any other errors
       if (!error.message?.includes('autocancelled')) {
-        console.error('Error in form submission:', error);
+        console.error('[Form Submit] Error:', error);
         alert('An error occurred. Please try again.');
       }
     }

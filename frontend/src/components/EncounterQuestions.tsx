@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -24,8 +24,12 @@ interface Question extends BaseModel {
   options?: string[];
   category: string;
   order: number;
-  required?: boolean;
+  required: boolean;
   depends_on?: string;
+  archived: boolean;
+  expand?: {
+    category?: Category;
+  }
 }
 
 interface Category extends BaseModel {
@@ -47,163 +51,190 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
 }) => {
   const [responses, setResponses] = useState<{ [key: string]: any }>({});
   const [initialized, setInitialized] = useState(false);
+  const [pendingResponseChange, setPendingResponseChange] = useState<QuestionResponse[]>([]);
+  const responsesRef = useRef<{ [key: string]: any }>({});
 
-  // Use memoized subscriptions to prevent unnecessary re-renders
+  // Add debug logging for subscriptions
   const { records: categories } = useRealtimeSubscription<Category>(
     'encounter_question_categories',
-    useMemo(() => ({ 
-      sort: 'order', 
-      filter: 'archived = false' 
-    }), [])
+    useMemo(() => ({ sort: 'order', filter: 'archived = false' }), [])
   );
 
   const { records: questions } = useRealtimeSubscription<Question>(
     'encounter_questions',
-    useMemo(() => ({ 
-      sort: 'order', 
-      filter: 'archived = false', 
-      expand: 'category' 
-    }), [])
+    useMemo(() => ({ sort: 'order', filter: 'archived = false', expand: 'category' }), [])
   );
 
   const { records: existingResponses } = useRealtimeSubscription<QuestionResponse>(
     'encounter_responses',
-    useMemo(() => 
-      encounterId 
-        ? { 
-            filter: `encounter = "${encounterId}"`, 
-            expand: 'question,question.category' 
-          } 
-        : undefined,
-      [encounterId]
-    )
+    useMemo(() => encounterId 
+      ? { 
+          filter: `encounter = "${encounterId}"`, 
+          expand: 'question,question.category' 
+        } 
+      : undefined, [encounterId])
   );
 
-  // Create a memoized response array to prevent unnecessary updates
+  // Create response array for parent component
   const createResponseArray = useCallback((currentResponses: { [key: string]: any }) => {
-    return questions.map(q => {
+    const responseArray = questions.map(q => {
       const responseValue = currentResponses[q.id];
-      const existing = existingResponses.find(r => r.question === q.id);
+      const existing = existingResponses?.find(r => r.question === q.id);
       
-      // Always include the response if it exists in currentResponses
-      if (responseValue === undefined) return null;
-
-      return {
-        id: existing?.id || '',
-        created: existing?.created || '',
-        updated: existing?.updated || '',
-        collectionId: existing?.collectionId || '',
-        collectionName: existing?.collectionName || '',
-        encounter: encounterId || '',
-        question: q.id,
-        response_value: responseValue,
-        expand: {
-          question: q
+      // Always include checkbox responses
+      if (q.input_type === 'checkbox') {
+        return {
+          id: existing?.id || '',
+          created: existing?.created || '',
+          updated: existing?.updated || '',
+          collectionId: existing?.collectionId || '',
+          collectionName: existing?.collectionName || '',
+          encounter: encounterId || '',
+          question: q.id,
+          response_value: responseValue === true,  // Ensure boolean
+          expand: { question: q }
+        };
+      }
+      
+      // For dependent fields, include if parent is checked
+      if (q.depends_on) {
+        const parentValue = currentResponses[q.depends_on];
+        if (parentValue === true) {
+          return {
+            id: existing?.id || '',
+            created: existing?.created || '',
+            updated: existing?.updated || '',
+            collectionId: existing?.collectionId || '',
+            collectionName: existing?.collectionName || '',
+            encounter: encounterId || '',
+            question: q.id,
+            response_value: responseValue || null,  // Convert empty string to null
+            expand: { question: q }
+          };
         }
-      };
+        return null;
+      }
+      
+      // For other types, include if they have a value or are required
+      if (q.required || (responseValue !== undefined && responseValue !== '' && responseValue !== null)) {
+        return {
+          id: existing?.id || '',
+          created: existing?.created || '',
+          updated: existing?.updated || '',
+          collectionId: existing?.collectionId || '',
+          collectionName: existing?.collectionName || '',
+          encounter: encounterId || '',
+          question: q.id,
+          response_value: responseValue || null,
+          expand: { question: q }
+        };
+      }
+      return null;
     }).filter(Boolean) as QuestionResponse[];
+
+    return responseArray;
   }, [questions, existingResponses, encounterId]);
 
   // Initialize responses from existing responses
   useEffect(() => {
-    if (!initialized && existingResponses && questions.length > 0) {
+    if (!initialized && questions.length > 0) {
+      console.log('[Response Init] Starting response initialization');
+      
       const responseMap: { [key: string]: any } = {};
       
       // First pass: Initialize all questions with default values
       questions.forEach(q => {
         if (q.input_type === 'checkbox') {
           responseMap[q.id] = false;
-        } else if (q.input_type === 'text') {
-          responseMap[q.id] = '';
-        } else if (q.input_type === 'select') {
+        } else {
           responseMap[q.id] = '';
         }
       });
 
-      // Second pass: Set existing responses and infer checkbox states
-      existingResponses.forEach(response => {
-        if (response.response_value !== undefined) {
-          responseMap[response.question] = response.response_value;
-          
-          // Find if this is a dependent field
-          const question = questions.find(q => q.id === response.question);
-          if (question?.depends_on) {
-            // If we have a value for a dependent field, the parent checkbox must be checked
-            responseMap[question.depends_on] = true;
-          }
-        }
-      });
-
-      // Third pass: Ensure all dependent fields are properly handled
-      questions.forEach(question => {
-        if (question.depends_on) {
-          const parentValue = responseMap[question.depends_on];
-          const hasValue = responseMap[question.id] !== undefined && 
-                          responseMap[question.id] !== '' &&
-                          responseMap[question.id] !== null;
-          
-          // If parent is unchecked, clear dependent field
-          if (!parentValue) {
-            responseMap[question.id] = question.input_type === 'checkbox' ? false : '';
-          }
-          // If we have a value but parent is undefined, set parent to checked
-          else if (hasValue && parentValue === undefined) {
-            responseMap[question.depends_on] = true;
-          }
-        }
-      });
-
-      setResponses(responseMap);
-      setInitialized(true);
-      onResponsesChange(createResponseArray(responseMap));
-    }
-  }, [existingResponses, questions, initialized, createResponseArray, onResponsesChange]);
-
-  // Reset when encounterId changes
-  useEffect(() => {
-    if (!encounterId) {
-      setResponses({});
-      setInitialized(false);
-    }
-  }, [encounterId]);
-
-  // Handle response changes
-  const handleResponseChange = useCallback((questionId: string, value: any) => {
-    setResponses(prev => {
-      const newResponses = { ...prev };
-      newResponses[questionId] = value;
-
-      // Handle dependent fields
-      const currentQuestion = questions.find(q => q.id === questionId);
-      if (currentQuestion?.input_type === 'checkbox') {
-        questions.forEach(q => {
-          if (q.depends_on === questionId) {
-            if (!value) {
-              // Clear dependent field when unchecking
-              newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
-            } else {
-              // When checking, either restore previous value or set default
-              const existingResponse = existingResponses.find(r => r.question === q.id);
-              if (existingResponse) {
-                newResponses[q.id] = existingResponse.response_value;
-              } else if (prev[q.id] !== undefined) {
-                newResponses[q.id] = prev[q.id];
-              } else {
-                // Set default value if no previous value exists
-                newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
-              }
+      // Second pass: Set existing responses
+      if (existingResponses) {
+        existingResponses.forEach(response => {
+          if (response.response_value !== undefined) {
+            responseMap[response.question] = response.response_value;
+            if (response.expand?.question?.input_type === 'checkbox') {
+              console.log('[Response Init] Setting checkbox:', {
+                question: response.expand.question.question_text,
+                value: response.response_value
+              });
             }
           }
         });
       }
 
-      // Notify parent of changes
-      onResponsesChange(createResponseArray(newResponses));
+      setResponses(responseMap);
+      responsesRef.current = responseMap;
+      setInitialized(true);
+      
+      // Create initial response array
+      const initialResponses = createResponseArray(responseMap);
+      setPendingResponseChange(initialResponses);
+    }
+  }, [existingResponses, questions, initialized, createResponseArray]);
+
+  // Handle response changes
+  const handleResponseChange = useCallback((questionId: string, value: any) => {
+    const currentQuestion = questions.find(q => q.id === questionId);
+    
+    if (currentQuestion?.input_type === 'checkbox') {
+      console.log('[Checkbox Change]', {
+        question: currentQuestion.question_text,
+        newValue: value
+      });
+    }
+    
+    setResponses(prev => {
+      const newResponses = { ...prev };
+      newResponses[questionId] = value;
+      responsesRef.current = newResponses;
+
+      // Handle dependent fields
+      if (currentQuestion?.input_type === 'checkbox') {
+        questions.forEach(q => {
+          if (q.depends_on === questionId) {
+            console.log('[Dependent Field]', {
+              parentQuestion: currentQuestion.question_text,
+              dependentQuestion: q.question_text,
+              parentChecked: value
+            });
+
+            if (!value) {
+              // Clear dependent field when checkbox is unchecked
+              newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
+            } else if (!newResponses[q.id]) {
+              // Initialize dependent field when checkbox is checked
+              newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
+            }
+
+            console.log('[Dependent Value]', {
+              question: q.question_text,
+              newValue: newResponses[q.id]
+            });
+          }
+        });
+      }
+
+      // Create and set response array
+      const responseArray = createResponseArray(newResponses);
+      setPendingResponseChange(responseArray);
       return newResponses;
     });
-  }, [questions, existingResponses, createResponseArray, onResponsesChange]);
+  }, [questions, createResponseArray]);
 
-  // Render question (existing implementation)
+  // Use useEffect to handle response changes
+  useEffect(() => {
+    if (pendingResponseChange.length > 0) {
+      console.log('[Response Change] Sending responses to parent:', pendingResponseChange);
+      onResponsesChange(pendingResponseChange);
+      setPendingResponseChange([]);
+    }
+  }, [pendingResponseChange, onResponsesChange]);
+
+  // Memoize the question rendering function
   const renderQuestion = useCallback((question: Question, category: Category) => {
     const isSurveyQuestion = category.type === 'survey';
     const isCounterQuestion = category.type === 'counter';
@@ -218,20 +249,30 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
     // Check dependencies
     if (question.depends_on) {
       const dependentValue = responses[question.depends_on];
+      // Only hide if parent checkbox is explicitly false
       if (dependentValue === false) {
         return null;
       }
     }
 
+    // Improved value validation based on input type
     const hasValidValue = (() => {
       if (question.input_type === 'checkbox') {
         return typeof currentValue === 'boolean';
       }
+      // For dependent fields, they're valid if parent is checked
       if (question.depends_on && responses[question.depends_on]) {
         return true;
       }
-      return currentValue !== undefined && currentValue !== null && 
-        (question.input_type !== 'text' || currentValue.trim() !== '');
+      if (currentValue === undefined || currentValue === null) return false;
+      switch (question.input_type) {
+        case 'select':
+          return currentValue !== '';
+        case 'text':
+          return currentValue.trim() !== '';
+        default:
+          return false;
+      }
     })();
 
     const commonProps = {
