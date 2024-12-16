@@ -16,6 +16,12 @@ import (
 )
 
 func main() {
+	// Configure standard logger to match PocketBase's simple format
+	log.SetFlags(log.LstdFlags)
+
+	// Disable PocketBase's default logger for cleaner output
+	os.Setenv("PB_LOG_LEVEL", "info")
+
 	app := pocketbase.New()
 
 	// Check if running with "go run"
@@ -51,20 +57,34 @@ func main() {
 		// Serve static files from the frontend build directory
 		e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS(frontendDir), true))
 
-		log.Printf("Server started successfully!")
-		log.Printf("Admin UI available at: http://127.0.0.1:8090/_/")
-		log.Printf("Main application available at: http://127.0.0.1:8090")
-		log.Printf("Default user for MEDS interface and pocketbase admin: user@example.com")
-		log.Printf("Default password: password123")
-		log.Printf("Access the MEDS interface at http://127.0.0.1:8090/")
-		log.Printf("To kill the server gracefully, press Ctrl+C. Data will persist in the ./pb_data directory.")
-		//Log the local machine's IP address
-		ip, err := getLocalIP()
+		// Log all available network interfaces
+		interfaces, err := net.Interfaces()
 		if err != nil {
-			log.Printf("Warning: Could not determine local IP address: %v", err)
+			log.Printf("Warning: Could not get network interfaces: %v", err)
 		} else {
-			log.Printf("Local IP address: %s, other users can access the MEDS interface at http://%s:8090/", ip, ip)
+			log.Printf("\nAvailable network addresses:")
+			for _, iface := range interfaces {
+				addrs, err := iface.Addrs()
+				if err != nil {
+					continue
+				}
+				for _, addr := range addrs {
+					if ipnet, ok := addr.(*net.IPNet); ok {
+						if ipnet.IP.To4() != nil && !ipnet.IP.IsLoopback() {
+							log.Printf("- http://%s:8090/ (%s)", ipnet.IP.String(), iface.Name)
+						}
+					}
+				}
+			}
 		}
+
+		log.Printf("\n=== MEDS System Information ===")
+		log.Printf("Default credentials - username: user@example.com, password: password123")
+		log.Printf("Admin UI: http://127.0.0.1:8090/_/")
+		log.Printf("Main application: http://127.0.0.1:8090")
+		log.Printf("To kill the server gracefully, press Ctrl+C")
+		log.Printf("Data will persist in the ./pb_data directory")
+		log.Printf("===============================\n")
 
 		return nil
 	})
@@ -77,19 +97,4 @@ func main() {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func getLocalIP() (string, error) {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String(), nil
-			}
-		}
-	}
-	return "127.0.0.1", nil
 }
