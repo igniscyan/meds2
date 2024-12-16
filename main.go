@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -16,11 +17,36 @@ import (
 )
 
 func main() {
-	// Configure standard logger to match PocketBase's simple format
-	log.SetFlags(log.LstdFlags)
+	// Print startup information immediately
+	fmt.Println("\n=== MEDS System Information ===")
+	fmt.Println("Default credentials - username: user@example.com, password: password123")
+	fmt.Println("Admin UI: http://127.0.0.1:8090/_/")
+	fmt.Println("Main application: http://127.0.0.1:8090")
 
-	// Disable PocketBase's default logger for cleaner output
-	os.Setenv("PB_LOG_LEVEL", "info")
+	// Log all available network interfaces
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		fmt.Printf("Warning: Could not get network interfaces: %v\n", err)
+	} else {
+		fmt.Println("\nAvailable network addresses:")
+		for _, iface := range interfaces {
+			addrs, err := iface.Addrs()
+			if err != nil {
+				continue
+			}
+			for _, addr := range addrs {
+				if ipnet, ok := addr.(*net.IPNet); ok {
+					if ipnet.IP.To4() != nil && !ipnet.IP.IsLoopback() {
+						fmt.Printf("- http://%s:8090/ (%s)\n", ipnet.IP.String(), iface.Name)
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Println("\nTo kill the server gracefully, press Ctrl+C")
+	fmt.Println("Data will persist in the ./pb_data directory")
+	fmt.Println("===============================")
 
 	app := pocketbase.New()
 
@@ -35,7 +61,7 @@ func main() {
 
 	// Set serve as the default command when no command is specified
 	if len(os.Args) == 1 {
-		os.Args = append(os.Args, "serve")
+		os.Args = append(os.Args, "serve", "--http=0.0.0.0:8090")
 	}
 
 	app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
@@ -56,35 +82,6 @@ func main() {
 
 		// Serve static files from the frontend build directory
 		e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS(frontendDir), true))
-
-		// Log all available network interfaces
-		interfaces, err := net.Interfaces()
-		if err != nil {
-			log.Printf("Warning: Could not get network interfaces: %v", err)
-		} else {
-			log.Printf("\nAvailable network addresses:")
-			for _, iface := range interfaces {
-				addrs, err := iface.Addrs()
-				if err != nil {
-					continue
-				}
-				for _, addr := range addrs {
-					if ipnet, ok := addr.(*net.IPNet); ok {
-						if ipnet.IP.To4() != nil && !ipnet.IP.IsLoopback() {
-							log.Printf("- http://%s:8090/ (%s)", ipnet.IP.String(), iface.Name)
-						}
-					}
-				}
-			}
-		}
-
-		log.Printf("\n=== MEDS System Information ===")
-		log.Printf("Default credentials - username: user@example.com, password: password123")
-		log.Printf("Admin UI: http://127.0.0.1:8090/_/")
-		log.Printf("Main application: http://127.0.0.1:8090")
-		log.Printf("To kill the server gracefully, press Ctrl+C")
-		log.Printf("Data will persist in the ./pb_data directory")
-		log.Printf("===============================\n")
 
 		return nil
 	})
