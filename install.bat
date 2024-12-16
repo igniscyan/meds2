@@ -63,10 +63,12 @@ echo oLink.Save >> "%VBS_SCRIPT%"
 cscript /nologo "%VBS_SCRIPT%"
 del "%VBS_SCRIPT%"
 
-:: Create start menu shortcut
-echo Creating start menu shortcut...
+:: Create start menu shortcuts
+echo Creating start menu shortcuts...
 set "START_MENU=%ProgramData%\Microsoft\Windows\Start Menu\Programs\Medical Records System"
 if not exist "%START_MENU%" mkdir "%START_MENU%"
+
+:: Application shortcut
 set "SHORTCUT=%START_MENU%\Medical Records System.lnk"
 set "VBS_SCRIPT=%TEMP%\CreateShortcut.vbs"
 
@@ -76,6 +78,17 @@ echo Set oLink = oWS.CreateShortcut(sLinkFile) >> "%VBS_SCRIPT%"
 echo oLink.TargetPath = "%INSTALL_DIR%\medical-records.exe" >> "%VBS_SCRIPT%"
 echo oLink.WorkingDirectory = "%INSTALL_DIR%" >> "%VBS_SCRIPT%"
 echo oLink.Description = "Medical Records System" >> "%VBS_SCRIPT%"
+echo oLink.Save >> "%VBS_SCRIPT%"
+cscript /nologo "%VBS_SCRIPT%"
+
+:: Uninstaller shortcut
+set "SHORTCUT=%START_MENU%\Uninstall Medical Records System.lnk"
+echo Set oWS = WScript.CreateObject("WScript.Shell") > "%VBS_SCRIPT%"
+echo sLinkFile = "%SHORTCUT%" >> "%VBS_SCRIPT%"
+echo Set oLink = oWS.CreateShortcut(sLinkFile) >> "%VBS_SCRIPT%"
+echo oLink.TargetPath = "%INSTALL_DIR%\uninstall.bat" >> "%VBS_SCRIPT%"
+echo oLink.WorkingDirectory = "%INSTALL_DIR%" >> "%VBS_SCRIPT%"
+echo oLink.Description = "Uninstall Medical Records System" >> "%VBS_SCRIPT%"
 echo oLink.Save >> "%VBS_SCRIPT%"
 cscript /nologo "%VBS_SCRIPT%"
 del "%VBS_SCRIPT%"
@@ -104,21 +117,45 @@ echo     exit /B
 echo.
 echo :gotAdmin
 echo     if exist "%%temp%%\getadmin.vbs" ^( del "%%temp%%\getadmin.vbs" ^)
-echo     pushd "%%CD%%"
-echo     CD /D "%%~dp0"
+echo.
+echo :: Copy uninstaller to temp directory
+echo set "TEMP_UNINSTALLER=%%TEMP%%\meds_uninstall_%%RANDOM%%.bat"
+echo copy "%%~f0" "%%TEMP_UNINSTALLER%%"
+echo start /wait "" "%%TEMP_UNINSTALLER%%" /CONFIRM
+echo exit
+echo.
+echo :CONFIRM
+echo if "%%1" neq "/CONFIRM" exit
 echo.
 echo echo Uninstalling Medical Records System...
 echo echo.
+echo.
+echo :: Kill any running instances of the application
+echo taskkill /F /IM medical-records.exe 2^>nul
+echo.
+echo :: Archive pb_data if it exists
+echo if exist "%INSTALL_DIR%\pb_data" ^(
+echo     echo Archiving database data...
+echo     set "BACKUP_DATE=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%_%%time:~0,2%%-%%time:~3,2%%-%%time:~6,2%%"
+echo     set "BACKUP_DATE=^!BACKUP_DATE: =0^!"
+echo     set "BACKUP_FILE=%%USERPROFILE%%\Documents\MEDS_DATA_^!BACKUP_DATE^!.zip"
+echo     powershell Compress-Archive -Path "%INSTALL_DIR%\pb_data\*" -DestinationPath "^!BACKUP_FILE^!"
+echo     echo.
+echo     echo Database backup created at: ^!BACKUP_FILE^!
+echo     echo This backup contains all your medical records data.
+echo     echo Please keep this file safe if you wish to preserve your data.
+echo     echo.
+echo ^)
 echo.
 echo :: Remove shortcuts
 echo if exist "%%USERPROFILE%%\Desktop\Medical Records System.lnk" del "%%USERPROFILE%%\Desktop\Medical Records System.lnk"
 echo if exist "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System" rmdir /s /q "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System"
 echo.
 echo :: Remove installation directory
-echo cd ..
 echo rmdir /s /q "%INSTALL_DIR%"
 echo.
 echo echo Uninstallation complete.
+echo del "%%~f0"
 echo pause
 ) > "%UNINSTALL_SCRIPT%"
 
@@ -128,6 +165,7 @@ echo Installation complete!
 echo.
 echo The application has been installed to: %INSTALL_DIR%
 echo Shortcuts have been created on the desktop and start menu.
+echo To uninstall, use "Uninstall Medical Records System" in the Start Menu.
 echo.
 set /p "LAUNCH=Would you like to launch the application now? (Y/N) "
 if /i "%LAUNCH%"=="Y" start "" "%INSTALL_DIR%\medical-records.exe"
