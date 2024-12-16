@@ -41,12 +41,14 @@ interface Category extends BaseModel {
 interface EncounterQuestionsProps {
   encounterId?: string;
   disabled?: boolean;
+  mode?: 'create' | 'view' | 'edit' | 'pharmacy';
   onResponsesChange: (responses: QuestionResponse[]) => void;
 }
 
 export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
   encounterId,
   disabled = false,
+  mode = 'edit',
   onResponsesChange,
 }) => {
   const [responses, setResponses] = useState<{ [key: string]: any }>({});
@@ -275,10 +277,13 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       }
     })();
 
+    const isPharmacyMode = mode === 'pharmacy';
+    const shouldDisableField = disabled || isPharmacyMode;
+
     const commonProps = {
-      disabled,
-      error: isRequired && !hasValidValue,
-      helperText: isRequired ? (hasValidValue ? question.description : 'This field is required') : question.description,
+      disabled: shouldDisableField,
+      error: !isPharmacyMode && isRequired && !hasValidValue,
+      helperText: !isPharmacyMode && isRequired ? (hasValidValue ? question.description : 'This field is required') : question.description,
       sx: { mb: isSurveyQuestion ? 3 : 1 }
     };
 
@@ -294,9 +299,9 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
               />
             }
             label={
-              <Box component="span" sx={{ color: isRequired ? 'error.main' : 'inherit' }}>
+              <Box component="span" sx={{ color: isRequired && !isPharmacyMode ? 'error.main' : 'inherit' }}>
                 {question.question_text}
-                {isRequired && ' *'}
+                {isRequired && !isPharmacyMode && ' *'}
               </Box>
             }
           />
@@ -307,7 +312,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
         return (
           <TextField
             fullWidth
-            required={isRequired}
+            required={isRequired && !isPharmacyMode}
             label={question.question_text}
             value={currentValue ?? ''}
             onChange={(e) => handleResponseChange(question.id, e.target.value)}
@@ -318,7 +323,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       case 'select':
         if (!isSurveyQuestion) return null;
         return (
-          <FormControl fullWidth error={commonProps.error} required={isRequired}>
+          <FormControl fullWidth error={commonProps.error} required={isRequired && !isPharmacyMode}>
             <FormLabel>{question.question_text}</FormLabel>
             <Select
               value={currentValue ?? ''}
@@ -343,7 +348,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       default:
         return null;
     }
-  }, [responses, disabled, handleResponseChange]);
+  }, [responses, disabled, mode, handleResponseChange]);
 
   return (
     <Box>

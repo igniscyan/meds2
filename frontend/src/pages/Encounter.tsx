@@ -1191,7 +1191,7 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
             <Grid item xs={12}>
               <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
                 Additional Questions
-                {currentMode !== 'view' && (
+                {currentMode !== 'view' && currentMode !== 'pharmacy' && (
                   <Typography variant="caption" sx={{ ml: 2, color: 'text.secondary' }}>
                     * Required fields must be filled for survey questions
                   </Typography>
@@ -1199,7 +1199,8 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
               </Typography>
               <EncounterQuestions
                 encounterId={encounterId}
-                disabled={currentMode === 'view' || currentMode === 'pharmacy'}
+                disabled={currentMode === 'view'}
+                mode={currentMode}
                 onResponsesChange={(responses: QuestionResponse[]) => {
                   setQuestionResponses(responses);
                 }}
