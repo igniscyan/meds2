@@ -117,15 +117,7 @@ echo     exit /B
 echo.
 echo :gotAdmin
 echo     if exist "%%temp%%\getadmin.vbs" ^( del "%%temp%%\getadmin.vbs" ^)
-echo.
-echo :: Copy uninstaller to temp directory
-echo set "TEMP_UNINSTALLER=%%TEMP%%\meds_uninstall_%%RANDOM%%.bat"
-echo copy "%%~f0" "%%TEMP_UNINSTALLER%%"
-echo start /wait "" "%%TEMP_UNINSTALLER%%" /CONFIRM
-echo exit
-echo.
-echo :CONFIRM
-echo if "%%1" neq "/CONFIRM" exit
+echo     pushd "%%~dp0"
 echo.
 echo echo Uninstalling Medical Records System...
 echo echo.
@@ -151,11 +143,13 @@ echo :: Remove shortcuts
 echo if exist "%%USERPROFILE%%\Desktop\Medical Records System.lnk" del "%%USERPROFILE%%\Desktop\Medical Records System.lnk"
 echo if exist "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System" rmdir /s /q "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System"
 echo.
+echo :: Change directory to parent before removing installation
+echo cd /d "%%~dp0\.."
+echo.
 echo :: Remove installation directory
 echo rmdir /s /q "%INSTALL_DIR%"
 echo.
 echo echo Uninstallation complete.
-echo del "%%~f0"
 echo pause
 ) > "%UNINSTALL_SCRIPT%"
 
