@@ -2,6 +2,7 @@ import { atom } from 'jotai';
 import PocketBase from 'pocketbase';
 import { BaseModel } from 'pocketbase';
 import { useEffect } from 'react';
+import { API_URL } from '../config';
 
 // Define our AuthModel type to match PocketBase's structure
 export interface AuthModel extends BaseModel {
@@ -13,7 +14,6 @@ export interface AuthModel extends BaseModel {
 }
 
 // Create a singleton PocketBase instance
-const API_URL = process.env.REACT_APP_POCKETBASE_URL || 'http://127.0.0.1:8090';
 export const pb = new PocketBase(API_URL);
 
 // Initialize auth atoms first
