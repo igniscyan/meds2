@@ -25,11 +25,12 @@ import {
   Queue as QueueIcon,
   AddCircle as AddCircleIcon,
 } from '@mui/icons-material';
-import PatientModal, { PatientFormData, PatientSubmitData } from '../components/PatientModal';
+import PatientModal from '../components/PatientModal';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useNavigate } from 'react-router-dom';
+import { RoleBasedAccess } from '../components/RoleBasedAccess';
 
 interface Patient extends Record {
   first_name: string;
@@ -55,53 +56,16 @@ const Patients: React.FC = () => {
     console.log('Patients updated:', patients);
   }, [patients]);
 
-  const handleCreatePatient = async (data: PatientSubmitData) => {
+  const handleCreatePatient = async () => {
     try {
-      let patientId: string;
-      
-      if (selectedPatient) {
-        // Update existing patient
-        await pb.collection('patients').update(selectedPatient.id, {
-          first_name: data.firstName,
-          last_name: data.lastName,
-          dob: data.dateOfBirth,
-          gender: data.gender,
-          age: data.age,
-          smoker: data.smoker,
-        });
-        patientId = selectedPatient.id;
-      } else {
-        // Create new patient
-        const newPatient = await pb.collection('patients').create({
-          first_name: data.firstName,
-          last_name: data.lastName,
-          dob: data.dateOfBirth,
-          gender: data.gender,
-          age: data.age,
-          smoker: data.smoker,
-          date_created: new Date().toISOString(),
-        });
-        patientId = newPatient.id;
-      }
-
-      // Add to queue if requested
-      if (data.addToQueue) {
-        await pb.collection('queue').create({
-          patient: patientId,
-          status: 'checked_in',
-          check_in_time: new Date().toISOString(),
-          line_number: data.lineNumber,
-          priority: 3,
-          assigned_to: null,
-          start_time: null,
-          end_time: null,
-          encounter: null,
-        });
-      }
-
       handleCloseModal();
     } catch (error) {
       console.error('Error saving patient:', error);
+      if (error instanceof Error) {
+        alert(`Failed to save patient: ${error.message}`);
+      } else {
+        alert('Failed to save patient');
+      }
     }
   };
 
@@ -173,14 +137,16 @@ const Patients: React.FC = () => {
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4">Patients</Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={() => setIsModalOpen(true)}
-        >
-          New Patient
-        </Button>
+        <RoleBasedAccess requiredRole="provider">
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={() => setIsModalOpen(true)}
+          >
+            New Patient
+          </Button>
+        </RoleBasedAccess>
       </Box>
 
       <Box mb={3} display="flex" alignItems="center">
@@ -229,14 +195,16 @@ const Patients: React.FC = () => {
                 <TableCell>{patient.smoker ? patient.smoker.charAt(0).toUpperCase() + patient.smoker.slice(1) : ''}</TableCell>
                 <TableCell align="right">
                   <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                    <IconButton
-                      color="primary"
-                      size="small"
-                      onClick={() => handleEditPatient(patient)}
-                      title="Edit Patient"
-                    >
-                      <EditIcon />
-                    </IconButton>
+                    <RoleBasedAccess requiredRole="provider">
+                      <IconButton
+                        color="primary"
+                        size="small"
+                        onClick={() => handleEditPatient(patient)}
+                        title="Edit Patient"
+                      >
+                        <EditIcon />
+                      </IconButton>
+                    </RoleBasedAccess>
                     <IconButton
                       color="primary"
                       size="small"
@@ -245,35 +213,24 @@ const Patients: React.FC = () => {
                     >
                       <PersonIcon />
                     </IconButton>
-                    <IconButton
-                      color="primary"
-                      size="small"
-                      onClick={async () => {
-                        try {
-                          await pb.collection('queue').create({
-                            "patient": patient.id,
-                            "status": "waiting",
-                            "check_in_time": new Date().toISOString(),
-                            "priority": 1.0
-                          });
-                          alert('Patient added to queue');
-                        } catch (error) {
-                          console.error('Error adding to queue:', error);
-                          alert('Failed to add patient to queue');
-                        }
-                      }}
-                      title="Add to Queue"
-                    >
-                      <QueueIcon />
-                    </IconButton>
-                    <IconButton
-                      color="primary"
-                      size="small"
-                      onClick={() => navigate(`/encounter/${patient.id}`)}
-                      title="New Encounter"
-                    >
-                      <AddCircleIcon />
-                    </IconButton>
+                    <RoleBasedAccess requiredRole="provider">
+                      <IconButton
+                        color="primary"
+                        size="small"
+                        onClick={() => handleCheckIn(patient.id)}
+                        title="Check In Patient"
+                      >
+                        <QueueIcon />
+                      </IconButton>
+                      <IconButton
+                        color="primary"
+                        size="small"
+                        onClick={() => navigate(`/encounter/${patient.id}`)}
+                        title="New Encounter"
+                      >
+                        <AddCircleIcon />
+                      </IconButton>
+                    </RoleBasedAccess>
                   </Box>
                 </TableCell>
               </TableRow>
@@ -285,8 +242,9 @@ const Patients: React.FC = () => {
       <PatientModal
         open={isModalOpen}
         onClose={handleCloseModal}
-        onSubmit={handleCreatePatient}
+        onSave={handleCreatePatient}
         initialData={selectedPatient || undefined}
+        mode={selectedPatient ? 'edit' : 'create'}
       />
 
       <Dialog open={checkInDialogOpen} onClose={() => setCheckInDialogOpen(false)}>

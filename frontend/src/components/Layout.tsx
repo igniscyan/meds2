@@ -1,117 +1,205 @@
-import React, { useState } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
-import {
-  AppBar,
-  Box,
-  CssBaseline,
-  Drawer,
-  IconButton,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Toolbar,
-  Typography,
-  Button,
-} from '@mui/material';
-import {
-  Menu as MenuIcon,
-  Dashboard as DashboardIcon,
-  People as PeopleIcon,
-  Inventory as InventoryIcon,
-} from '@mui/icons-material';
-import { useAtom } from 'jotai';
-import { authModelAtom, logoutAtom } from '../atoms/auth';
+import React from 'react';
+import { Box, AppBar, Toolbar, Typography, Button, useTheme, useMediaQuery, IconButton, Drawer, List, ListItem, Container } from '@mui/material';
+import { useNavigate, Outlet } from 'react-router-dom';
+import { pb } from '../atoms/auth';
+import MenuIcon from '@mui/icons-material/Menu';
+import { RoleBasedAccess } from './RoleBasedAccess';
 
-const drawerWidth = 240;
-
-const Layout: React.FC = () => {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [user] = useAtom(authModelAtom);
-  const [, logout] = useAtom(logoutAtom);
+export const Layout: React.FC = () => {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [mobileOpen, setMobileOpen] = React.useState(false);
 
-  const menuItems = [
-    { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'Patients', icon: <PeopleIcon />, path: '/patients' },
-    { text: 'Inventory', icon: <InventoryIcon />, path: '/inventory' },
+  const handleLogout = () => {
+    pb.authStore.clear();
+    navigate('/login');
+  };
+
+  const navItems = [
+    { text: 'Dashboard', path: '/dashboard' },
+    { text: 'Patients', path: '/patients' },
+    { text: 'Inventory', path: '/inventory', role: 'pharmacy' as const },
   ];
 
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
+  };
+
   const drawer = (
-    <div>
-      <Toolbar />
+    <Box sx={{ bgcolor: theme.palette.primary.main, height: '100%' }}>
+      <Box sx={{ p: 2, borderBottom: `1px solid ${theme.palette.primary.light}` }}>
+        <Typography variant="h6" component="div" color="primary.contrastText">
+          MEDS
+        </Typography>
+      </Box>
       <List>
-        {menuItems.map((item) => (
-          <ListItem button key={item.text} onClick={() => navigate(item.path)}>
-            <ListItemIcon>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.text} />
+        {navItems.map((item) => (
+          <ListItem key={item.path} disablePadding>
+            {item.role ? (
+              <RoleBasedAccess requiredRole={item.role}>
+                <Button
+                  color="inherit"
+                  onClick={() => {
+                    navigate(item.path);
+                    handleDrawerToggle();
+                  }}
+                  sx={{ 
+                    width: '100%',
+                    justifyContent: 'flex-start',
+                    textAlign: 'left',
+                    py: 1.5,
+                    px: 2,
+                    color: theme.palette.primary.contrastText
+                  }}
+                >
+                  {item.text}
+                </Button>
+              </RoleBasedAccess>
+            ) : (
+              <Button
+                color="inherit"
+                onClick={() => {
+                  navigate(item.path);
+                  handleDrawerToggle();
+                }}
+                sx={{ 
+                  width: '100%',
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  py: 1.5,
+                  px: 2,
+                  color: theme.palette.primary.contrastText
+                }}
+              >
+                {item.text}
+              </Button>
+            )}
           </ListItem>
         ))}
+        <ListItem disablePadding>
+          <Button
+            color="inherit"
+            onClick={() => {
+              handleLogout();
+              handleDrawerToggle();
+            }}
+            sx={{ 
+              width: '100%',
+              justifyContent: 'flex-start',
+              textAlign: 'left',
+              py: 1.5,
+              px: 2,
+              color: theme.palette.primary.contrastText
+            }}
+          >
+            Logout
+          </Button>
+        </ListItem>
       </List>
-    </div>
+    </Box>
   );
 
   return (
-    <Box sx={{ display: 'flex' }}>
-      <CssBaseline />
-      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-        <Toolbar>
-          <IconButton
-            color="inherit"
-            edge="start"
-            onClick={() => setMobileOpen(!mobileOpen)}
-            sx={{ mr: 2, display: { sm: 'none' } }}
-          >
-            <MenuIcon />
-          </IconButton>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            Medical Records System
-          </Typography>
-          {user && (
-            <Button color="inherit" onClick={() => logout()}>
-              Logout
-            </Button>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <AppBar position="sticky">
+        <Toolbar sx={{ justifyContent: 'space-between' }}>
+          {isMobile && (
+            <IconButton
+              color="inherit"
+              aria-label="open drawer"
+              edge="start"
+              onClick={handleDrawerToggle}
+              sx={{ mr: 2 }}
+            >
+              <MenuIcon />
+            </IconButton>
           )}
+          
+          <Typography 
+            variant="h6" 
+            component="div" 
+            onClick={() => navigate('/dashboard')} 
+            sx={{ 
+              cursor: 'pointer',
+              flexGrow: isMobile ? 1 : 0
+            }}
+          >
+            MEDS
+          </Typography>
+
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            ...(isMobile ? { justifyContent: 'flex-end' } : {})
+          }}>
+            {!isMobile && navItems.map((item) => (
+              item.role ? (
+                <RoleBasedAccess key={item.path} requiredRole={item.role}>
+                  <Button
+                    color="inherit"
+                    onClick={() => navigate(item.path)}
+                    sx={{ mx: 1 }}
+                  >
+                    {item.text}
+                  </Button>
+                </RoleBasedAccess>
+              ) : (
+                <Button
+                  key={item.path}
+                  color="inherit"
+                  onClick={() => navigate(item.path)}
+                  sx={{ mx: 1 }}
+                >
+                  {item.text}
+                </Button>
+              )
+            ))}
+            {!isMobile && (
+              <Button color="inherit" onClick={handleLogout}>
+                Logout
+              </Button>
+            )}
+          </Box>
         </Toolbar>
       </AppBar>
-      <Box
-        component="nav"
-        sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
-      >
-        <Drawer
-          variant="temporary"
-          open={mobileOpen}
-          onClose={() => setMobileOpen(false)}
-          ModalProps={{ keepMounted: true }}
-          sx={{
-            display: { xs: 'block', sm: 'none' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
-          }}
-        >
-          {drawer}
-        </Drawer>
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: 'none', sm: 'block' },
-            '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
-          }}
-          open
-        >
-          {drawer}
-        </Drawer>
-      </Box>
-      <Box
-        component="main"
+
+      <Drawer
+        variant="temporary"
+        anchor="left"
+        open={mobileOpen}
+        onClose={handleDrawerToggle}
+        ModalProps={{
+          keepMounted: true // Better open performance on mobile.
+        }}
         sx={{
-          flexGrow: 1,
-          p: 3,
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          mt: '64px',
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            boxSizing: 'border-box',
+            width: 240,
+          },
         }}
       >
-        <Outlet />
-      </Box>
+        {drawer}
+      </Drawer>
+
+      <Container 
+        maxWidth={false} 
+        sx={{ 
+          flexGrow: 1,
+          p: { xs: 1, sm: 2, md: 3 },
+          maxWidth: '100vw',
+          overflowX: 'hidden'
+        }}
+      >
+        <Box sx={{ 
+          width: '100%',
+          maxWidth: '100%',
+          overflowX: 'auto'
+        }}>
+          <Outlet />
+        </Box>
+      </Container>
     </Box>
   );
 };

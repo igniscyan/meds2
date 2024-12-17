@@ -15,7 +15,15 @@ import {
 import { BaseModel } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
-import { QuestionResponse } from '../pages/Encounter';
+
+interface QuestionResponse extends BaseModel {
+  encounter: string;
+  question: string;
+  response_value: string | boolean | null;
+  expand?: {
+    question: Question;
+  };
+}
 
 interface Question extends BaseModel {
   question_text: string;

@@ -18,6 +18,7 @@ import { Add as AddIcon } from '@mui/icons-material';
 import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
+import { RoleBasedAccess } from '../components/RoleBasedAccess';
 
 interface Patient extends Record {
   first_name: string;
@@ -112,14 +113,16 @@ const PatientDashboard: React.FC = () => {
 
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h5">Encounters</Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={handleStartEncounter}
-        >
-          New Encounter
-        </Button>
+        <RoleBasedAccess requiredRole="provider">
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={handleStartEncounter}
+          >
+            New Encounter
+          </Button>
+        </RoleBasedAccess>
       </Box>
 
       <TableContainer component={Paper}>

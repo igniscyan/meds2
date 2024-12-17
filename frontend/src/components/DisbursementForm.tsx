@@ -31,6 +31,8 @@ export interface DisbursementItem {
   quantity: number;
   disbursement_multiplier: number;
   notes?: string;
+  originalQuantity?: number;
+  originalMultiplier?: number;
 }
 
 interface DisbursementFormProps {
@@ -38,8 +40,8 @@ interface DisbursementFormProps {
   queueItemId?: string;
   disabled?: boolean;
   mode?: 'create' | 'view' | 'edit' | 'pharmacy';
-  initialDisbursements?: DisbursementItem[];
-  onDisbursementsChange: (disbursements: DisbursementItem[]) => void;
+  initialDisbursements?: any[];
+  onDisbursementsChange: (disbursements: any[]) => void;
   onDisbursementComplete?: () => void;
 }
 
@@ -56,34 +58,164 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     'inventory',
     { sort: 'drug_name' }
   );
-  const [disbursements, setDisbursements] = useState<DisbursementItem[]>(
-    initialDisbursements.length > 0 ? initialDisbursements : []
-  );
+  const [disbursements, setDisbursements] = useState<DisbursementItem[]>([]);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  
+  // Track initial state of medications when the encounter was loaded
+  const [initialMedicationState, setInitialMedicationState] = useState<Map<string, { 
+    quantity: number;
+    multiplier: number;
+    id: string;
+    medicationDetails?: MedicationRecord;
+  }>>(new Map());
 
-  // Initialize disbursements from props if provided
+  // Track medications that were deleted from their initial state
+  const [deletedMedications, setDeletedMedications] = useState<Map<string, {
+    quantity: number;
+    multiplier: number;
+    wasRestored: boolean;
+  }>>(new Map());
+
+  // Initialize disbursements and their initial state
   useEffect(() => {
     if (initialDisbursements?.length) {
-      setDisbursements(initialDisbursements);
+      const newInitialState = new Map();
+      const processedDisbursements = initialDisbursements.map(d => {
+        // Only track initial state for disbursements that have an ID (exist in database)
+        if (d.medication && d.id) {
+          console.log('STOCK DEBUG: Tracking initial state for:', {
+            id: d.id,
+            medication: d.medication,
+            quantity: d.quantity,
+            multiplier: d.disbursement_multiplier,
+            medicationDetails: d.medicationDetails
+          });
+          
+          newInitialState.set(d.medication, {
+            quantity: d.quantity,
+            multiplier: d.disbursement_multiplier,
+            id: d.id,  // Track the original ID
+            medicationDetails: d.medicationDetails  // Track medication details
+          });
+        }
+        return { ...d };
+      });
+      
+      // Only set initial state if it hasn't been set before
+      setInitialMedicationState(prev => {
+        if (prev.size === 0) {
+          console.log('STOCK DEBUG: Setting initial state for the first time');
+          return newInitialState;
+        }
+        console.log('STOCK DEBUG: Preserving existing initial state:', {
+          existing: Array.from(prev.entries()),
+          attempted: Array.from(newInitialState.entries())
+        });
+        return prev;
+      });
+      
+      setDisbursements(processedDisbursements);
+      // Clear any deleted medications when initializing
+      setDeletedMedications(new Map());
+      
+      console.log('STOCK DEBUG: Initialized with state:', {
+        disbursements: processedDisbursements,
+        initialState: Array.from(newInitialState.entries()),
+        trackedMedications: Array.from(newInitialState.keys())
+      });
     }
   }, [initialDisbursements]);
 
   const handleAddDisbursement = () => {
-    setDisbursements([
-      ...disbursements,
-      {
-        medication: '',
-        quantity: 1,
-        disbursement_multiplier: 1,
-        notes: '',
-      },
-    ]);
+    const newDisbursement = {
+      medication: '',
+      quantity: 1,
+      disbursement_multiplier: 1,
+      notes: '',
+    };
+    
+    console.log('STOCK DEBUG: [ADD] Adding new disbursement:', {
+      currentInitialState: Array.from(initialMedicationState.entries()),
+      currentDisbursements: disbursements.length,
+      preservingInitialState: true
+    });
+    
+    setDisbursements([...disbursements, newDisbursement]);
   };
 
   const handleRemoveDisbursement = (index: number) => {
+    const disbursement = disbursements[index];
+    
+    // If this was an initial medication, track its deletion
+    if (disbursement.medication && initialMedicationState.has(disbursement.medication)) {
+      console.log('STOCK DEBUG: [REMOVE] Via trash button:', {
+        medication: disbursement.medicationDetails?.drug_name,
+        wasInitial: true,
+        initialState: initialMedicationState.get(disbursement.medication),
+        currentInitialState: Array.from(initialMedicationState.entries())
+      });
+      
+      setDeletedMedications(prev => {
+        const newMap = new Map(prev);
+        newMap.set(disbursement.medication, {
+          quantity: disbursement.quantity,
+          multiplier: disbursement.disbursement_multiplier,
+          wasRestored: false
+        });
+        return newMap;
+      });
+    }
+    
     const newDisbursements = disbursements.filter((_, i) => i !== index);
     setDisbursements(newDisbursements);
     onDisbursementsChange(newDisbursements);
+  };
+
+  const calculateStockChange = (disbursement: DisbursementItem) => {
+    if (!disbursement.medicationDetails || !disbursement.medication) return null;
+    
+    const currentTotal = disbursement.quantity * disbursement.disbursement_multiplier;
+    const wasInitialMedication = initialMedicationState.has(disbursement.medication);
+    const initialState = wasInitialMedication ? initialMedicationState.get(disbursement.medication) : null;
+    
+    console.log('STOCK DEBUG: Calculating stock for:', {
+      medication: disbursement.medicationDetails.drug_name,
+      currentTotal,
+      currentStock: disbursement.medicationDetails.stock,
+      wasInitialMedication,
+      initialState
+    });
+
+    // Always check against initial state first
+    if (wasInitialMedication && initialState) {
+      const initialTotal = initialState.quantity * initialState.multiplier;
+      const stockChange = currentTotal - initialTotal;
+      
+      console.log('STOCK DEBUG: Initial medication calculation:', {
+        initialTotal,
+        currentTotal,
+        stockChange,
+        newStock: disbursement.medicationDetails.stock - stockChange
+      });
+      
+      if (stockChange === 0) {
+        return 'No Change (Initial)';
+      } else {
+        const newStock = disbursement.medicationDetails.stock - stockChange;
+        const changeSymbol = stockChange > 0 ? '-' : '+';
+        return `→ ${newStock} (${changeSymbol}${Math.abs(stockChange)})`;
+      }
+    }
+    
+    // This is a completely new disbursement
+    console.log('STOCK DEBUG: New disbursement:', {
+      currentTotal,
+      currentStock: disbursement.medicationDetails.stock,
+      newStock: disbursement.medicationDetails.stock - currentTotal
+    });
+    
+    const newStock = disbursement.medicationDetails.stock - currentTotal;
+    return `→ ${newStock} (-${currentTotal})`;
   };
 
   const handleDisbursementChange = (
@@ -93,29 +225,129 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   ) => {
     const newDisbursements = [...disbursements];
     const disbursement = {...newDisbursements[index]};
+    const previousMedicationId = disbursement.medication;
     
     if (field === 'medication') {
-      // If value is an object (from Autocomplete), use its ID
       const medicationId = typeof value === 'object' ? value?.id : value;
+      
+      // If changing from one medication to another, and the previous was an initial medication
+      if (previousMedicationId && previousMedicationId !== medicationId && 
+          initialMedicationState.has(previousMedicationId)) {
+        const initialStateForPrevious = initialMedicationState.get(previousMedicationId);
+        console.log('STOCK DEBUG: [REMOVE] Via medication change:', {
+          from: disbursement.medicationDetails?.drug_name,
+          wasInitial: true,
+          initialState: initialStateForPrevious,
+          currentInitialState: Array.from(initialMedicationState.entries())
+        });
+        
+        // Track the removal in deletedMedications but preserve initial state context
+        setDeletedMedications(prev => {
+          const newMap = new Map(prev);
+          newMap.set(previousMedicationId, {
+            quantity: disbursement.quantity,
+            multiplier: disbursement.disbursement_multiplier,
+            wasRestored: false
+          });
+          return newMap;
+        });
+      }
+
       if (medicationId) {
         const medicationRecord = medications?.find(m => m.id === medicationId);
         disbursement.medicationDetails = medicationRecord;
         disbursement.medication = medicationId;
-        // Set the fixed quantity from the medication record
-        if (medicationRecord) {
+        
+        // Always check against initial state first
+        const wasInitialMedication = initialMedicationState.has(medicationId);
+        const initialState = wasInitialMedication ? initialMedicationState.get(medicationId) : null;
+        
+        console.log('STOCK DEBUG: [CHANGE] Medication selection:', {
+          medication: medicationRecord?.drug_name,
+          medicationId,
+          wasInitialMedication,
+          initialState,
+          currentInitialState: Array.from(initialMedicationState.entries())
+        });
+        
+        if (wasInitialMedication && initialState) {
+          // This was part of the initial state - always use initial quantities as reference
+          disbursement.quantity = initialState.quantity;
+          disbursement.disbursement_multiplier = initialState.multiplier;
+          disbursement.id = initialState.id; // Restore the original ID
+          
+          console.log('STOCK DEBUG: [RESTORE] Using initial state:', {
+            medication: medicationRecord?.drug_name,
+            quantity: initialState.quantity,
+            multiplier: initialState.multiplier,
+            total: initialState.quantity * initialState.multiplier,
+            restoredId: initialState.id
+          });
+        } else if (medicationRecord) {
+          // This is a truly new medication
           disbursement.quantity = medicationRecord.fixed_quantity;
+          disbursement.disbursement_multiplier = 1;
+          disbursement.id = undefined;
+          
+          console.log('STOCK DEBUG: [NEW] Setting new medication:', {
+            medication: medicationRecord.drug_name,
+            currentStock: medicationRecord.stock,
+            fixedQuantity: medicationRecord.fixed_quantity,
+            isCompletelyNew: true
+          });
         }
+      } else {
+        // If clearing the medication, track removal if it was initial
+        if (previousMedicationId && initialMedicationState.has(previousMedicationId)) {
+          console.log('STOCK DEBUG: [REMOVE] Via clearing medication:', {
+            medication: disbursement.medicationDetails?.drug_name,
+            wasInitial: true,
+            currentDeletedState: Array.from(deletedMedications.entries())
+          });
+          
+          setDeletedMedications(prev => {
+            const newMap = new Map(prev);
+            newMap.set(previousMedicationId, {
+              quantity: disbursement.quantity,
+              multiplier: disbursement.disbursement_multiplier,
+              wasRestored: false
+            });
+            return newMap;
+          });
+        }
+        
+        disbursement.medicationDetails = undefined;
+        disbursement.medication = '';
+        disbursement.id = undefined;
       }
     } else if (field === 'quantity' || field === 'disbursement_multiplier') {
       const numValue = Number(value);
-      const totalQuantity = field === 'quantity' 
-        ? numValue * disbursement.disbursement_multiplier
-        : disbursement.quantity * numValue;
+      const newQuantity = field === 'quantity' ? numValue : disbursement.quantity;
+      const newMultiplier = field === 'disbursement_multiplier' ? numValue : disbursement.disbursement_multiplier;
+      const totalQuantity = newQuantity * newMultiplier;
+      
+      if (disbursement.medicationDetails && disbursement.medication) {
+        let availableStock = disbursement.medicationDetails.stock;
         
-      // Check stock level
-      if (disbursement.medicationDetails && totalQuantity > disbursement.medicationDetails.stock) {
-        alert(`Not enough stock. Available: ${disbursement.medicationDetails.stock}, Requested: ${totalQuantity}`);
-        return;
+        // Always check against initial state first
+        const wasInitialMedication = initialMedicationState.has(disbursement.medication);
+        if (wasInitialMedication) {
+          const initial = initialMedicationState.get(disbursement.medication)!;
+          const initialTotal = initial.quantity * initial.multiplier;
+          availableStock += initialTotal;
+          
+          console.log('STOCK DEBUG: [MODIFY] Changing quantity of initial medication:', {
+            medication: disbursement.medicationDetails.drug_name,
+            newTotal: totalQuantity,
+            initialTotal,
+            availableStock
+          });
+        }
+        
+        if (totalQuantity > availableStock) {
+          alert(`Not enough stock. Available: ${availableStock}, Requested: ${totalQuantity}`);
+          return;
+        }
       }
       disbursement[field] = numValue;
     } else {
@@ -140,6 +372,28 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     if (onDisbursementComplete) {
       onDisbursementComplete();
     }
+  };
+
+  // Add a debug component to show current state
+  const renderDebugState = () => {
+    if (process.env.NODE_ENV !== 'development') return null;
+    
+    return (
+      <Box sx={{ mt: 2, p: 2, border: '1px solid #ccc', borderRadius: 1 }}>
+        <Typography variant="subtitle2">Debug State:</Typography>
+        <pre style={{ fontSize: '0.8em' }}>
+          {JSON.stringify({
+            initialState: Object.fromEntries(initialMedicationState),
+            deletedState: Object.fromEntries(deletedMedications),
+            currentDisbursements: disbursements.map(d => ({
+              medication: d.medicationDetails?.drug_name,
+              quantity: d.quantity,
+              multiplier: d.disbursement_multiplier
+            }))
+          }, null, 2)}
+        </pre>
+      </Box>
+    );
   };
 
   return (
@@ -209,10 +463,10 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                             variant="caption" 
                             sx={{ 
                               display: 'block',
-                              color: 'error.main'  // Always red for stock decrease
+                              color: calculateStockChange(disbursement)?.includes('No Change') ? 'text.secondary' : 'error.main'
                             }}
                           >
-                            {!disbursement.id && `→ ${disbursement.medicationDetails.stock - (disbursement.quantity * disbursement.disbursement_multiplier)}`}
+                            {calculateStockChange(disbursement)}
                           </Typography>
                         )}
                       </Box>
@@ -260,12 +514,13 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
               )}
             </Box>
           ))}
-          {mode !== 'view' && mode !== 'pharmacy' && (
+          {mode !== 'view' && (
             <Button
               variant="outlined"
               onClick={handleAddDisbursement}
               startIcon={<AddIcon />}
               sx={{ mt: 2 }}
+              disabled={disabled}
             >
               Add Medication
             </Button>
@@ -282,6 +537,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
           onCancel={() => setShowConfirmation(false)}
         />
       )}
+      {renderDebugState()}
     </Box>
   );
 };

@@ -17,6 +17,8 @@ import {
   MenuItem,
   Alert,
   CircularProgress,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { pb } from '../atoms/auth';
@@ -24,6 +26,7 @@ import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { Record } from 'pocketbase';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 
 // Base type for PocketBase list responses
 interface BaseListResult {
@@ -32,6 +35,17 @@ interface BaseListResult {
   totalItems: number;
   totalPages: number;
   items: Record[];
+}
+
+interface QueueTimeItem extends Record {
+  check_in_time: string;
+  end_time?: string;
+}
+
+interface QueueAnalytics extends Record {
+  patients_count: number;
+  average_wait_time: number;
+  date: string;
 }
 
 interface QueueItem extends Record {
@@ -60,11 +74,6 @@ interface QueueItem extends Record {
 
 interface AnalyticsSummary {
   patientsToday: number;
-  activePhysicians: number;
-  mostActivePhysician: {
-    username: string;
-    patientCount: number;
-  } | null;
   averageWaitTime: number;
 }
 
@@ -91,9 +100,7 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const [analytics, setAnalytics] = useState<AnalyticsSummary>({
     patientsToday: 0,
-    activePhysicians: 0,
-    mostActivePhysician: null,
-    averageWaitTime: 0,
+    averageWaitTime: 0
   });
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
@@ -117,54 +124,49 @@ const Dashboard: React.FC = () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const [completedTodayResult, activePhysiciansResult] = await Promise.all([
-        pb.collection('queue').getList(1, 1, {
-          filter: `status = "completed" && end_time >= "${today.toISOString()}"`,
-          expand: 'assigned_to',
-          $autoCancel: true
-        }),
-        pb.collection('queue').getList(1, 50, {
-          filter: `status = "in_progress"`,
-          expand: 'assigned_to',
-          $autoCancel: true
-        })
-      ]) as [BaseListResult, BaseListResult];
-
-      // Get most active physician
-      const physicianCounts = new Map<string, { username: string; count: number }>();
-      (completedTodayResult.items as QueueItem[]).forEach((item) => {
-        if (item.expand?.assigned_to) {
-          const physician = item.expand.assigned_to;
-          const current = physicianCounts.get(physician.id) || { username: physician.username, count: 0 };
-          current.count++;
-          physicianCounts.set(physician.id, current);
-        }
+      // Get all queue items for today (both completed and current)
+      const queueItems = await pb.collection('queue').getList<QueueItem>(1, 100, {
+        filter: `check_in_time >= "${today.toISOString()}"`,
+        sort: '-created'
       });
 
-      const mostActive = Array.from(physicianCounts.values())
-        .sort((a, b) => b.count - a.count)[0];
+      // Count completed patients
+      const completedPatients = queueItems.items.filter(item => item.status === 'completed').length;
 
-      // Calculate average wait time
-      const waitTimes = (completedTodayResult.items as QueueItem[])
-        .filter((item) => item.start_time && item.check_in_time)
-        .map((item) => {
-          const start = new Date(item.start_time!);
-          const checkIn = new Date(item.check_in_time);
-          return (start.getTime() - checkIn.getTime()) / (1000 * 60); // Convert to minutes
-        });
+      // Calculate wait times for all patients
+      const waitTimes = queueItems.items.map(item => {
+        const checkInTime = new Date(item.check_in_time).getTime();
+        const currentTime = new Date().getTime();
+        let endTime: number;
 
-      const averageWait = waitTimes.length
-        ? waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length
+        if (item.status === 'completed' && item.end_time) {
+          // For completed patients, use their end time
+          endTime = new Date(item.end_time).getTime();
+        } else if (item.status === 'with_care_team' && item.start_time) {
+          // For patients with care team, use their start time
+          endTime = new Date(item.start_time).getTime();
+        } else {
+          // For waiting patients, use current time
+          endTime = currentTime;
+        }
+
+        return Math.round((endTime - checkInTime) / (1000 * 60)); // Convert to minutes
+      }).filter(time => time >= 0); // Filter out any negative times (data errors)
+
+      const averageWait = waitTimes.length > 0
+        ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length)
         : 0;
 
+      console.log('Wait time calculation:', {
+        totalPatients: queueItems.items.length,
+        completedPatients,
+        waitTimes,
+        averageWait
+      });
+
       setAnalytics({
-        patientsToday: completedTodayResult.totalItems,
-        activePhysicians: new Set((activePhysiciansResult.items as QueueItem[]).map(i => i.assigned_to)).size,
-        mostActivePhysician: mostActive ? {
-          username: mostActive.username,
-          patientCount: mostActive.count
-        } : null,
-        averageWaitTime: Math.round(averageWait)
+        patientsToday: completedPatients,
+        averageWaitTime: averageWait
       });
     } catch (error: any) {
       if (!error.message?.includes('autocancelled')) {
@@ -353,10 +355,19 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  const getWaitTimeColor = (minutes: number): string => {
+    if (minutes <= 15) return 'success.main';
+    if (minutes <= 30) return '#FFA000'; // dark yellow
+    if (minutes <= 40) return 'warning.main';
+    return 'error.main';
+  };
+
   // Convert renderQueueItem to a proper React component
   const QueueItemComponent: React.FC<{ item: QueueItem }> = ({ item }) => {
     const [queueItem, setQueueItem] = React.useState<QueueItem>(item);
     const [loading, setLoading] = React.useState(!item.expand?.patient);
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
     React.useEffect(() => {
       const loadPatientData = async () => {
@@ -389,21 +400,177 @@ const Dashboard: React.FC = () => {
       );
     }
 
+    const waitTimeMinutes = Math.round(
+      (new Date().getTime() - new Date(queueItem.check_in_time).getTime()) / (1000 * 60)
+    );
+
+    const ActionButtons = () => (
+      <Box sx={{ 
+        display: 'flex', 
+        gap: 1,
+        flexDirection: { xs: 'column', sm: 'row' },
+        width: { xs: '100%', sm: 'auto' },
+        mt: { xs: 1, sm: 0 }
+      }}>
+        {queueItem.status === 'checked_in' && (
+          <RoleBasedAccess requiredRole="provider">
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => handleClaimPatient(queueItem.id)}
+              fullWidth={isMobile}
+              size={isMobile ? "small" : "medium"}
+            >
+              Start Encounter
+            </Button>
+          </RoleBasedAccess>
+        )}
+        {queueItem.status === 'with_care_team' && queueItem.expand?.encounter?.id && (
+          <RoleBasedAccess requiredRole="provider">
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => navigate(`/encounter/${queueItem.patient}/${queueItem.expand?.encounter?.id}`)}
+              fullWidth={isMobile}
+              size={isMobile ? "small" : "medium"}
+            >
+              Continue Encounter
+            </Button>
+          </RoleBasedAccess>
+        )}
+        {queueItem.status === 'ready_pharmacy' && (
+          <RoleBasedAccess requiredRole="pharmacy">
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => handleReviewDisbursements(queueItem)}
+              fullWidth={isMobile}
+              size={isMobile ? "small" : "medium"}
+            >
+              Review Disbursements
+            </Button>
+          </RoleBasedAccess>
+        )}
+        {queueItem.status === 'with_pharmacy' && (
+          <RoleBasedAccess requiredRole="pharmacy">
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => {
+                if (queueItem.expand?.encounter?.id) {
+                  navigate(`/encounter/${queueItem.patient}/${queueItem.expand.encounter.id}`, {
+                    state: { mode: 'pharmacy' }
+                  });
+                }
+              }}
+              fullWidth={isMobile}
+              size={isMobile ? "small" : "medium"}
+            >
+              Continue Review
+            </Button>
+          </RoleBasedAccess>
+        )}
+      </Box>
+    );
+
     return (
       <ListItem
-        key={queueItem.id}
         sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', md: 'row' },
-          alignItems: { xs: 'stretch', md: 'center' },
-          gap: 2
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 1,
+          py: 1.5,
+          px: 2
         }}
-        secondaryAction={
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+      >
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: { xs: 'column', sm: 'row' },
+          alignItems: { xs: 'flex-start', sm: 'center' },
+          gap: { xs: 1, sm: 2 },
+          width: '100%'
+        }}>
+          {/* Patient Info */}
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 1,
+            flex: 1,
+            flexWrap: 'wrap'
+          }}>
+            <Chip 
+              label={`#${queueItem.line_number}`} 
+              size="small"
+              sx={{ minWidth: 45 }}
+              color={queueItem.priority > 3 ? 'error' : queueItem.priority > 1 ? 'warning' : 'default'}
+            />
+            <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+              {queueItem.expand?.patient?.first_name} {queueItem.expand?.patient?.last_name}
+            </Typography>
+            
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 0.5,
+              color: getWaitTimeColor(waitTimeMinutes)
+            }}>
+              <AccessTimeIcon fontSize="small" />
+              <Typography variant="body2" component="span">
+                {formatWaitTime(queueItem.check_in_time)}
+              </Typography>
+            </Box>
+
+            {queueItem.expand?.assigned_to && (
+              <Chip
+                size="small"
+                label={queueItem.expand.assigned_to.username}
+                variant="outlined"
+                color="primary"
+                sx={{ height: 24 }}
+              />
+            )}
+            
+            {queueItem.status === 'ready_pharmacy' && (
+              <Typography 
+                variant="body2" 
+                color="success.main"
+                sx={{ 
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  '&::before': {
+                    content: '""',
+                    display: 'inline-block',
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    backgroundColor: 'success.main',
+                    marginRight: 1
+                  }
+                }}
+              >
+                Ready for pharmacy
+              </Typography>
+            )}
+          </Box>
+
+          {/* Controls */}
+          <Box sx={{ 
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 1,
+            width: { xs: '100%', sm: 'auto' }
+          }}>
             <Select
               value={queueItem.status}
               onChange={(e) => handleStatusChange(queueItem.id, e.target.value as QueueStatus)}
               size="small"
+              sx={{ 
+                minWidth: { xs: '100%', sm: 150 },
+                '& .MuiSelect-select': {
+                  py: 0.5
+                }
+              }}
             >
               {queueSections.map(section => (
                 <MenuItem key={section.status} value={section.status}>
@@ -411,57 +578,16 @@ const Dashboard: React.FC = () => {
                 </MenuItem>
               ))}
             </Select>
-            {queueItem.status === 'checked_in' && (
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => handleClaimPatient(queueItem.id)}
-              >
-                Start Encounter
-              </Button>
-            )}
-            {queueItem.status === 'with_care_team' && queueItem.expand?.encounter?.id && (
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={() => navigate(`/encounter/${queueItem.patient}/${queueItem.expand?.encounter?.id}`)}
-              >
-                Continue Encounter
-              </Button>
-            )}
-            {queueItem.status === 'ready_pharmacy' && (
-              <RoleBasedAccess requiredRole="pharmacy">
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={() => handleReviewDisbursements(queueItem)}
-                >
-                  Review Disbursements
-                </Button>
-              </RoleBasedAccess>
-            )}
-            {queueItem.status === 'with_pharmacy' && (
-              <RoleBasedAccess requiredRole="pharmacy">
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={() => {
-                    if (queueItem.expand?.encounter?.id) {
-                      navigate(`/encounter/${queueItem.patient}/${queueItem.expand.encounter.id}`, {
-                        state: { mode: 'pharmacy' }
-                      });
-                    }
-                  }}
-                >
-                  Continue Review
-                </Button>
-              </RoleBasedAccess>
-            )}
             <Select
               value={queueItem.priority}
               onChange={(e) => handlePriorityChange(queueItem.id, Number(e.target.value))}
               size="small"
-              sx={{ width: 100 }}
+              sx={{ 
+                minWidth: { xs: '100%', sm: 120 },
+                '& .MuiSelect-select': {
+                  py: 0.5
+                }
+              }}
             >
               {[1, 2, 3, 4, 5].map(priority => (
                 <MenuItem key={priority} value={priority}>
@@ -470,46 +596,10 @@ const Dashboard: React.FC = () => {
               ))}
             </Select>
           </Box>
-        }
-      >
-        <ListItemText
-          sx={{ flex: '1 1 auto' }}
-          primary={
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: 2,
-              flexWrap: 'wrap' 
-            }}>
-              <Chip 
-                label={`#${queueItem.line_number}`} 
-                size="small"
-                sx={{ minWidth: 45 }}
-                color={queueItem.priority > 3 ? 'error' : queueItem.priority > 1 ? 'warning' : 'default'}
-              />
-              <Typography component="span" variant="h6">
-                {queueItem.expand?.patient?.first_name} {queueItem.expand?.patient?.last_name}
-              </Typography>
-              <Typography component="span" variant="caption" color="textSecondary">
-                ({formatWaitTime(queueItem.check_in_time)})
-              </Typography>
-            </Box>
-          }
-          secondary={
-            <Box component="span" sx={{ mt: 1 }}>
-              {queueItem.expand?.assigned_to && (
-                <Typography component="span" variant="body2">
-                  With: {queueItem.expand.assigned_to.username}
-                </Typography>
-              )}
-              {queueItem.status === 'ready_pharmacy' && (
-                <Typography component="span" variant="body2" color="success.main">
-                  Ready for pharmacy
-                </Typography>
-              )}
-            </Box>
-          }
-        />
+        </Box>
+
+        {/* Action Buttons */}
+        <ActionButtons />
       </ListItem>
     );
   };
@@ -542,69 +632,72 @@ const Dashboard: React.FC = () => {
   return (
     <Box sx={{ p: 4 }}>
       <Grid container spacing={3}>
-        {/* Analytics Cards */}
+        {/* Analytics Section */}
         <Grid item xs={12}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h5">Analytics</Typography>
-            <IconButton onClick={fetchAnalytics} disabled={loading}>
-              <RefreshIcon />
-            </IconButton>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center',
+            gap: 3,
+            mb: 4,
+            flexWrap: 'wrap'
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 2,
+              flex: '1 1 auto',
+              minWidth: { xs: '100%', sm: 'auto' }
+            }}>
+              <Typography variant="h5">Queue Overview</Typography>
+              <IconButton 
+                onClick={fetchAnalytics} 
+                disabled={loading}
+                size="small"
+              >
+                <RefreshIcon />
+              </IconButton>
+            </Box>
+
+            <Box sx={{ 
+              display: 'flex', 
+              gap: 3,
+              flexWrap: 'wrap',
+              flex: '1 1 auto',
+              justifyContent: 'flex-end'
+            }}>
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                gap: 1 
+              }}>
+                <Typography color="textSecondary" variant="body2">
+                  Patients Today:
+                </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                  {analytics.patientsToday}
+                </Typography>
+              </Box>
+
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                gap: 1
+              }}>
+                <Typography color="textSecondary" variant="body2">
+                  Avg. Wait Time:
+                </Typography>
+                <Typography 
+                  variant="h6" 
+                  sx={{ 
+                    fontWeight: 600,
+                    color: getWaitTimeColor(analytics.averageWaitTime)
+                  }}
+                >
+                  {analytics.averageWaitTime}m
+                </Typography>
+              </Box>
+            </Box>
           </Box>
-          <Grid container spacing={4} sx={{ mb: 4 }}>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Patients Today
-                  </Typography>
-                  <Typography variant="h4">
-                    {analytics.patientsToday}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Active Physicians
-                  </Typography>
-                  <Typography variant="h4">
-                    {analytics.activePhysicians}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Most Active Physician
-                  </Typography>
-                  <Typography variant="h4">
-                    {analytics.mostActivePhysician?.username || 'N/A'}
-                  </Typography>
-                  {analytics.mostActivePhysician && (
-                    <Typography variant="caption" color="textSecondary">
-                      {analytics.mostActivePhysician.patientCount} patients
-                    </Typography>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Card>
-                <CardContent>
-                  <Typography color="textSecondary" gutterBottom>
-                    Average Wait Time
-                  </Typography>
-                  <Typography variant="h4">
-                    {analytics.averageWaitTime} min
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
         </Grid>
 
         {/* Queue Sections */}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -6,240 +6,327 @@ import {
   DialogActions,
   Button,
   TextField,
+  Grid,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Grid,
+  useTheme,
+  useMediaQuery,
+  IconButton,
+  Typography,
   FormControlLabel,
-  Checkbox,
-  Box,
+  Switch,
 } from '@mui/material';
-import { DatePicker } from '@mui/x-date-pickers';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { useForm, Controller } from 'react-hook-form';
+import CloseIcon from '@mui/icons-material/Close';
 import { pb } from '../atoms/auth';
 
 interface PatientModalProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (data: PatientSubmitData) => void;
+  onSave: () => void;
   initialData?: {
     id?: string;
     first_name: string;
     last_name: string;
     dob: string;
     gender: string;
-    smoker: string;
     age: number;
+    smoker: string;
   };
-}
-
-export interface PatientFormData {
-  firstName: string;
-  lastName: string;
-  dateOfBirth: Date;
-  gender: string;
-  age: number;
-  smoker: string;
-  addToQueue: boolean;
-  lineNumber: number;
-}
-
-export interface PatientSubmitData extends Omit<PatientFormData, 'dateOfBirth'> {
-  dateOfBirth: string;
-  age: number;
+  mode?: 'create' | 'edit';
 }
 
 export const PatientModal: React.FC<PatientModalProps> = ({
   open,
   onClose,
-  onSubmit,
+  onSave,
   initialData,
+  mode = 'create'
 }) => {
-  const { control, handleSubmit, watch, setValue } = useForm<PatientFormData>({
-    defaultValues: {
-      firstName: initialData?.first_name || '',
-      lastName: initialData?.last_name || '',
-      dateOfBirth: initialData?.dob ? new Date(initialData.dob) : new Date(),
-      gender: initialData?.gender || '',
-      age: initialData?.age || 0,
-      smoker: initialData?.smoker || 'no',
-      addToQueue: true,
-      lineNumber: 0,
-    }
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  
+  const [formData, setFormData] = useState({
+    first_name: initialData?.first_name || '',
+    last_name: initialData?.last_name || '',
+    dob: initialData?.dob || '',
+    gender: initialData?.gender || '',
+    age: initialData?.age || 0,
+    smoker: initialData?.smoker || '',
   });
 
-  const addToQueue = watch('addToQueue');
+  const [addToQueue, setAddToQueue] = useState(true);
+  const [lineNumber, setLineNumber] = useState<number | ''>('');
+  const [useManualAge, setUseManualAge] = useState(false);
 
-  const handleFormSubmit = async (data: PatientFormData) => {
-    try {
-      const birthDate = data.dateOfBirth;
-      
-      if (!birthDate) {
-        throw new Error('Date of birth is required');
-      }
+  const calculateAge = (dob: string): number => {
+    if (!dob) return 0;
+    const birthDate = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
 
-      // Calculate age
-      const today = new Date();
-      let age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-      
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
-
-      const submitData: PatientSubmitData = {
-        ...data,
-        dateOfBirth: birthDate.toISOString(),
-        age
-      };
-
-      await onSubmit(submitData);
-      onClose();
-    } catch (error) {
-      console.error('Error submitting patient data:', error);
+  const handleChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    if (field === 'dob' && !useManualAge) {
+      const age = calculateAge(value);
+      setFormData(prev => ({
+        ...prev,
+        [field]: value,
+        age: age
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [field]: value
+      }));
     }
   };
 
+  const handleSubmit = async () => {
+    try {
+      // Set a default DOB if using manual age
+      const submissionData = {
+        ...formData,
+        dob: useManualAge && !formData.dob ? 
+          `${new Date().getFullYear() - formData.age}-01-01` : 
+          formData.dob
+      };
+
+      let patientId: string;
+      if (mode === 'edit' && initialData?.id) {
+        await pb.collection('patients').update(initialData.id, submissionData);
+        patientId = initialData.id;
+      } else {
+        const newPatient = await pb.collection('patients').create(submissionData);
+        patientId = newPatient.id;
+      }
+
+      // Add to queue if requested
+      if (addToQueue && lineNumber !== '') {
+        await pb.collection('queue').create({
+          patient: patientId,
+          status: 'checked_in',
+          check_in_time: new Date().toISOString(),
+          line_number: lineNumber,
+          priority: 3,
+          assigned_to: null,
+          start_time: null,
+          end_time: null,
+          encounter: null,
+        });
+      }
+
+      onSave();
+      onClose();
+    } catch (error) {
+      console.error('Error saving patient:', error);
+      alert('Failed to save patient');
+    }
+  };
+
+  // Update age when DOB changes
+  useEffect(() => {
+    if (!useManualAge && formData.dob) {
+      const age = calculateAge(formData.dob);
+      setFormData(prev => ({
+        ...prev,
+        age: age
+      }));
+    }
+  }, [formData.dob, useManualAge]);
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{initialData ? 'Edit Patient' : 'New Patient'}</DialogTitle>
-      <form onSubmit={handleSubmit(handleFormSubmit)}>
-        <DialogContent>
-          <Box sx={{ mt: 2 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="firstName"
-                  control={control}
-                  rules={{ required: 'First name is required' }}
-                  render={({ field, fieldState: { error } }) => (
-                    <TextField
-                      {...field}
-                      label="First Name"
-                      fullWidth
-                      error={!!error}
-                      helperText={error?.message}
-                    />
-                  )}
+    <Dialog 
+      open={open} 
+      onClose={onClose}
+      fullScreen={fullScreen}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          m: fullScreen ? 0 : 2,
+          maxHeight: fullScreen ? '100%' : 'calc(100% - 64px)',
+        }
+      }}
+    >
+      <DialogTitle sx={{ 
+        m: 0, 
+        p: 2,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <Typography variant="h6">
+          {mode === 'create' ? 'Add New Patient' : 'Edit Patient'}
+        </Typography>
+        <IconButton
+          aria-label="close"
+          onClick={onClose}
+          sx={{
+            position: 'absolute',
+            right: 8,
+            top: 8,
+            color: theme.palette.grey[500],
+          }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+
+      <DialogContent dividers sx={{ p: { xs: 2, sm: 3 } }}>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="First Name"
+              value={formData.first_name}
+              onChange={handleChange('first_name')}
+              required
+              autoFocus
+              sx={{ mb: { xs: 2, sm: 0 } }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              label="Last Name"
+              value={formData.last_name}
+              onChange={handleChange('last_name')}
+              required
+              sx={{ mb: { xs: 2, sm: 0 } }}
+            />
+          </Grid>
+          
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={useManualAge}
+                  onChange={(e) => setUseManualAge(e.target.checked)}
                 />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="lastName"
-                  control={control}
-                  rules={{ required: 'Last name is required' }}
-                  render={({ field, fieldState: { error } }) => (
-                    <TextField
-                      {...field}
-                      label="Last Name"
-                      fullWidth
-                      error={!!error}
-                      helperText={error?.message}
-                    />
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <LocalizationProvider dateAdapter={AdapterDateFns}>
-                  <Controller
-                    name="dateOfBirth"
-                    control={control}
-                    rules={{ required: 'Date of birth is required' }}
-                    render={({ field, fieldState: { error } }) => (
-                      <DatePicker
-                        {...field}
-                        label="Date of Birth"
-                        slotProps={{
-                          textField: {
-                            fullWidth: true,
-                            error: !!error,
-                            helperText: error?.message,
-                          },
-                        }}
-                      />
-                    )}
-                  />
-                </LocalizationProvider>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="gender"
-                  control={control}
-                  rules={{ required: 'Gender is required' }}
-                  render={({ field, fieldState: { error } }) => (
-                    <FormControl fullWidth error={!!error}>
-                      <InputLabel>Gender</InputLabel>
-                      <Select {...field} label="Gender">
-                        <MenuItem value="Male">Male</MenuItem>
-                        <MenuItem value="Female">Female</MenuItem>
-                        <MenuItem value="Other">Other</MenuItem>
-                      </Select>
-                    </FormControl>
-                  )}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <Controller
-                  name="smoker"
-                  control={control}
-                  rules={{ required: 'Smoking status is required' }}
-                  render={({ field, fieldState: { error } }) => (
-                    <FormControl fullWidth error={!!error}>
-                      <InputLabel>Smoking Status</InputLabel>
-                      <Select {...field} label="Smoking Status">
-                        <MenuItem value="current">Current</MenuItem>
-                        <MenuItem value="prior">Prior</MenuItem>
-                        <MenuItem value="never">Never</MenuItem>
-                      </Select>
-                    </FormControl>
-                  )}
-                />
-              </Grid>
-              <Controller
-                name="addToQueue"
-                control={control}
-                render={({ field }) => (
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={field.value}
-                        onChange={(e) => field.onChange(e.target.checked)}
-                      />
-                    }
-                    label="Add to queue"
-                  />
-                )}
+              }
+              label="Enter age manually"
+            />
+          </Grid>
+
+          {!useManualAge && (
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Date of Birth"
+                type="date"
+                value={formData.dob}
+                onChange={handleChange('dob')}
+                required
+                InputLabelProps={{ shrink: true }}
+                sx={{ mb: { xs: 2, sm: 0 } }}
               />
-              
-              {addToQueue && (
-                <Controller
-                  name="lineNumber"
-                  control={control}
-                  render={({ field }) => (
-                    <TextField
-                      {...field}
-                      fullWidth
-                      label="Line Number"
-                      type="number"
-                      margin="normal"
-                      required
-                    />
-                  )}
-                />
-              )}
             </Grid>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="contained" color="primary">
-            {initialData ? 'Update' : 'Create'}
-          </Button>
-        </DialogActions>
-      </form>
+          )}
+          <Grid item xs={12} sm={useManualAge ? 12 : 6}>
+            <TextField
+              fullWidth
+              label="Age"
+              type="number"
+              value={formData.age}
+              onChange={handleChange('age')}
+              required
+              disabled={!useManualAge}
+              sx={{ mb: { xs: 2, sm: 0 } }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <FormControl fullWidth sx={{ mb: { xs: 2, sm: 0 } }}>
+              <InputLabel>Gender</InputLabel>
+              <Select
+                value={formData.gender}
+                label="Gender"
+                onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+                required
+              >
+                <MenuItem value="male">Male</MenuItem>
+                <MenuItem value="female">Female</MenuItem>
+                <MenuItem value="other">Other</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <FormControl fullWidth>
+              <InputLabel>Smoker</InputLabel>
+              <Select
+                value={formData.smoker}
+                label="Smoker"
+                onChange={(e) => setFormData(prev => ({ ...prev, smoker: e.target.value }))}
+                required
+              >
+                <MenuItem value="yes">Yes</MenuItem>
+                <MenuItem value="no">No</MenuItem>
+                <MenuItem value="former">Former</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {mode === 'create' && (
+            <>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={addToQueue}
+                      onChange={(e) => setAddToQueue(e.target.checked)}
+                    />
+                  }
+                  label="Add to queue after creation"
+                />
+              </Grid>
+              {addToQueue && (
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Line Number"
+                    type="number"
+                    value={lineNumber}
+                    onChange={(e) => setLineNumber(parseInt(e.target.value) || '')}
+                    required={addToQueue}
+                  />
+                </Grid>
+              )}
+            </>
+          )}
+        </Grid>
+      </DialogContent>
+
+      <DialogActions sx={{ 
+        p: 2,
+        gap: 1,
+        flexDirection: fullScreen ? 'column' : 'row',
+        '& > button': {
+          width: fullScreen ? '100%' : 'auto'
+        }
+      }}>
+        <Button 
+          onClick={onClose}
+          variant="outlined"
+          fullWidth={fullScreen}
+        >
+          Cancel
+        </Button>
+        <Button 
+          onClick={handleSubmit}
+          variant="contained"
+          color="primary"
+          fullWidth={fullScreen}
+        >
+          {mode === 'create' ? 'Add Patient' : 'Save Changes'}
+        </Button>
+      </DialogActions>
     </Dialog>
   );
 };

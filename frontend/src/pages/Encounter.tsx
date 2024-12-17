@@ -111,7 +111,6 @@ interface EncounterRecord extends BaseModel {
 
 interface EncounterProps {
   mode?: 'create' | 'view' | 'edit' | 'pharmacy';
-  queueItem?: QueueItem;
 }
 
 interface SavedEncounter {
@@ -198,22 +197,24 @@ interface EncounterResponseRecord extends BaseModel {
   }
 }
 
-const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
+export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'create' }) => {
   const { patientId, encounterId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [patient, setPatient] = useState<Patient | null>(null);
   const [isNewEncounter, setIsNewEncounter] = useState(true);
 
   // Memoize the mode determination to prevent unnecessary re-renders
   const currentMode = React.useMemo(() => {
-    const initialMode = location.state?.mode || mode;
-    const computedMode = (initialMode === 'create' || (isNewEncounter && initialMode !== 'pharmacy')) ? 'edit' : initialMode;
-    return computedMode;
-  }, [location.state?.mode, mode, isNewEncounter]);
+    const locationMode = location.state?.mode;
+    const computedMode = (locationMode || initialMode);
+    return (computedMode === 'create' || (isNewEncounter && computedMode !== 'pharmacy')) ? 'edit' : computedMode;
+  }, [location.state?.mode, initialMode, isNewEncounter]);
 
-  console.log('Current mode:', currentMode, 'Initial mode:', mode, 'Is new encounter:', isNewEncounter);
+  console.log('Current mode:', currentMode, 'Initial mode:', 'create', 'Is new encounter:', isNewEncounter);
 
-  const [patient, setPatient] = useState<Patient | null>(null);
   const [formData, setFormData] = useState<Partial<EncounterRecord>>({
     patient: patientId,
     height_inches: null,
@@ -229,7 +230,6 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
     plan: '',
     disbursements: [],
   });
-  const [loading, setLoading] = useState(true);
   const [chiefComplaints, setChiefComplaints] = useState<ChiefComplaint[]>([]);
   const [showOtherComplaint, setShowOtherComplaint] = useState(false);
   const [otherComplaintValue, setOtherComplaintValue] = useState('');
@@ -506,7 +506,6 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
       other_chief_complaint: value,
     }));
   };
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
@@ -822,87 +821,105 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
     try {
       const validDisbursements = formData.disbursements?.filter(d => d.medication && d.quantity > 0) || [];
       if (validDisbursements.length > 0) {
-        // Get existing disbursements
-        const existingDisbursements = await pb.collection('disbursements').getList<ExistingDisbursement>(1, 50, {
-          filter: `encounter = "${encounterId}"`,
-          expand: 'medication'
-        });
-        const existingMap = new Map<string, ExistingDisbursement>(existingDisbursements.items.map(d => [d.id, d]));
+        // Get existing disbursements and medications in a single batch
+        const [existingDisbursementsResult, medicationsResult] = await Promise.all([
+          pb.collection('disbursements').getList<ExistingDisbursement>(1, 50, {
+            filter: `encounter = "${encounterId}"`,
+            expand: 'medication'
+          }),
+          Promise.all(validDisbursements.map(d => 
+            pb.collection('inventory').getOne<MedicationRecord>(d.medication)
+          ))
+        ]);
+
+        const existingMap = new Map<string, ExistingDisbursement>(
+          existingDisbursementsResult.items.map(d => [d.id, d])
+        );
+        const medicationMap = new Map<string, MedicationRecord>(
+          medicationsResult.map(m => [m.id, m])
+        );
 
         // First verify all stock levels
         for (const disbursement of validDisbursements) {
-          const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
+          const medication = medicationMap.get(disbursement.medication);
+          if (!medication) continue;
+
           const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
           
           // Only check stock for new or modified disbursements
           const existing = disbursement.id ? existingMap.get(disbursement.id) : null;
           if (!existing || existing.quantity !== quantity) {
-            const newStockLevel = medication.stock - quantity + (existing?.quantity || 0);
+            // For existing disbursements, only check the difference
+            const stockChange = existing ? quantity - existing.quantity : quantity;
+            const newStockLevel = medication.stock - stockChange;
             if (newStockLevel < 0) {
-              throw new Error(`Not enough stock for ${medication.drug_name}. Available: ${medication.stock}, Requested: ${quantity}`);
+              throw new Error(`Not enough stock for ${medication.drug_name}. Available: ${medication.stock}, Needed: ${stockChange}`);
             }
           }
         }
-        
-        // Process all disbursements
-        for (const disbursement of validDisbursements) {
-          try {
-            const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
-            const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
-            
-            if (disbursement.id) {
-              // Update existing disbursement
-              const existing = existingMap.get(disbursement.id);
-              if (existing) {
-                existingMap.delete(disbursement.id);
 
-                if (existing.quantity !== quantity || existing.notes !== disbursement.notes) {
-                  // Calculate new stock level
-                  const newStock = medication.stock - quantity + existing.quantity;
+        // Process all disbursements in sequence to prevent race conditions
+        for (const disbursement of validDisbursements) {
+          const medication = medicationMap.get(disbursement.medication);
+          if (!medication) continue;
+
+          const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+          
+          if (disbursement.id) {
+            // Update existing disbursement
+            const existing = existingMap.get(disbursement.id);
+            if (existing) {
+              existingMap.delete(disbursement.id);
+
+              if (existing.quantity !== quantity || existing.notes !== disbursement.notes) {
+                // Calculate stock change based on difference from original quantity
+                const stockChange = quantity - existing.quantity;
+                
+                // Only update stock if quantity changed
+                if (stockChange !== 0) {
+                  // Get fresh medication record to ensure accurate stock
+                  const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
+                  const newStock = updatedMedication.stock - stockChange;
                   
-                  // Update stock
                   await pb.collection('inventory').update(disbursement.medication, {
                     stock: newStock
                   });
-                  
-                  await pb.collection('disbursements').update(disbursement.id, {
-                    quantity: quantity,
-                    notes: disbursement.notes || ''
-                  });
                 }
+                
+                await pb.collection('disbursements').update(disbursement.id, {
+                  quantity: quantity,
+                  notes: disbursement.notes || ''
+                });
               }
-            } else {
-              // Create new disbursement
-              const newStock = medication.stock - quantity;
-              
-              // Update stock first
-              await pb.collection('inventory').update(disbursement.medication, {
-                stock: newStock
-              });
-              
-              // Then create disbursement
-              await pb.collection('disbursements').create({
-                encounter: encounterId,
-                medication: disbursement.medication,
-                quantity: quantity,
-                notes: disbursement.notes || '',
-                processed: false
-              });
             }
-          } catch (error: any) {
-            if (!error.message?.includes('autocancelled')) {
-              console.error('Error processing disbursement:', error);
-              throw error;
-            }
+          } else {
+            // Create new disbursement
+            // Get fresh medication record to ensure accurate stock
+            const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
+            const newStock = updatedMedication.stock - quantity;
+            
+            // Update stock first
+            await pb.collection('inventory').update(disbursement.medication, {
+              stock: newStock
+            });
+            
+            // Then create disbursement
+            await pb.collection('disbursements').create({
+              encounter: encounterId,
+              medication: disbursement.medication,
+              quantity: quantity,
+              notes: disbursement.notes || '',
+              processed: false
+            });
           }
         }
 
         // Handle deleted disbursements
         for (const [id, disbursement] of Array.from(existingMap.entries())) {
           if (!disbursement.processed) {
-            // Restore stock for deleted disbursements
-            const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
-            const newStock = medication.stock + disbursement.quantity;
+            // Get fresh medication record to ensure accurate stock
+            const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
+            const newStock = updatedMedication.stock + disbursement.quantity;
             
             await pb.collection('inventory').update(disbursement.medication, {
               stock: newStock
@@ -945,25 +962,30 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
         disbursement_multiplier: multiplier,
         notes: d.notes || '',
         medicationDetails: medication,
-        isProcessed: d.processed || false
+        isProcessed: d.processed || false,
+        originalQuantity: medication?.fixed_quantity || d.quantity,
+        originalMultiplier: multiplier
       };
     });
 
     // Only update if the disbursements have actually changed
     setFormData(prev => {
-      const prevDisbursements = prev.disbursements || [];
-      const hasChanges = disbursementItems.length !== prevDisbursements.length ||
-        disbursementItems.some((item, index) => {
-          const prevItem = prevDisbursements[index];
-          return !prevItem ||
-            item.id !== prevItem.id ||
-            item.quantity !== prevItem.quantity ||
-            item.notes !== prevItem.notes ||
-            item.isProcessed !== prevItem.isProcessed;
-        });
+      // If we have local changes in progress, don't override them with realtime updates
+      if (prev.disbursements?.some(d => !d.id && d.medication)) {
+        return {
+          ...prev,
+          disbursements: prev.disbursements.map(d => {
+            // Only update existing disbursements from realtime
+            if (d.id) {
+              const updatedItem = disbursementItems.find(item => item.id === d.id);
+              return updatedItem || d;
+            }
+            return d;
+          })
+        };
+      }
 
-      if (!hasChanges) return prev;
-
+      // Otherwise, use the realtime data
       return {
         ...prev,
         disbursements: disbursementItems.length > 0 ? disbursementItems : [{
@@ -1254,3 +1276,4 @@ const Encounter: React.FC<EncounterProps> = ({ mode = 'create' }) => {
 };
 
 export default Encounter;
+
