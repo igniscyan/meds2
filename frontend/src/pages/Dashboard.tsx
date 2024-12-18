@@ -121,47 +121,63 @@ const Dashboard: React.FC = () => {
   // Fetch analytics data
   const fetchAnalytics = async () => {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Get today's date in YYYY-MM-DD format
+      const today = new Date().toISOString().split('T')[0];
+      console.log('STATS DEBUG: Today date:', today);
 
-      // Get all queue items for today (both completed and current)
+      // Get all completed queue items that match today's date
       const queueItems = await pb.collection('queue').getList<QueueItem>(1, 100, {
-        filter: `check_in_time >= "${today.toISOString()}"`,
+        filter: `check_in_time ~ "${today}" && status = "completed"`,
         sort: '-created'
       });
 
-      // Count completed patients
-      const completedPatients = queueItems.items.filter(item => item.status === 'completed').length;
+      console.log('STATS DEBUG: Raw queue items:', queueItems.items);
+      console.log('STATS DEBUG: Queue items count:', queueItems.items.length);
+      console.log('STATS DEBUG: Queue filter used:', `check_in_time ~ "${today}" && status = "completed"`);
 
-      // Calculate wait times for all patients
-      const waitTimes = queueItems.items.map(item => {
-        const checkInTime = new Date(item.check_in_time).getTime();
-        const currentTime = new Date().getTime();
-        let endTime: number;
+      // Count completed patients and calculate wait times
+      const completedPatients = queueItems.items.length;
 
-        if (item.status === 'completed' && item.end_time) {
-          // For completed patients, use their end time
-          endTime = new Date(item.end_time).getTime();
-        } else if (item.status === 'with_care_team' && item.start_time) {
-          // For patients with care team, use their start time
-          endTime = new Date(item.start_time).getTime();
-        } else {
-          // For waiting patients, use current time
-          endTime = currentTime;
-        }
+      // Calculate wait times for completed patients
+      const waitTimes = queueItems.items
+        .map(item => {
+          const checkInTime = new Date(item.check_in_time);
+          const endTime = new Date(item.end_time || '');
+          
+          console.log('STATS DEBUG: Processing queue item:', {
+            id: item.id,
+            checkInTime: item.check_in_time,
+            endTime: item.end_time,
+            status: item.status
+          });
+          
+          // Skip invalid dates
+          if (!checkInTime || !endTime || isNaN(checkInTime.getTime()) || isNaN(endTime.getTime())) {
+            console.log('STATS DEBUG: Invalid date found:', { checkInTime, endTime });
+            return null;
+          }
 
-        return Math.round((endTime - checkInTime) / (1000 * 60)); // Convert to minutes
-      }).filter(time => time >= 0); // Filter out any negative times (data errors)
+          const waitTimeMinutes = Math.round((endTime.getTime() - checkInTime.getTime()) / (1000 * 60));
+          
+          console.log('STATS DEBUG: Wait time calculation:', {
+            waitTimeMinutes,
+            valid: waitTimeMinutes >= 0
+          });
+
+          return waitTimeMinutes >= 0 ? waitTimeMinutes : null;
+        })
+        .filter((time): time is number => time !== null);
 
       const averageWait = waitTimes.length > 0
         ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length)
         : 0;
 
-      console.log('Wait time calculation:', {
-        totalPatients: queueItems.items.length,
+      console.log('STATS DEBUG: Final calculation:', {
         completedPatients,
         waitTimes,
-        averageWait
+        averageWait,
+        totalWaitTime: waitTimes.reduce((a, b) => a + b, 0),
+        numberOfValidTimes: waitTimes.length
       });
 
       setAnalytics({
@@ -169,42 +185,19 @@ const Dashboard: React.FC = () => {
         averageWaitTime: averageWait
       });
     } catch (error: any) {
+      console.error('STATS DEBUG: Error in fetchAnalytics:', error);
       if (!error.message?.includes('autocancelled')) {
-        console.error('Error fetching analytics:', error);
+        console.error('STATS DEBUG: Error fetching analytics:', error);
       }
     }
   };
 
+  // Update analytics when queue items change
   useEffect(() => {
-    let isSubscribed = true;
-    const controller = new AbortController();
-
-    const loadAnalytics = async () => {
-      try {
-        await fetchAnalytics();
-        // Only set up interval if component is still mounted
-        if (isSubscribed) {
-          const interval = setInterval(fetchAnalytics, 60000); // Refresh every minute
-          return () => {
-            clearInterval(interval);
-            controller.abort();
-          };
-        }
-      } catch (error: any) {
-        if (!error.message?.includes('autocancelled')) {
-          console.error('Error in analytics interval:', error);
-        }
-      }
-    };
-
-    loadAnalytics();
-
-    // Cleanup function
-    return () => {
-      isSubscribed = false;
-      controller.abort();
-    };
-  }, []);
+    if (!loading) {
+      fetchAnalytics();
+    }
+  }, [queueItems, loading]);
 
   const handleClaimPatient = async (queueId: string) => {
     try {

@@ -381,7 +381,8 @@ func init() {
 					Type:     "select",
 					Required: true,
 					Options: &schema.SelectOptions{
-						Values: []string{"checkbox", "text", "select"},
+						Values:    []string{"checkbox", "text", "select"},
+						MaxSelect: 1,
 					},
 				},
 				&schema.SchemaField{
@@ -414,7 +415,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "required",
 					Type:     "bool",
-					Required: true,
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name: "depends_on",
@@ -428,7 +429,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "archived",
 					Type:     "bool",
-					Required: true,
+					Required: false,
 				},
 			)
 		}

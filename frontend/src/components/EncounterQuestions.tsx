@@ -60,22 +60,22 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
   onResponsesChange,
 }) => {
   const [responses, setResponses] = useState<{ [key: string]: any }>({});
-  const [initialized, setInitialized] = useState(false);
-  const [pendingResponseChange, setPendingResponseChange] = useState<QuestionResponse[]>([]);
+  const [loading, setLoading] = useState(true);
   const responsesRef = useRef<{ [key: string]: any }>({});
+  const isInitializedRef = useRef(false);
 
   // Add debug logging for subscriptions
-  const { records: categories } = useRealtimeSubscription<Category>(
+  const { records: categories, loading: categoriesLoading } = useRealtimeSubscription<Category>(
     'encounter_question_categories',
     useMemo(() => ({ sort: 'order', filter: 'archived = false' }), [])
   );
 
-  const { records: questions } = useRealtimeSubscription<Question>(
+  const { records: questions, loading: questionsLoading } = useRealtimeSubscription<Question>(
     'encounter_questions',
     useMemo(() => ({ sort: 'order', filter: 'archived = false', expand: 'category' }), [])
   );
 
-  const { records: existingResponses } = useRealtimeSubscription<QuestionResponse>(
+  const { records: existingResponses, loading: responsesLoading } = useRealtimeSubscription<QuestionResponse>(
     'encounter_responses',
     useMemo(() => encounterId 
       ? { 
@@ -85,9 +85,9 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       : undefined, [encounterId])
   );
 
-  // Create response array for parent component
-  const createResponseArray = useCallback((currentResponses: { [key: string]: any }) => {
-    const responseArray = questions.map(q => {
+  // Memoize the response array creation
+  const createResponseArray = useMemo(() => (currentResponses: { [key: string]: any }) => {
+    return questions.map(q => {
       const responseValue = currentResponses[q.id];
       const existing = existingResponses?.find(r => r.question === q.id);
       
@@ -101,7 +101,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
           collectionName: existing?.collectionName || '',
           encounter: encounterId || '',
           question: q.id,
-          response_value: responseValue === true,  // Ensure boolean
+          response_value: responseValue === true,
           expand: { question: q }
         };
       }
@@ -118,7 +118,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
             collectionName: existing?.collectionName || '',
             encounter: encounterId || '',
             question: q.id,
-            response_value: responseValue || null,  // Convert empty string to null
+            response_value: responseValue || null,
             expand: { question: q }
           };
         }
@@ -141,108 +141,78 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       }
       return null;
     }).filter(Boolean) as QuestionResponse[];
-
-    return responseArray;
   }, [questions, existingResponses, encounterId]);
 
-  // Initialize responses from existing responses
+  // Initialize responses whenever any of the data changes
   useEffect(() => {
-    if (!initialized && questions.length > 0) {
-      console.log('[Response Init] Starting response initialization');
+    if (questionsLoading || (encounterId && responsesLoading) || categoriesLoading || isInitializedRef.current) {
+      return;
+    }
+
+    const initializeResponses = () => {
+      console.log('[Response Init] Starting response initialization', {
+        questionsCount: questions.length,
+        existingResponsesCount: existingResponses?.length || 0
+      });
       
       const responseMap: { [key: string]: any } = {};
       
-      // First pass: Initialize all questions with default values
+      // Initialize all questions with default values
       questions.forEach(q => {
-        if (q.input_type === 'checkbox') {
-          responseMap[q.id] = false;
-        } else {
-          responseMap[q.id] = '';
-        }
+        responseMap[q.id] = q.input_type === 'checkbox' ? false : '';
       });
 
-      // Second pass: Set existing responses
+      // Set existing responses
       if (existingResponses) {
         existingResponses.forEach(response => {
           if (response.response_value !== undefined) {
             responseMap[response.question] = response.response_value;
-            if (response.expand?.question?.input_type === 'checkbox') {
-              console.log('[Response Init] Setting checkbox:', {
-                question: response.expand.question.question_text,
-                value: response.response_value
-              });
-            }
           }
         });
       }
 
       setResponses(responseMap);
       responsesRef.current = responseMap;
-      setInitialized(true);
       
       // Create initial response array
-      const initialResponses = createResponseArray(responseMap);
-      setPendingResponseChange(initialResponses);
-    }
-  }, [existingResponses, questions, initialized, createResponseArray]);
+      const responseArray = createResponseArray(responseMap);
+      onResponsesChange(responseArray);
+      
+      setLoading(false);
+      isInitializedRef.current = true;
+    };
+
+    initializeResponses();
+  }, [questions, existingResponses, encounterId, questionsLoading, responsesLoading, categoriesLoading, createResponseArray, onResponsesChange]);
 
   // Handle response changes
   const handleResponseChange = useCallback((questionId: string, value: any) => {
     const currentQuestion = questions.find(q => q.id === questionId);
     
-    if (currentQuestion?.input_type === 'checkbox') {
-      console.log('[Checkbox Change]', {
-        question: currentQuestion.question_text,
-        newValue: value
-      });
-    }
-    
     setResponses(prev => {
       const newResponses = { ...prev };
       newResponses[questionId] = value;
-      responsesRef.current = newResponses;
 
       // Handle dependent fields
       if (currentQuestion?.input_type === 'checkbox') {
         questions.forEach(q => {
-          if (q.depends_on === questionId) {
-            console.log('[Dependent Field]', {
-              parentQuestion: currentQuestion.question_text,
-              dependentQuestion: q.question_text,
-              parentChecked: value
-            });
-
-            if (!value) {
-              // Clear dependent field when checkbox is unchecked
-              newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
-            } else if (!newResponses[q.id]) {
-              // Initialize dependent field when checkbox is checked
-              newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
-            }
-
-            console.log('[Dependent Value]', {
-              question: q.question_text,
-              newValue: newResponses[q.id]
-            });
+          if (q.depends_on === questionId && !value) {
+            newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
           }
         });
       }
 
-      // Create and set response array
-      const responseArray = createResponseArray(newResponses);
-      setPendingResponseChange(responseArray);
+      responsesRef.current = newResponses;
+      
+      // Only update parent if we have an encounterId
+      if (encounterId) {
+        const responseArray = createResponseArray(newResponses);
+        onResponsesChange(responseArray);
+      }
+      
       return newResponses;
     });
-  }, [questions, createResponseArray]);
-
-  // Use useEffect to handle response changes
-  useEffect(() => {
-    if (pendingResponseChange.length > 0) {
-      console.log('[Response Change] Sending responses to parent:', pendingResponseChange);
-      onResponsesChange(pendingResponseChange);
-      setPendingResponseChange([]);
-    }
-  }, [pendingResponseChange, onResponsesChange]);
+  }, [questions, createResponseArray, onResponsesChange, encounterId]);
 
   // Memoize the question rendering function
   const renderQuestion = useCallback((question: Question, category: Category) => {
@@ -360,37 +330,41 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
 
   return (
     <Box>
-      {categories.map((category) => {
-        const categoryQuestions = questions.filter((q) => q.category === category.id);
-        if (categoryQuestions.length === 0) return null;
-        return (
-          <Paper 
-            key={category.id} 
-            sx={{ 
-              p: 2, 
-              mb: 2,
-              backgroundColor: category.type === 'survey' ? 'background.default' : 'action.hover',
-              borderRadius: category.type === 'survey' ? 2 : 1
-            }}
-          >
-            <Typography variant="h6" sx={{ mb: category.type === 'survey' ? 3 : 2 }}>
-              {category.name}
-              {category.type === 'counter' && (
-                <Typography variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
-                  (Item Counter)
-                </Typography>
-              )}
-            </Typography>
-            <Box sx={{ pl: 2 }}>
-              {categoryQuestions.map((question) => (
-                <Box key={question.id} sx={{ mb: 2 }}>
-                  {renderQuestion(question, category)}
-                </Box>
-              ))}
-            </Box>
-          </Paper>
-        );
-      })}
+      {loading ? (
+        <Typography>Loading additional questions...</Typography>
+      ) : (
+        categories.map((category) => {
+          const categoryQuestions = questions.filter((q) => q.category === category.id);
+          if (categoryQuestions.length === 0) return null;
+          return (
+            <Paper 
+              key={category.id} 
+              sx={{ 
+                p: 2, 
+                mb: 2,
+                backgroundColor: category.type === 'survey' ? 'background.default' : 'action.hover',
+                borderRadius: category.type === 'survey' ? 2 : 1
+              }}
+            >
+              <Typography variant="h6" sx={{ mb: category.type === 'survey' ? 3 : 2 }}>
+                {category.name}
+                {category.type === 'counter' && (
+                  <Typography variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
+                    (Item Counter)
+                  </Typography>
+                )}
+              </Typography>
+              <Box sx={{ pl: 2 }}>
+                {categoryQuestions.map((question) => (
+                  <Box key={question.id} sx={{ mb: 2 }}>
+                    {renderQuestion(question, category)}
+                  </Box>
+                ))}
+              </Box>
+            </Paper>
+          );
+        })
+      )}
     </Box>
   );
 };

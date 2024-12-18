@@ -209,7 +209,14 @@ const Patients: React.FC = () => {
                 </TableCell>
                 <TableCell>{patient.age}</TableCell>
                 <TableCell>{patient.gender}</TableCell>
-                <TableCell>{patient.dob ? new Date(patient.dob).toLocaleDateString() : 'Invalid Date'}</TableCell>
+                <TableCell>
+                  {patient.dob ? (() => {
+                    const datePart = patient.dob.split(' ')[0];
+                    const [year, month, day] = datePart.split('-').map(Number);
+                    const date = new Date(year, month - 1, day);
+                    return date.toLocaleDateString();
+                  })() : 'Invalid Date'}
+                </TableCell>
                 <TableCell>{patient.smoker ? patient.smoker.charAt(0).toUpperCase() + patient.smoker.slice(1) : ''}</TableCell>
                 <TableCell align="right">
                   <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>

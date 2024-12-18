@@ -38,7 +38,14 @@ interface Encounter extends Record {
   systolic_pressure: number;
   diastolic_pressure: number;
   chief_complaint: string;
+  other_chief_complaint?: string;
   created: string;
+  expand?: {
+    chief_complaint?: {
+      id: string;
+      name: string;
+    };
+  };
 }
 
 const PatientDashboard: React.FC = () => {
@@ -48,6 +55,7 @@ const PatientDashboard: React.FC = () => {
   const { records: encounters, loading, error } = useRealtimeSubscription<Encounter>('encounters', {
     filter: `patient = "${patientId}"`,
     sort: '-created',
+    expand: 'chief_complaint'
   });
 
   useEffect(() => {
@@ -142,7 +150,7 @@ const PatientDashboard: React.FC = () => {
                   {new Date(encounter.created).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  {encounter.chief_complaint}
+                  {encounter.expand?.chief_complaint?.name || encounter.other_chief_complaint || 'No complaint recorded'}
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2">BP: {encounter.systolic_pressure}/{encounter.diastolic_pressure}</Typography>

@@ -51,49 +51,159 @@ export const PatientModal: React.FC<PatientModalProps> = ({
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   
   const [formData, setFormData] = useState({
-    first_name: initialData?.first_name || '',
-    last_name: initialData?.last_name || '',
-    dob: initialData?.dob || '',
-    gender: initialData?.gender || '',
-    age: initialData?.age || 0,
-    smoker: initialData?.smoker || '',
+    first_name: '',
+    last_name: '',
+    dob: '',
+    gender: '',
+    age: 0,
+    smoker: '',
   });
 
   const [addToQueue, setAddToQueue] = useState(true);
   const [lineNumber, setLineNumber] = useState<number | ''>('');
   const [useManualAge, setUseManualAge] = useState(false);
+  const [dateValue, setDateValue] = useState<Date | null>(null);
+
+  // Initialize data when modal opens or initialData changes
+  useEffect(() => {
+    if (initialData) {
+      console.log('DATE DEBUG: initialData received:', initialData);
+      // Set form data
+      setFormData({
+        first_name: initialData.first_name,
+        last_name: initialData.last_name,
+        dob: initialData.dob,
+        gender: initialData.gender,
+        age: initialData.age,
+        smoker: initialData.smoker,
+      });
+
+      // Set date value if DOB exists
+      if (initialData.dob) {
+        try {
+          console.log('DATE DEBUG: Parsing DOB:', initialData.dob);
+          // Extract just the date part from the timestamp
+          const datePart = initialData.dob.split(' ')[0];
+          console.log('DATE DEBUG: Extracted date part:', datePart);
+          
+          const [year, month, day] = datePart.split('-').map(Number);
+          console.log('DATE DEBUG: Parsed components:', { year, month, day });
+          
+          // Create date in local timezone
+          const date = new Date(year, month - 1, day);
+          console.log('DATE DEBUG: Created date object:', date);
+          
+          if (!isNaN(date.getTime())) {
+            console.log('DATE DEBUG: Setting dateValue to:', date);
+            setDateValue(date);
+          } else {
+            console.log('DATE DEBUG: Invalid date detected');
+          }
+        } catch (error) {
+          console.error('DATE DEBUG: Error parsing date:', error);
+        }
+      }
+    }
+  }, [initialData]);
 
   const calculateAge = (dob: string): number => {
-    if (!dob) return 0;
-    const birthDate = new Date(dob);
-    const today = new Date();
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
+    try {
+      if (!dob) return 0;
+      // Handle both timestamp and date-only formats
+      const datePart = dob.includes(' ') ? dob.split(' ')[0] : dob;
+      const [year, month, day] = datePart.split('-').map(Number);
+      
+      // Create date in local timezone for age calculation
+      const birthDate = new Date(year, month - 1, day);
+      if (isNaN(birthDate.getTime())) return 0;
+
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      
+      return age >= 0 ? age : 0;
+    } catch (error) {
+      console.error('Error calculating age:', error);
+      return 0;
     }
-    return age;
   };
 
-  const handleChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.value;
-    if (field === 'dob' && !useManualAge) {
-      const age = calculateAge(value);
-      setFormData(prev => ({
-        ...prev,
-        [field]: value,
-        age: age
-      }));
+  // Handle manual age change
+  const handleAgeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newAge = parseInt(event.target.value) || 0;
+    setFormData(prev => ({
+      ...prev,
+      age: newAge
+    }));
+  };
+
+  // Handle date picker change
+  const handleDateChange = (newValue: Date | null) => {
+    console.log('DATE DEBUG: handleDateChange called with:', newValue);
+    if (newValue && !isNaN(newValue.getTime())) {
+      console.log('DATE DEBUG: Valid date received in handleDateChange');
+      setDateValue(newValue);
+      
+      try {
+        // Get the local date components
+        const year = newValue.getFullYear();
+        const month = newValue.getMonth() + 1;
+        const day = newValue.getDate();
+        
+        // Create date string in YYYY-MM-DD format without timezone conversion
+        const formattedDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        console.log('DATE DEBUG: Local date components:', { year, month, day });
+        console.log('DATE DEBUG: Formatted date:', formattedDate);
+        
+        const calculatedAge = calculateAge(formattedDate);
+        console.log('DATE DEBUG: Calculated age:', calculatedAge);
+        
+        setFormData(prev => {
+          const newData = {
+            ...prev,
+            dob: formattedDate,
+            age: calculatedAge
+          };
+          console.log('DATE DEBUG: Updated formData:', newData);
+          return newData;
+        });
+      } catch (error) {
+        console.error('DATE DEBUG: Error in handleDateChange:', error);
+      }
     } else {
+      console.log('DATE DEBUG: Invalid date in handleDateChange');
+    }
+  };
+
+  // Handle manual/auto age toggle
+  const handleManualAgeToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const useManual = event.target.checked;
+    console.log('DATE DEBUG: Manual age toggle:', useManual);
+    setUseManualAge(useManual);
+    
+    if (!useManual && dateValue) {
+      console.log('DATE DEBUG: Recalculating age from dateValue:', dateValue);
+      // Recalculate age from DOB when switching back to automatic
+      const formattedDate = dateValue.toISOString().split('T')[0];
+      console.log('DATE DEBUG: Formatted date for age calc:', formattedDate);
+      const calculatedAge = calculateAge(formattedDate);
+      console.log('DATE DEBUG: Recalculated age:', calculatedAge);
       setFormData(prev => ({
         ...prev,
-        [field]: value
+        age: calculatedAge
       }));
     }
   };
 
   const handleSubmit = async () => {
     try {
+      console.log('DATE DEBUG: Submitting with formData:', formData);
+      console.log('DATE DEBUG: Current dateValue:', dateValue);
+      
       // Set a default DOB if using manual age
       const submissionData = {
         ...formData,
@@ -111,13 +221,14 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         patientId = newPatient.id;
       }
 
-      // Add to queue if requested
-      if (addToQueue && lineNumber !== '') {
+      // Add to queue if requested and line number is provided
+      if (mode === 'create' && addToQueue && lineNumber !== '') {
+        console.log('Adding to queue with line number:', lineNumber);
         await pb.collection('queue').create({
           patient: patientId,
           status: 'checked_in',
           check_in_time: new Date().toISOString(),
-          line_number: lineNumber,
+          line_number: parseInt(String(lineNumber)),
           priority: 3,
           assigned_to: null,
           start_time: null,
@@ -133,17 +244,6 @@ export const PatientModal: React.FC<PatientModalProps> = ({
       alert('Failed to save patient');
     }
   };
-
-  // Update age when DOB changes
-  useEffect(() => {
-    if (!useManualAge && formData.dob) {
-      const age = calculateAge(formData.dob);
-      setFormData(prev => ({
-        ...prev,
-        age: age
-      }));
-    }
-  }, [formData.dob, useManualAge]);
 
   return (
     <Dialog 
@@ -190,7 +290,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               fullWidth
               label="First Name"
               value={formData.first_name}
-              onChange={handleChange('first_name')}
+              onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
               required
               autoFocus
               sx={{ mb: { xs: 2, sm: 0 } }}
@@ -201,7 +301,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               fullWidth
               label="Last Name"
               value={formData.last_name}
-              onChange={handleChange('last_name')}
+              onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
               required
               sx={{ mb: { xs: 2, sm: 0 } }}
             />
@@ -212,7 +312,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               control={
                 <Switch
                   checked={useManualAge}
-                  onChange={(e) => setUseManualAge(e.target.checked)}
+                  onChange={handleManualAgeToggle}
                 />
               }
               label="Enter age manually"
@@ -224,21 +324,23 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               <LocalizationProvider dateAdapter={AdapterDateFns}>
                 <DatePicker
                   label="Date of Birth"
-                  value={formData.dob ? new Date(formData.dob) : null}
-                  onChange={(newValue) => {
-                    if (newValue) {
-                      const formattedDate = newValue.toISOString().split('T')[0];
-                      handleChange('dob')({ target: { value: formattedDate } } as React.ChangeEvent<HTMLInputElement>);
-                    }
-                  }}
+                  value={dateValue}
+                  onChange={handleDateChange}
                   disabled={false}
+                  format="MM/dd/yyyy"
                   slotProps={{
                     textField: {
                       fullWidth: true,
                       required: true,
-                      sx: { mb: { xs: 2, sm: 0 } }
+                      sx: { mb: { xs: 2, sm: 0 } },
+                      inputProps: {
+                        placeholder: "MM/DD/YYYY"
+                      }
                     }
                   }}
+                  disableFuture
+                  reduceAnimations
+                  showDaysOutsideCurrentMonth
                 />
               </LocalizationProvider>
             </Grid>
@@ -249,9 +351,10 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               label="Age"
               type="number"
               value={formData.age}
-              onChange={handleChange('age')}
+              onChange={handleAgeChange}
               required
               disabled={!useManualAge}
+              inputProps={{ min: 0 }}
               sx={{ mb: { xs: 2, sm: 0 } }}
             />
           </Grid>
@@ -308,6 +411,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                     value={lineNumber}
                     onChange={(e) => setLineNumber(parseInt(e.target.value) || '')}
                     required={addToQueue}
+                    inputProps={{ min: 0 }}
                   />
                 </Grid>
               )}
