@@ -67,7 +67,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "stock",
 					Type:     "number",
-					Required: true,
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name:     "fixed_quantity",
@@ -701,6 +701,82 @@ func init() {
 		}
 
 		if err := dao.SaveCollection(responses); err != nil {
+			return err
+		}
+
+		// Create bulk_distributions collection
+		bulkDistributions := &models.Collection{
+			Name: "bulk_distributions",
+			Type: "base",
+			Schema: schema.NewSchema(
+				&schema.SchemaField{
+					Name:     "date",
+					Type:     "date",
+					Required: true,
+				},
+				&schema.SchemaField{
+					Name:     "notes",
+					Type:     "text",
+					Required: false,
+				},
+			),
+		}
+
+		// Set validation rules
+		bulkRule := "@request.auth.id != ''"
+		bulkDistributions.ListRule = &bulkRule
+		bulkDistributions.ViewRule = &bulkRule
+		bulkDistributions.CreateRule = &bulkRule
+		bulkDistributions.UpdateRule = &bulkRule
+		bulkDistributions.DeleteRule = &bulkRule
+
+		if err := dao.SaveCollection(bulkDistributions); err != nil {
+			return err
+		}
+
+		// Create bulk_distribution_items collection
+		maxSelect = 1
+		bulkItems := &models.Collection{
+			Name: "bulk_distribution_items",
+			Type: "base",
+			Schema: schema.NewSchema(
+				&schema.SchemaField{
+					Name: "distribution",
+					Type: "relation",
+					Options: &schema.RelationOptions{
+						CollectionId: "bulk_distributions",
+						MaxSelect:    &maxSelect,
+					},
+					Required: true,
+				},
+				&schema.SchemaField{
+					Name: "question",
+					Type: "relation",
+					Options: &schema.RelationOptions{
+						CollectionId: "encounter_questions",
+						MaxSelect:    &maxSelect,
+					},
+					Required: true,
+				},
+				&schema.SchemaField{
+					Name:     "quantity",
+					Type:     "number",
+					Required: true,
+					Options: &schema.NumberOptions{
+						Min: float64Ptr(0),
+					},
+				},
+			),
+		}
+
+		// Set validation rules
+		bulkItems.ListRule = &bulkRule
+		bulkItems.ViewRule = &bulkRule
+		bulkItems.CreateRule = &bulkRule
+		bulkItems.UpdateRule = &bulkRule
+		bulkItems.DeleteRule = &bulkRule
+
+		if err := dao.SaveCollection(bulkItems); err != nil {
 			return err
 		}
 

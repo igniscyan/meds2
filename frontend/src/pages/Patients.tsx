@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Stack,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -24,6 +25,7 @@ import {
   Person as PersonIcon,
   Queue as QueueIcon,
   AddCircle as AddCircleIcon,
+  Inventory as InventoryIcon,
 } from '@mui/icons-material';
 import PatientModal from '../components/PatientModal';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
@@ -31,6 +33,7 @@ import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useNavigate } from 'react-router-dom';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
+import BulkDistributionModal from '../components/BulkDistributionModal';
 
 interface Patient extends Record {
   first_name: string;
@@ -51,6 +54,7 @@ const Patients: React.FC = () => {
   const [checkInDialogOpen, setCheckInDialogOpen] = useState(false);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [lineNumber, setLineNumber] = useState<number>(0);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
   useEffect(() => {
     console.log('Patients updated:', patients);
@@ -125,6 +129,10 @@ const Patients: React.FC = () => {
     });
   }, [patients, searchQuery]);
 
+  const handleBulkDistributionComplete = () => {
+    setIsBulkModalOpen(false);
+  };
+
   if (loading) {
     return <Typography>Loading...</Typography>;
   }
@@ -138,14 +146,24 @@ const Patients: React.FC = () => {
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4">Patients</Typography>
         <RoleBasedAccess requiredRole="provider">
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<AddIcon />}
-            onClick={() => setIsModalOpen(true)}
-          >
-            New Patient
-          </Button>
+          <Stack direction="row" spacing={2}>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<AddIcon />}
+              onClick={() => setIsModalOpen(true)}
+            >
+              New Patient
+            </Button>
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<InventoryIcon />}
+              onClick={() => setIsBulkModalOpen(true)}
+            >
+              Fast Track Patient
+            </Button>
+          </Stack>
         </RoleBasedAccess>
       </Box>
 
@@ -245,6 +263,12 @@ const Patients: React.FC = () => {
         onSave={handleCreatePatient}
         initialData={selectedPatient || undefined}
         mode={selectedPatient ? 'edit' : 'create'}
+      />
+
+      <BulkDistributionModal
+        open={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        onComplete={handleBulkDistributionComplete}
       />
 
       <Dialog open={checkInDialogOpen} onClose={() => setCheckInDialogOpen(false)}>

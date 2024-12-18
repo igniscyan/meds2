@@ -13,7 +13,7 @@ call npm run build
 cd ..
 
 echo Building Go executable...
-go build -o dist\package\medical-records.exe
+go build -ldflags -H=windowsgui -o dist\package\medical-records.exe
 
 echo Copying necessary files...
 xcopy /E /I /Y frontend\build dist\package\frontend\build

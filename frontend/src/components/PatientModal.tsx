@@ -18,6 +18,9 @@ import {
   FormControlLabel,
   Switch,
 } from '@mui/material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import CloseIcon from '@mui/icons-material/Close';
 import { pb } from '../atoms/auth';
 
@@ -218,16 +221,26 @@ export const PatientModal: React.FC<PatientModalProps> = ({
 
           {!useManualAge && (
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Date of Birth"
-                type="date"
-                value={formData.dob}
-                onChange={handleChange('dob')}
-                required
-                InputLabelProps={{ shrink: true }}
-                sx={{ mb: { xs: 2, sm: 0 } }}
-              />
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <DatePicker
+                  label="Date of Birth"
+                  value={formData.dob ? new Date(formData.dob) : null}
+                  onChange={(newValue) => {
+                    if (newValue) {
+                      const formattedDate = newValue.toISOString().split('T')[0];
+                      handleChange('dob')({ target: { value: formattedDate } } as React.ChangeEvent<HTMLInputElement>);
+                    }
+                  }}
+                  disabled={false}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      required: true,
+                      sx: { mb: { xs: 2, sm: 0 } }
+                    }
+                  }}
+                />
+              </LocalizationProvider>
             </Grid>
           )}
           <Grid item xs={12} sm={useManualAge ? 12 : 6}>

@@ -128,10 +128,12 @@ echo.
 echo :: Archive pb_data if it exists
 echo if exist "%INSTALL_DIR%\pb_data" ^(
 echo     echo Archiving database data...
+echo     set "BACKUP_DIR=%%USERPROFILE%%\Documents\MEDS_Backups"
+echo     mkdir "%%BACKUP_DIR%%" 2^>nul
 echo     set "BACKUP_DATE=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%_%%time:~0,2%%-%%time:~3,2%%-%%time:~6,2%%"
 echo     set "BACKUP_DATE=^!BACKUP_DATE: =0^!"
-echo     set "BACKUP_FILE=%%USERPROFILE%%\Documents\MEDS_DATA_^!BACKUP_DATE^!.zip"
-echo     powershell Compress-Archive -Path "%INSTALL_DIR%\pb_data\*" -DestinationPath "^!BACKUP_FILE^!"
+echo     set "BACKUP_FILE=%%BACKUP_DIR%%\MEDS_DATA_^!BACKUP_DATE^!.zip"
+echo     powershell -Command "Compress-Archive -Path '%INSTALL_DIR%\pb_data\*' -DestinationPath '^!BACKUP_FILE^!' -Force"
 echo     echo.
 echo     echo Database backup created at: ^!BACKUP_FILE^!
 echo     echo This backup contains all your medical records data.
