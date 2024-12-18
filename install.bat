@@ -134,9 +134,9 @@ echo     mkdir "%%BACKUP_DIR%%" 2^>nul
 echo     set "BACKUP_DATE=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%_%%time:~0,2%%-%%time:~3,2%%-%%time:~6,2%%"
 echo     set "BACKUP_DATE=^!BACKUP_DATE: =0^!"
 echo     set "BACKUP_FILE=%%BACKUP_DIR%%\MEDS_DATA_^!BACKUP_DATE^!.zip"
-echo     powershell -Command "Compress-Archive -Path '%INSTALL_DIR%\pb_data\*' -DestinationPath '^!BACKUP_FILE^!' -Force"
+echo     powershell -NoProfile -Command "Compress-Archive -Path '%%~dp0\pb_data\*' -DestinationPath '%%BACKUP_DIR%%\MEDS_DATA_^!BACKUP_DATE^!.zip' -Force"
 echo     echo.
-echo     echo Database backup created at: ^!BACKUP_FILE^!
+echo     echo Database backup created at: %%BACKUP_DIR%%\MEDS_DATA_^!BACKUP_DATE^!.zip
 echo     echo This backup contains all your medical records data.
 echo     echo Please keep this file safe if you wish to preserve your data.
 echo     echo.
