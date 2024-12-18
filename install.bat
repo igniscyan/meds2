@@ -138,12 +138,12 @@ echo     ^)
 echo     for /f "tokens=1-2 delims=: " %%%%a in ^('time /t'^) do ^(
 echo         set "BACKUP_TIME=%%%%a-%%%%b"
 echo     ^)
-echo     set "BACKUP_FILE=%%BACKUP_DIR%%\MEDS_DATA_!BACKUP_DATE!_!BACKUP_TIME!.zip"
-echo     echo Creating backup file: %%BACKUP_FILE%%
-echo     powershell -NoProfile -ExecutionPolicy Bypass -Command ^"^& { $source = '%%~dp0\pb_data\*'; $dest = '%%BACKUP_FILE%%'; Write-Host 'Compressing: ' $source ' to ' $dest; Compress-Archive -Path $source -DestinationPath $dest -Force }^"
-echo     if exist "%%BACKUP_FILE%%" ^(
+echo     set "BACKUP_FILE=!BACKUP_DIR!\MEDS_DATA_!BACKUP_DATE!_!BACKUP_TIME!.zip"
+echo     echo Creating backup file: !BACKUP_FILE!
+echo     powershell -NoProfile -ExecutionPolicy Bypass -Command ^"^& { $source = '%%~dp0\pb_data\*'; $dest = '!BACKUP_FILE!'; Write-Host 'Compressing: ' $source ' to ' $dest; Compress-Archive -Path $source -DestinationPath $dest -Force }^"
+echo     if exist "!BACKUP_FILE!" ^(
 echo         echo.
-echo         echo Database backup successfully created at: %%BACKUP_FILE%%
+echo         echo Database backup successfully created at: !BACKUP_FILE!
 echo         echo This backup contains all your medical records data.
 echo         echo Please keep this file safe if you wish to preserve your data.
 echo         echo.
@@ -152,7 +152,7 @@ echo         echo Please copy it to a safe location if you wish to keep it.
 echo         pause
 echo     ^) else ^(
 echo         echo.
-echo         echo Warning: Failed to create backup at: %%BACKUP_FILE%%
+echo         echo Warning: Failed to create backup at: !BACKUP_FILE!
 echo         echo Please manually copy the pb_data folder before continuing.
 echo         pause
 echo     ^)
