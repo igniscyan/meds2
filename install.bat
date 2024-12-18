@@ -131,42 +131,40 @@ echo :: Archive pb_data if it exists
 echo if exist "%%~dp0\pb_data" ^(
 echo     echo Archiving database data...
 echo     set "BACKUP_DIR=%%USERPROFILE%%\Documents\MEDS_BACKUP"
-echo     echo Creating backup directory: !BACKUP_DIR!
-echo     mkdir "!BACKUP_DIR!" 2^>nul
+echo     echo Creating backup directory: ^^!BACKUP_DIR^^!
+echo     mkdir "%%USERPROFILE%%\Documents\MEDS_BACKUP" 2^>nul
 echo     
 echo     set "TIMESTAMP=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%_%%time:~0,2%%-%%time:~3,2%%"
-echo     set "TIMESTAMP=!TIMESTAMP: =0!"
-echo     set "BACKUP_FILE=!BACKUP_DIR!\archive_!TIMESTAMP!.zip"
+echo     set "TIMESTAMP=^^!TIMESTAMP: =0^^!"
 echo     
-echo     echo Creating backup file: !BACKUP_FILE!
-echo     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+echo     echo Creating backup file...
+echo     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "^
 echo         $source = '%%~dp0pb_data'; ^
-echo         $userProfile = [System.Environment]::GetEnvironmentVariable('USERPROFILE'); ^
-echo         $backupDir = Join-Path $userProfile 'Documents\MEDS_BACKUP'; ^
-echo         $timestamp = '!TIMESTAMP!'; ^
+echo         $backupDir = '%%USERPROFILE%%\Documents\MEDS_BACKUP'; ^
+echo         $timestamp = (Get-Date).ToString('yyyy-MM-dd_HH-mm'); ^
 echo         $dest = Join-Path $backupDir ('archive_' + $timestamp + '.zip'); ^
 echo         Write-Host ('Compressing: ' + $source + ' to ' + $dest); ^
 echo         if (Test-Path -Path $source) { ^
 echo             New-Item -ItemType Directory -Force -Path $backupDir ^| Out-Null; ^
 echo             Compress-Archive -Path $source -DestinationPath $dest -Force; ^
+echo             Write-Host 'Backup completed successfully.'; ^
 echo         } else { ^
 echo             Write-Error ('Source directory not found: ' + $source); ^
-echo         }
+echo         }"
 echo     
-echo     if exist "!BACKUP_DIR!\archive_!TIMESTAMP!.zip" ^(
+echo     if exist "%%USERPROFILE%%\Documents\MEDS_BACKUP\archive_%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%*.zip" ^(
 echo         echo.
-echo         echo Database backup successfully created at: !BACKUP_FILE!
+echo         echo Database backup successfully created in Documents\MEDS_BACKUP
 echo         echo This backup contains all your medical records data.
 echo         echo Please keep this file safe if you wish to preserve your data.
 echo         echo.
 echo         pause
 echo     ^) else ^(
 echo         echo.
-echo         echo Warning: Failed to create backup at: !BACKUP_FILE!
+echo         echo Warning: Failed to create backup
 echo         echo Please manually copy the pb_data folder before continuing.
 echo         pause
 echo     ^)
-echo     echo.
 echo ^)
 echo.
 echo :: Remove shortcuts
