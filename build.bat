@@ -18,8 +18,28 @@ go build -o dist\package\medical-records.exe
 echo Creating run.bat file...
 (
 echo @echo off
+echo setlocal enabledelayedexpansion
+echo.
+echo :: Change to the script's directory
 echo cd /d "%%~dp0"
-echo cmd /k medical-records.exe
+echo.
+echo :: Set up Ctrl+C handler
+echo :LOOP
+echo medical-records.exe
+echo.
+echo :: Check if the user pressed Ctrl+C
+echo if errorlevel 1 ^(
+echo     echo.
+echo     echo Shutting down gracefully...
+echo     timeout /t 2 /nobreak ^>nul
+echo     taskkill /F /IM medical-records.exe 2^>nul
+echo     exit /b
+echo ^)
+echo.
+echo :: If the program crashed, ask to restart
+echo echo.
+echo set /p "RESTART=Program stopped. Would you like to restart? (Y/N) "
+echo if /i "^!RESTART^!"=="Y" goto LOOP
 ) > dist\package\run.bat
 
 echo Copying necessary files...
