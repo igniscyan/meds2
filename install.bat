@@ -139,18 +139,21 @@ echo     set "TIMESTAMP=!TIMESTAMP: =0!"
 echo     set "BACKUP_FILE=!BACKUP_DIR!\archive_!TIMESTAMP!.zip"
 echo     
 echo     echo Creating backup file: !BACKUP_FILE!
-echo     powershell -NoProfile -ExecutionPolicy Bypass -Command ^"^
-echo         $ErrorActionPreference = 'Stop';^
-echo         $source = '%%~dp0pb_data';^
-echo         $dest = '!BACKUP_FILE!'.Replace^('%%USERPROFILE%%', $env:USERPROFILE^);^
-echo         Write-Host 'Compressing: ' $source ' to ' $dest;^
-echo         if ^(Test-Path $source^) {^
-echo             Compress-Archive -Path $source -DestinationPath $dest -Force;^
-echo         } else {^
-echo             Write-Error 'Source directory not found';^
-echo         }^"
+echo     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ^
+echo         $source = '%%~dp0pb_data'; ^
+echo         $userProfile = [System.Environment]::GetEnvironmentVariable('USERPROFILE'); ^
+echo         $backupDir = Join-Path $userProfile 'Documents\MEDS_BACKUP'; ^
+echo         $timestamp = '!TIMESTAMP!'; ^
+echo         $dest = Join-Path $backupDir ('archive_' + $timestamp + '.zip'); ^
+echo         Write-Host ('Compressing: ' + $source + ' to ' + $dest); ^
+echo         if (Test-Path -Path $source) { ^
+echo             New-Item -ItemType Directory -Force -Path $backupDir ^| Out-Null; ^
+echo             Compress-Archive -Path $source -DestinationPath $dest -Force; ^
+echo         } else { ^
+echo             Write-Error ('Source directory not found: ' + $source); ^
+echo         }
 echo     
-echo     if exist "!BACKUP_FILE!" ^(
+echo     if exist "!BACKUP_DIR!\archive_!TIMESTAMP!.zip" ^(
 echo         echo.
 echo         echo Database backup successfully created at: !BACKUP_FILE!
 echo         echo This backup contains all your medical records data.
