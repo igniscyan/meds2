@@ -1,82 +1,105 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: Request admin privileges
->nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
-if '%errorlevel%' NEQ '0' (
-    echo Requesting administrative privileges...
-    goto UACPrompt
-) else (
-    goto gotAdmin
+echo Starting uninstallation process...
+pause
+
+:: Request admin privileges if needed
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Set UAC = CreateObject^("Shell.Application"^) > "%temp%\elevate.vbs"
+    echo UAC.ShellExecute "%~f0", "", "", "runas", 1 >> "%temp%\elevate.vbs"
+    call "%temp%\elevate.vbs"
+    del "%temp%\elevate.vbs"
+    exit /b
 )
 
-:UACPrompt
-    echo Set UAC = CreateObject^("Shell.Application"^) > "%temp%\getadmin.vbs"
-    echo UAC.ShellExecute "%~s0", "", "", "runas", 1 >> "%temp%\getadmin.vbs"
-    "%temp%\getadmin.vbs"
-    exit /B
+echo Admin rights confirmed.
+echo Press any key to continue...
+pause
 
-:gotAdmin
-    if exist "%temp%\getadmin.vbs" ( del "%temp%\getadmin.vbs" )
-    pushd "%CD%"
-    CD /D "%~dp0"
+:: Kill any running instances
+echo Stopping any running instances of the application...
+taskkill /F /IM medical-records.exe >nul 2>&1
 
-echo Uninstalling Medical Records System...
-echo.
+:: Set up backup paths
+set "BACKUP_DIR=%USERPROFILE%\Documents\MEDS_BACKUPS"
+set "TIMESTAMP=%date:~10,4%%date:~4,2%%date:~7,2%_%time:~0,2%%time:~3,2%"
+set "TIMESTAMP=%TIMESTAMP: =0%"
+set "BACKUP_FILE=%BACKUP_DIR%\MEDS_BACKUP_%TIMESTAMP%.zip"
 
-:: Kill any running instances of the application
-taskkill /F /IM medical-records.exe 2>nul
+:: Create backup directory
+echo Creating backup directory: %BACKUP_DIR%
+mkdir "%BACKUP_DIR%" 2>nul
 
-:: Archive pb_data if it exists
-if exist "%~dp0\pb_data" (
-    echo Archiving database data...
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "
-        $source = '%~dp0pb_data'
-        $backupDir = [Environment]::GetFolderPath('MyDocuments') + '\MEDS_BACKUP'
-        $timestamp = (Get-Date).ToString('yyyy-MM-dd_HH-mm')
-        $dest = Join-Path $backupDir ('archive_' + $timestamp + '.zip')
-        
-        Write-Host ('Backup directory: ' + $backupDir)
-        Write-Host ('Source: ' + $source)
-        Write-Host ('Destination: ' + $dest)
-        
-        if (Test-Path -Path $source) {
-            New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-            Compress-Archive -Path $source -DestinationPath $dest -Force
-            Write-Host 'Backup completed successfully.'
-        } else {
-            Write-Error ('Source directory not found: ' + $source)
-        }
-    "
+:: Check for pb_data and create backup
+if exist "%~dp0pb_data" (
+    echo Found pb_data directory.
+    echo Creating backup at: %BACKUP_FILE%
+    echo Press any key to start backup...
+    pause
+
+    powershell -Command "Write-Host 'Starting backup...'; Compress-Archive -Path '%~dp0pb_data' -DestinationPath '%BACKUP_FILE%' -Force; Write-Host 'Backup complete'"
     
-    if exist "%USERPROFILE%\Documents\MEDS_BACKUP\archive_*.zip" (
+    if exist "%BACKUP_FILE%" (
         echo.
-        echo Database backup successfully created in Documents\MEDS_BACKUP
-        echo This backup contains all your medical records data.
-        echo Please keep this file safe if you wish to preserve your data.
+        echo Backup created successfully at:
+        echo %BACKUP_FILE%
         echo.
+        echo Press any key to continue with uninstallation...
         pause
     ) else (
         echo.
-        echo Warning: Failed to create backup
-        echo Please manually copy the pb_data folder before continuing.
+        echo WARNING: Backup creation failed!
+        echo Please manually copy the pb_data folder before proceeding.
+        echo Press any key to continue anyway...
         pause
+    )
+) else (
+    echo No pb_data directory found, skipping backup.
+    echo Press any key to continue...
+    pause
+)
+
+echo.
+echo Removing shortcuts...
+if exist "%USERPROFILE%\Desktop\Medical Records System.lnk" (
+    del "%USERPROFILE%\Desktop\Medical Records System.lnk"
+    echo Removed desktop shortcut
+)
+
+if exist "%ProgramData%\Microsoft\Windows\Start Menu\Programs\Medical Records System" (
+    rmdir /s /q "%ProgramData%\Microsoft\Windows\Start Menu\Programs\Medical Records System"
+    echo Removed start menu shortcuts
+)
+
+echo.
+echo Press any key to remove application files...
+pause
+
+cd /d "%~dp0"
+for %%F in (*) do (
+    if not "%%F"=="uninstall.bat" (
+        del "%%F" 2>nul
+        echo Removed file: %%F
     )
 )
 
-:: Remove shortcuts
-if exist "%USERPROFILE%\Desktop\Medical Records System.lnk" del "%USERPROFILE%\Desktop\Medical Records System.lnk"
-if exist "%ProgramData%\Microsoft\Windows\Start Menu\Programs\Medical Records System" rmdir /s /q "%ProgramData%\Microsoft\Windows\Start Menu\Programs\Medical Records System"
+for /d %%D in (*) do (
+    rmdir /s /q "%%D" 2>nul
+    echo Removed directory: %%D
+)
 
-:: Remove all application files
-cd /d "%~dp0"
-for /d %%i in ("*") do rmdir /s /q "%%i"
-for %%i in ("*") do if /i not "%%~nxi"=="uninstall.bat" del /q "%%i"
+echo.
+echo Uninstallation complete!
+if exist "%BACKUP_FILE%" (
+    echo.
+    echo Your data has been backed up to:
+    echo %BACKUP_FILE%
+    echo.
+    start explorer "%BACKUP_DIR%"
+)
 
-:: Finally remove the uninstaller itself
 echo.
-echo Uninstallation complete.
-echo.
-echo Press any key to close this window...
-pause >nul
-(goto) 2>nul & del "%~f0"
+echo Press any key to exit...
+pause
