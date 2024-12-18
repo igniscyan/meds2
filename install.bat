@@ -47,6 +47,7 @@ xcopy /E /I /Y "frontend" "%INSTALL_DIR%\frontend"
 xcopy /E /I /Y "pb_migrations" "%INSTALL_DIR%\pb_migrations"
 copy /Y "medical-records.exe" "%INSTALL_DIR%"
 copy /Y "run.bat" "%INSTALL_DIR%"
+copy /Y "uninstall.bat" "%INSTALL_DIR%"
 copy /Y "README.txt" "%INSTALL_DIR%"
 
 :: Create desktop shortcut
@@ -93,97 +94,6 @@ echo oLink.Description = "Uninstall Medical Records System" >> "%VBS_SCRIPT%"
 echo oLink.Save >> "%VBS_SCRIPT%"
 cscript /nologo "%VBS_SCRIPT%"
 del "%VBS_SCRIPT%"
-
-:: Create uninstaller
-echo Creating uninstaller...
-set "UNINSTALL_SCRIPT=%INSTALL_DIR%\uninstall.bat"
-(
-echo @echo off
-echo setlocal enabledelayedexpansion
-echo.
-echo :: Request admin privileges
-echo ^>nul 2^>^&1 "%%SYSTEMROOT%%\system32\cacls.exe" "%%SYSTEMROOT%%\system32\config\system"
-echo if '%%errorlevel%%' NEQ '0' ^(
-echo     echo Requesting administrative privileges...
-echo     goto UACPrompt
-echo ^) else ^(
-echo     goto gotAdmin
-echo ^)
-echo.
-echo :UACPrompt
-echo     echo Set UAC = CreateObject^("Shell.Application"^) ^> "%%temp%%\getadmin.vbs"
-echo     echo UAC.ShellExecute "%%~s0", "", "", "runas", 1 ^>^> "%%temp%%\getadmin.vbs"
-echo     "%%temp%%\getadmin.vbs"
-echo     exit /B
-echo.
-echo :gotAdmin
-echo     if exist "%%temp%%\getadmin.vbs" ^( del "%%temp%%\getadmin.vbs" ^)
-echo     pushd "%%CD%%"
-echo     CD /D "%%~dp0"
-echo.
-echo echo Uninstalling Medical Records System...
-echo echo.
-echo.
-echo :: Kill any running instances of the application
-echo taskkill /F /IM medical-records.exe 2^>nul
-echo.
-echo :: Archive pb_data if it exists
-echo if exist "%%~dp0\pb_data" ^(
-echo     echo Archiving database data...
-echo     set "BACKUP_DIR=%%USERPROFILE%%\Documents\MEDS_BACKUP"
-echo     echo Creating backup directory: ^^!BACKUP_DIR^^!
-echo     mkdir "%%USERPROFILE%%\Documents\MEDS_BACKUP" 2^>nul
-echo     
-echo     set "TIMESTAMP=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%_%%time:~0,2%%-%%time:~3,2%%"
-echo     set "TIMESTAMP=^^!TIMESTAMP: =0^^!"
-echo     
-echo     echo Creating backup file...
-echo     powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "^
-echo         $source = '%%~dp0pb_data'; ^
-echo         $backupDir = '%%USERPROFILE%%\Documents\MEDS_BACKUP'; ^
-echo         $timestamp = (Get-Date).ToString('yyyy-MM-dd_HH-mm'); ^
-echo         $dest = Join-Path $backupDir ('archive_' + $timestamp + '.zip'); ^
-echo         Write-Host ('Compressing: ' + $source + ' to ' + $dest); ^
-echo         if (Test-Path -Path $source) { ^
-echo             New-Item -ItemType Directory -Force -Path $backupDir ^| Out-Null; ^
-echo             Compress-Archive -Path $source -DestinationPath $dest -Force; ^
-echo             Write-Host 'Backup completed successfully.'; ^
-echo         } else { ^
-echo             Write-Error ('Source directory not found: ' + $source); ^
-echo         }"
-echo     
-echo     if exist "%%USERPROFILE%%\Documents\MEDS_BACKUP\archive_%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%*.zip" ^(
-echo         echo.
-echo         echo Database backup successfully created in Documents\MEDS_BACKUP
-echo         echo This backup contains all your medical records data.
-echo         echo Please keep this file safe if you wish to preserve your data.
-echo         echo.
-echo         pause
-echo     ^) else ^(
-echo         echo.
-echo         echo Warning: Failed to create backup
-echo         echo Please manually copy the pb_data folder before continuing.
-echo         pause
-echo     ^)
-echo ^)
-echo.
-echo :: Remove shortcuts
-echo if exist "%%USERPROFILE%%\Desktop\Medical Records System.lnk" del "%%USERPROFILE%%\Desktop\Medical Records System.lnk"
-echo if exist "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System" rmdir /s /q "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System"
-echo.
-echo :: Remove all application files
-echo cd /d "%%~dp0"
-echo for /d %%%%i in ^("*"^) do rmdir /s /q "%%%%i"
-echo for %%%%i in ^("*"^) do if /i not "%%%%~nxi"=="uninstall.bat" del /q "%%%%i"
-echo.
-echo :: Finally remove the uninstaller itself
-echo echo.
-echo echo Uninstallation complete.
-echo echo.
-echo echo Press any key to close this window...
-echo pause ^>nul
-echo ^(goto^) 2^>nul ^& del "%%~f0"
-) > "%UNINSTALL_SCRIPT%"
 
 :: Installation complete
 echo.

@@ -83,6 +83,7 @@ echo 2. Delete the application folder and shortcuts manually
 
 echo Copying installer...
 copy install.bat dist\package\
+copy uninstall.bat dist\package\
 
 echo Creating ZIP archive...
 powershell Compress-Archive -Path dist\package\* -DestinationPath dist\MedicalRecordsSystem.zip -Force
