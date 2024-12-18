@@ -20,14 +20,31 @@ echo Creating run.bat file...
 echo @echo off
 echo setlocal enabledelayedexpansion
 echo.
-echo :: Change to the script's directory
-echo cd /d "%%~dp0"
+echo :: Request admin privileges
+echo ^>nul 2^>^&1 "%%SYSTEMROOT%%\system32\cacls.exe" "%%SYSTEMROOT%%\system32\config\system"
+echo if '%%errorlevel%%' NEQ '0' ^(
+echo     echo Requesting administrative privileges...
+echo     goto UACPrompt
+echo ^) else ^(
+echo     goto gotAdmin
+echo ^)
 echo.
-echo :: Set up Ctrl+C handler
+echo :UACPrompt
+echo     echo Set UAC = CreateObject^("Shell.Application"^) ^> "%%temp%%\getadmin.vbs"
+echo     echo UAC.ShellExecute "%%~s0", "", "", "runas", 1 ^>^> "%%temp%%\getadmin.vbs"
+echo     "%%temp%%\getadmin.vbs"
+echo     exit /B
+echo.
+echo :gotAdmin
+echo     if exist "%%temp%%\getadmin.vbs" ^( del "%%temp%%\getadmin.vbs" ^)
+echo     pushd "%%CD%%"
+echo     CD /D "%%~dp0"
+echo.
+echo :: Set up Ctrl+C handler and run the application
 echo :LOOP
 echo medical-records.exe
 echo.
-echo :: Check if the user pressed Ctrl+C
+echo :: Check if the user pressed Ctrl+C or if the program exited
 echo if errorlevel 1 ^(
 echo     echo.
 echo     echo Shutting down gracefully...
