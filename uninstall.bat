@@ -100,6 +100,20 @@ if exist "%BACKUP_FILE%" (
     start explorer "%BACKUP_DIR%"
 )
 
+:: Create a cleanup script in temp directory
+set "CLEANUP_SCRIPT=%TEMP%\cleanup_%RANDOM%.bat"
+echo @echo off > "%CLEANUP_SCRIPT%"
+echo timeout /t 1 /nobreak ^>nul >> "%CLEANUP_SCRIPT%"
+echo cd /d "%~dp0" >> "%CLEANUP_SCRIPT%"
+echo del /q "%~f0" >> "%CLEANUP_SCRIPT%"
+echo cd .. >> "%CLEANUP_SCRIPT%"
+echo rmdir "%~dp0" >> "%CLEANUP_SCRIPT%"
+echo del "%CLEANUP_SCRIPT%" >> "%CLEANUP_SCRIPT%"
+
 echo.
-echo Press any key to exit...
+echo Press any key to complete uninstallation...
 pause
+
+:: Start the cleanup script and exit
+start /b "" cmd /c "%CLEANUP_SCRIPT%"
+exit
