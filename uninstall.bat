@@ -1,8 +1,22 @@
 @echo off
 setlocal enabledelayedexpansion
 
+:: Check if running from temp directory
+if not "%~dp0"=="%TEMP%\" (
+    echo Moving to temporary location...
+    copy "%~f0" "%TEMP%\uninstall_meds.bat" >nul
+    start "" "%TEMP%\uninstall_meds.bat"
+    exit /b
+)
+
 echo Starting uninstallation process...
 pause
+
+:: Store the Program Files directory path
+set "INSTALL_DIR=%ProgramFiles%\Medical Records System"
+if not "%PROCESSOR_ARCHITECTURE%" == "x86" (
+    set "INSTALL_DIR=%ProgramFiles(x86)%\Medical Records System"
+)
 
 :: Request admin privileges if needed
 net session >nul 2>&1
@@ -33,13 +47,13 @@ echo Creating backup directory: %BACKUP_DIR%
 mkdir "%BACKUP_DIR%" 2>nul
 
 :: Check for pb_data and create backup
-if exist "%~dp0pb_data" (
+if exist "%INSTALL_DIR%\pb_data" (
     echo Found pb_data directory.
     echo Creating backup at: %BACKUP_FILE%
     echo Press any key to start backup...
     pause
 
-    powershell -Command "Write-Host 'Starting backup...'; Compress-Archive -Path '%~dp0pb_data' -DestinationPath '%BACKUP_FILE%' -Force; Write-Host 'Backup complete'"
+    powershell -Command "Write-Host 'Starting backup...'; Compress-Archive -Path '%INSTALL_DIR%\pb_data' -DestinationPath '%BACKUP_FILE%' -Force; Write-Host 'Backup complete'"
     
     if exist "%BACKUP_FILE%" (
         echo.
@@ -77,18 +91,21 @@ echo.
 echo Press any key to remove application files...
 pause
 
-cd /d "%~dp0"
+:: Remove all files and directories from installation directory
+cd /d "%INSTALL_DIR%"
 for %%F in (*) do (
-    if not "%%F"=="uninstall.bat" (
-        del "%%F" 2>nul
-        echo Removed file: %%F
-    )
+    del /f /q "%%F" 2>nul
+    echo Removed file: %%F
 )
 
 for /d %%D in (*) do (
     rmdir /s /q "%%D" 2>nul
     echo Removed directory: %%D
 )
+
+:: Go up one level and remove the main directory
+cd ..
+rmdir /s /q "%INSTALL_DIR%" 2>nul
 
 echo.
 echo Uninstallation complete!
@@ -100,20 +117,10 @@ if exist "%BACKUP_FILE%" (
     start explorer "%BACKUP_DIR%"
 )
 
-:: Create a cleanup script in temp directory
-set "CLEANUP_SCRIPT=%TEMP%\cleanup_%RANDOM%.bat"
-echo @echo off > "%CLEANUP_SCRIPT%"
-echo timeout /t 1 /nobreak ^>nul >> "%CLEANUP_SCRIPT%"
-echo cd /d "%~dp0" >> "%CLEANUP_SCRIPT%"
-echo del /q "%~f0" >> "%CLEANUP_SCRIPT%"
-echo cd .. >> "%CLEANUP_SCRIPT%"
-echo rmdir "%~dp0" >> "%CLEANUP_SCRIPT%"
-echo del "%CLEANUP_SCRIPT%" >> "%CLEANUP_SCRIPT%"
-
 echo.
 echo Press any key to complete uninstallation...
 pause
 
-:: Start the cleanup script and exit
-start /b "" cmd /c "%CLEANUP_SCRIPT%"
+:: Clean up the temporary uninstaller
+del "%~f0"
 exit
