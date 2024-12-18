@@ -15,6 +15,13 @@ cd ..
 echo Building Go executable...
 go build -o dist\package\medical-records.exe
 
+echo Creating run.bat file...
+(
+echo @echo off
+echo cd /d "%%~dp0"
+echo cmd /k medical-records.exe
+) > dist\package\run.bat
+
 echo Copying necessary files...
 xcopy /E /I /Y frontend\build dist\package\frontend\build
 if exist "pb_migrations" xcopy /E /I /Y pb_migrations dist\package\pb_migrations

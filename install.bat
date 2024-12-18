@@ -46,6 +46,7 @@ echo Copying application files...
 xcopy /E /I /Y "frontend" "%INSTALL_DIR%\frontend"
 xcopy /E /I /Y "pb_migrations" "%INSTALL_DIR%\pb_migrations"
 copy /Y "medical-records.exe" "%INSTALL_DIR%"
+copy /Y "run.bat" "%INSTALL_DIR%"
 copy /Y "README.txt" "%INSTALL_DIR%"
 
 :: Create desktop shortcut
@@ -56,8 +57,7 @@ set "VBS_SCRIPT=%TEMP%\CreateShortcut.vbs"
 echo Set oWS = WScript.CreateObject("WScript.Shell") > "%VBS_SCRIPT%"
 echo sLinkFile = "%SHORTCUT%" >> "%VBS_SCRIPT%"
 echo Set oLink = oWS.CreateShortcut(sLinkFile) >> "%VBS_SCRIPT%"
-echo oLink.TargetPath = "cmd.exe" >> "%VBS_SCRIPT%"
-echo oLink.Arguments = "/k ""%INSTALL_DIR%\medical-records.exe""" >> "%VBS_SCRIPT%"
+echo oLink.TargetPath = "%INSTALL_DIR%\run.bat" >> "%VBS_SCRIPT%"
 echo oLink.WorkingDirectory = "%INSTALL_DIR%" >> "%VBS_SCRIPT%"
 echo oLink.Description = "Medical Records System" >> "%VBS_SCRIPT%"
 echo oLink.Save >> "%VBS_SCRIPT%"
@@ -76,8 +76,7 @@ set "VBS_SCRIPT=%TEMP%\CreateShortcut.vbs"
 echo Set oWS = WScript.CreateObject("WScript.Shell") > "%VBS_SCRIPT%"
 echo sLinkFile = "%SHORTCUT%" >> "%VBS_SCRIPT%"
 echo Set oLink = oWS.CreateShortcut(sLinkFile) >> "%VBS_SCRIPT%"
-echo oLink.TargetPath = "cmd.exe" >> "%VBS_SCRIPT%"
-echo oLink.Arguments = "/k ""%INSTALL_DIR%\medical-records.exe""" >> "%VBS_SCRIPT%"
+echo oLink.TargetPath = "%INSTALL_DIR%\run.bat" >> "%VBS_SCRIPT%"
 echo oLink.WorkingDirectory = "%INSTALL_DIR%" >> "%VBS_SCRIPT%"
 echo oLink.Description = "Medical Records System" >> "%VBS_SCRIPT%"
 echo oLink.Save >> "%VBS_SCRIPT%"
@@ -166,6 +165,6 @@ echo Shortcuts have been created on the desktop and start menu.
 echo To uninstall, use "Uninstall Medical Records System" in the Start Menu.
 echo.
 set /p "LAUNCH=Would you like to launch the application now? (Y/N) "
-if /i "%LAUNCH%"=="Y" start cmd /k "%INSTALL_DIR%\medical-records.exe"
+if /i "%LAUNCH%"=="Y" start "" "%INSTALL_DIR%\run.bat"
 
 pause 
