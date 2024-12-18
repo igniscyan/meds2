@@ -130,16 +130,16 @@ echo.
 echo :: Archive pb_data if it exists
 echo if exist "%%~dp0\pb_data" ^(
 echo     echo Archiving database data...
-echo     set "BACKUP_DIR=%%~dp0\backups"
+echo     set "BACKUP_DIR=%%USERPROFILE%%\Documents\MEDS_BACKUP"
 echo     echo Creating backup directory: %%BACKUP_DIR%%
 echo     mkdir "%%BACKUP_DIR%%" 2^>nul
 echo     
 echo     set "TIMESTAMP=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%_%%time:~0,2%%-%%time:~3,2%%"
 echo     set "TIMESTAMP=!TIMESTAMP: =0!"
-echo     set "BACKUP_FILE=%%BACKUP_DIR%%\MEDS_DATA_!TIMESTAMP!.zip"
+echo     set "BACKUP_FILE=%%BACKUP_DIR%%\archive_!TIMESTAMP!.zip"
 echo     
 echo     echo Creating backup file: !BACKUP_FILE!
-echo     powershell -NoProfile -ExecutionPolicy Bypass -Command "^& { $source = '%%~dp0\pb_data\*'; $dest = '!BACKUP_FILE!'; Write-Host 'Compressing: ' $source ' to ' $dest; Compress-Archive -Path $source -DestinationPath $dest -Force }"
+echo     powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $source = '%%~dp0pb_data'; $dest = '!BACKUP_FILE!'; Write-Host 'Compressing: ' $source ' to ' $dest; Compress-Archive -Path $source -DestinationPath $dest -Force"
 echo     
 echo     if exist "!BACKUP_FILE!" ^(
 echo         echo.
@@ -147,8 +147,6 @@ echo         echo Database backup successfully created at: !BACKUP_FILE!
 echo         echo This backup contains all your medical records data.
 echo         echo Please keep this file safe if you wish to preserve your data.
 echo         echo.
-echo         echo NOTE: The backup folder will be preserved in the Program Files directory.
-echo         echo Please copy it to a safe location if you wish to keep it.
 echo         pause
 echo     ^) else ^(
 echo         echo.
@@ -163,18 +161,10 @@ echo :: Remove shortcuts
 echo if exist "%%USERPROFILE%%\Desktop\Medical Records System.lnk" del "%%USERPROFILE%%\Desktop\Medical Records System.lnk"
 echo if exist "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System" rmdir /s /q "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System"
 echo.
-echo :: Move backup folder to parent directory if it exists
-echo if exist "%%~dp0\backups" ^(
-echo     echo Moving backup folder to preserve it...
-echo     :: Create a temporary directory name for the backup
-echo     set "TEMP_BACKUP_DIR=%%~dp0..\MEDS_Backup_%%TIMESTAMP%%"
-echo     move "%%~dp0\backups" "!TEMP_BACKUP_DIR!"
-echo     echo Backup folder moved to: !TEMP_BACKUP_DIR!
-echo ^)
-echo.
-echo :: Remove everything except the backup folder
-echo for /d %%%%i in ^("%%~dp0\*"^) do if /i not "%%%%~nxi"=="backups" rmdir /s /q "%%%%i"
-echo for %%%%i in ^("%%~dp0\*"^) do if /i not "%%%%~nxi"=="uninstall.bat" del /q "%%%%i"
+echo :: Remove all application files
+echo cd /d "%%~dp0"
+echo for /d %%%%i in ^("*"^) do rmdir /s /q "%%%%i"
+echo for %%%%i in ^("*"^) do if /i not "%%%%~nxi"=="uninstall.bat" del /q "%%%%i"
 echo.
 echo :: Finally remove the uninstaller itself
 echo echo.
