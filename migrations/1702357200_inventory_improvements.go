@@ -23,15 +23,49 @@ func init() {
 			}
 		}
 
-		// Create test user if it doesn't exist
+		// Get users collection and add role field first
 		users, err := dao.FindCollectionByNameOrId("users")
 		if err == nil {
-			_, err := dao.FindFirstRecordByData("users", "email", "user@example.com")
+			// Add role field if it doesn't exist
+			roleField := users.Schema.GetFieldByName("role")
+			if roleField == nil {
+				users.Schema.AddField(&schema.SchemaField{
+					Name:     "role",
+					Type:     schema.FieldTypeSelect,
+					Required: true,
+					Options: &schema.SelectOptions{
+						Values:    []string{"provider", "pharmacy", "admin"},
+						MaxSelect: 1,
+					},
+				})
+				if err := dao.SaveCollection(users); err != nil {
+					return err
+				}
+			}
+
+			// Create provider user
+			_, err := dao.FindFirstRecordByData("users", "email", "provider@example.com")
 			if err != nil {
 				record := models.NewRecord(users)
-				record.Set("username", "testuser")
-				record.Set("email", "user@example.com")
+				record.Set("username", "provider")
+				record.Set("email", "provider@example.com")
 				record.Set("emailVisibility", true)
+				record.Set("role", "provider")
+				record.SetPassword("password123")
+				record.Set("verified", true)
+				if err := dao.SaveRecord(record); err != nil {
+					return err
+				}
+			}
+
+			// Create pharmacy user
+			_, err = dao.FindFirstRecordByData("users", "email", "pharmacyuser@example.com")
+			if err != nil {
+				record := models.NewRecord(users)
+				record.Set("username", "pharmacyuser")
+				record.Set("email", "pharmacyuser@example.com")
+				record.Set("emailVisibility", true)
+				record.Set("role", "pharmacy")
 				record.SetPassword("password123")
 				record.Set("verified", true)
 				if err := dao.SaveRecord(record); err != nil {
@@ -246,24 +280,6 @@ func init() {
 
 		if err := dao.SaveCollection(chiefComplaints); err != nil {
 			return err
-		}
-
-		// Add "OTHER" to chief complaints if it doesn't exist
-		_, err = dao.FindFirstRecordByData("chief_complaints", "name", "OTHER (Custom Text Input)")
-		if err != nil {
-			record := models.NewRecord(chiefComplaints)
-			record.Set("name", "OTHER (Custom Text Input)")
-			if err := dao.SaveRecord(record); err != nil {
-				return err
-			}
-		}
-
-		// Remove the old "OTHER" entry if it exists
-		oldOther, err := dao.FindFirstRecordByData("chief_complaints", "name", "OTHER")
-		if err == nil {
-			if err := dao.DeleteRecord(oldOther); err != nil {
-				return err
-			}
 		}
 
 		// Seed chief complaints data
@@ -1085,27 +1101,7 @@ func init() {
 			}
 		}
 
-		// Update users collection to add role field
-		users, err = dao.FindCollectionByNameOrId("users")
-		if err != nil {
-			return err
-		}
-
-		// Add role field if it doesn't exist
-		roleField := users.Schema.GetFieldByName("role")
-		if roleField == nil {
-			users.Schema.AddField(&schema.SchemaField{
-				Name:     "role",
-				Type:     schema.FieldTypeSelect,
-				Required: true,
-				Options: &schema.SelectOptions{
-					Values:    []string{"provider", "pharmacy", "admin"},
-					MaxSelect: 1,
-				},
-			})
-		}
-
-		return dao.SaveCollection(users)
+		return nil
 	}, func(db dbx.Builder) error {
 		dao := daos.New(db)
 

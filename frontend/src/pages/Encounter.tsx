@@ -15,6 +15,7 @@ import {
   SelectChangeEvent,
   IconButton,
   Divider,
+  Autocomplete,
 } from '@mui/material';
 import ArrowBack from '@mui/icons-material/ArrowBack';
 import { pb } from '../atoms/auth';
@@ -62,6 +63,9 @@ interface Patient extends BaseModel {
 
 interface ChiefComplaint extends BaseModel {
   name: string;
+  id: string;
+  created: string;
+  updated: string;
 }
 
 interface Disbursement extends BaseModel {
@@ -126,38 +130,6 @@ export interface QuestionResponse extends BaseModel {
     question?: EncounterQuestion;
   }
 }
-
-export const CHIEF_COMPLAINTS: string[] = [
-  "ABDOMINAL PAIN",
-  "ANXIETY/NERVOUSNESS",
-  "BACK PAIN",
-  "CHEST PAIN",
-  "COUGH",
-  "DEPRESSION",
-  "DIARRHEA",
-  "DIZZINESS",
-  "EARACHE",
-  "FATIGUE",
-  "FEVER/CHILLS/SWEATS",
-  "HEADACHE",
-  "JOINT PAIN",
-  "NAUSEA",
-  "NECK MASS",
-  "NUMBNESS",
-  "OTHER",
-  "PALPITATIONS",
-  "RASH",
-  "SHORTNESS OF BREATH",
-  "SOFT TISSUE INJURY",
-  "SORE THROAT",
-  "SWOLLEN GLANDS",
-  "TENDER NECK",
-  "UPPER RESPIRATORY SYMPTOMS",
-  "URINARY SYMPTOMS",
-  "VAGINAL DISCHARGE",
-  "VOMITING",
-  "VISION CHANGES",
-];
 
 interface ExistingDisbursement extends BaseModel {
   encounter: string;
@@ -251,14 +223,23 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           pb.collection('patients').getOne(patientId, {
             $autoCancel: false  // Prevent auto-cancellation
           }),
-          pb.collection('chief_complaints').getList(1, 50, {
+          pb.collection('chief_complaints').getList<ChiefComplaint>(1, 50, {
             sort: 'name',
             $autoCancel: false  // Prevent auto-cancellation
           })
         ]);
         
+        // Debug log to check for duplicates
+        console.log('Loaded chief complaints:', complaintsResult.items.map(c => c.name));
+        
+        // Ensure uniqueness by using a Set
+        const uniqueComplaints = Array.from(new Set(complaintsResult.items.map(c => c.name)));
+        console.log('Unique chief complaints:', uniqueComplaints);
+        
         setPatient(patientRecord as Patient);
-        setChiefComplaints(complaintsResult.items as ChiefComplaint[]);
+        setChiefComplaints(complaintsResult.items.filter((c, index, self) => 
+          index === self.findIndex(t => t.name === c.name)
+        ));
 
         // Load encounter data if viewing, editing, or in pharmacy mode
         if (encounterId && (currentMode === 'view' || currentMode === 'edit' || currentMode === 'pharmacy')) {
@@ -477,8 +458,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     }));
   };
 
-  const handleComplaintChange = (event: SelectChangeEvent<string>) => {
-    const value = event.target.value;
+  const handleComplaintChange = (_event: any, value: string | null) => {
     if (value === 'OTHER (Custom Text Input)') {
       setShowOtherComplaint(true);
       setOtherComplaintValue('');
@@ -492,7 +472,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       setOtherComplaintValue('');
       setFormData(prev => ({
         ...prev,
-        chief_complaint: value,
+        chief_complaint: value || '',
         other_chief_complaint: '',
       }));
     }
@@ -1158,19 +1138,24 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               <Grid container spacing={2}>
                 <Grid item xs={12}>
                   <FormControl fullWidth>
-                    <InputLabel>Chief Complaint</InputLabel>
-                    <Select
-                      value={formData.chief_complaint || ''}
+                    <Autocomplete
+                      value={formData.chief_complaint || null}
                       onChange={handleComplaintChange}
+                      options={chiefComplaints.map(c => c.name)}
                       disabled={currentMode === 'view'}
-                      label="Chief Complaint"
-                    >
-                      {chiefComplaints.map((complaint) => (
-                        <MenuItem key={complaint.id} value={complaint.name}>
-                          {complaint.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Chief Complaint"
+                          placeholder="Search complaints..."
+                        />
+                      )}
+                      ListboxProps={{
+                        style: {
+                          maxHeight: '200px'
+                        }
+                      }}
+                    />
                   </FormControl>
                 </Grid>
                 {(showOtherComplaint || formData.other_chief_complaint) && (

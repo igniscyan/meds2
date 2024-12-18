@@ -19,7 +19,9 @@ import (
 func main() {
 	// Print startup information immediately
 	fmt.Println("\n=== MEDS System Information ===")
-	fmt.Println("Default credentials - username: user@example.com, password: password123")
+	fmt.Println("Default credentials for PocketBase - username: user@example.com, password: password123")
+	fmt.Println("Default credentials for MEDS Pharmacy user - username: pharmacyuser@example.com, password: password123")
+	fmt.Println("Default credentials for MEDS Provider user - username: provider@example.com, password: password123")
 	fmt.Println("Admin UI: http://127.0.0.1:8090/_/")
 	fmt.Println("Main application: http://127.0.0.1:8090")
 
