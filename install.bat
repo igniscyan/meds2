@@ -118,7 +118,8 @@ echo     exit /B
 echo.
 echo :gotAdmin
 echo     if exist "%%temp%%\getadmin.vbs" ^( del "%%temp%%\getadmin.vbs" ^)
-echo     pushd "%%~dp0"
+echo     pushd "%%CD%%"
+echo     CD /D "%%~dp0"
 echo.
 echo echo Uninstalling Medical Records System...
 echo echo.
@@ -132,22 +133,21 @@ echo     echo Archiving database data...
 echo     set "BACKUP_DIR=%%~dp0\backups"
 echo     echo Creating backup directory: %%BACKUP_DIR%%
 echo     mkdir "%%BACKUP_DIR%%" 2^>nul
-echo     for /f "tokens=2-4 delims=/ " %%%%a in ^('date /t'^) do ^(
-echo         set "BACKUP_DATE=%%%%c-%%%%a-%%%%b"
-echo     ^)
-echo     for /f "tokens=1-2 delims=: " %%%%a in ^('time /t'^) do ^(
-echo         set "BACKUP_TIME=%%%%a-%%%%b"
-echo     ^)
-echo     set "BACKUP_FILE=!BACKUP_DIR!\MEDS_DATA_!BACKUP_DATE!_!BACKUP_TIME!.zip"
+echo     
+echo     set "TIMESTAMP=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%_%%time:~0,2%%-%%time:~3,2%%"
+echo     set "TIMESTAMP=!TIMESTAMP: =0!"
+echo     set "BACKUP_FILE=%%BACKUP_DIR%%\MEDS_DATA_!TIMESTAMP!.zip"
+echo     
 echo     echo Creating backup file: !BACKUP_FILE!
-echo     powershell -NoProfile -ExecutionPolicy Bypass -Command ^"^& { $source = '%%~dp0\pb_data\*'; $dest = '!BACKUP_FILE!'; Write-Host 'Compressing: ' $source ' to ' $dest; Compress-Archive -Path $source -DestinationPath $dest -Force }^"
+echo     powershell -NoProfile -ExecutionPolicy Bypass -Command "^& { $source = '%%~dp0\pb_data\*'; $dest = '!BACKUP_FILE!'; Write-Host 'Compressing: ' $source ' to ' $dest; Compress-Archive -Path $source -DestinationPath $dest -Force }"
+echo     
 echo     if exist "!BACKUP_FILE!" ^(
 echo         echo.
 echo         echo Database backup successfully created at: !BACKUP_FILE!
 echo         echo This backup contains all your medical records data.
 echo         echo Please keep this file safe if you wish to preserve your data.
 echo         echo.
-echo         echo NOTE: The backup will be deleted when uninstallation completes.
+echo         echo NOTE: The backup folder will be preserved in the Program Files directory.
 echo         echo Please copy it to a safe location if you wish to keep it.
 echo         pause
 echo     ^) else ^(
@@ -163,16 +163,26 @@ echo :: Remove shortcuts
 echo if exist "%%USERPROFILE%%\Desktop\Medical Records System.lnk" del "%%USERPROFILE%%\Desktop\Medical Records System.lnk"
 echo if exist "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System" rmdir /s /q "%%ProgramData%%\Microsoft\Windows\Start Menu\Programs\Medical Records System"
 echo.
-echo :: Change directory to parent before removing installation
-echo cd /d "%%~dp0\.."
+echo :: Move backup folder to parent directory if it exists
+echo if exist "%%~dp0\backups" ^(
+echo     echo Moving backup folder to preserve it...
+echo     :: Create a temporary directory name for the backup
+echo     set "TEMP_BACKUP_DIR=%%~dp0..\MEDS_Backup_%%TIMESTAMP%%"
+echo     move "%%~dp0\backups" "!TEMP_BACKUP_DIR!"
+echo     echo Backup folder moved to: !TEMP_BACKUP_DIR!
+echo ^)
 echo.
-echo :: Remove installation directory
-echo rmdir /s /q "%INSTALL_DIR%"
+echo :: Remove everything except the backup folder
+echo for /d %%%%i in ^("%%~dp0\*"^) do if /i not "%%%%~nxi"=="backups" rmdir /s /q "%%%%i"
+echo for %%%%i in ^("%%~dp0\*"^) do if /i not "%%%%~nxi"=="uninstall.bat" del /q "%%%%i"
 echo.
+echo :: Finally remove the uninstaller itself
+echo echo.
 echo echo Uninstallation complete.
 echo echo.
 echo echo Press any key to close this window...
 echo pause ^>nul
+echo ^(goto^) 2^>nul ^& del "%%~f0"
 ) > "%UNINSTALL_SCRIPT%"
 
 :: Installation complete
