@@ -129,22 +129,30 @@ echo.
 echo :: Archive pb_data if it exists
 echo if exist "%%~dp0\pb_data" ^(
 echo     echo Archiving database data...
-echo     set "BACKUP_DIR=%%USERPROFILE%%\Documents\MEDS_Backups"
-echo     echo Creating backup directory: %%BACKUP_DIR%%
-echo     mkdir "%%BACKUP_DIR%%" 2^>nul
-echo     set "BACKUP_DATE=%%date:~10,4%%-%%date:~4,2%%-%%date:~7,2%%_%%time:~0,2%%-%%time:~3,2%%-%%time:~6,2%%"
-echo     set "BACKUP_DATE=^!BACKUP_DATE: =0^!"
-echo     set "BACKUP_FILE=%%BACKUP_DIR%%\MEDS_DATA_^!BACKUP_DATE^!.zip"
-echo     echo Creating backup file: %%BACKUP_FILE%%
-echo     powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; Compress-Archive -Path '%%~dp0\pb_data\*' -DestinationPath '%%BACKUP_FILE%%' -Force"
-echo     if exist "%%BACKUP_FILE%%" ^(
+echo     set "BACKUP_DIR=%%~dp0\backups"
+echo     echo Creating backup directory: !BACKUP_DIR!
+echo     mkdir "!BACKUP_DIR!" 2^>nul
+echo     for /f "tokens=2-4 delims=/ " %%a in ^('date /t'^) do ^(
+echo         set "BACKUP_DATE=%%c-%%a-%%b"
+echo     ^)
+echo     for /f "tokens=1-2 delims=: " %%a in ^('time /t'^) do ^(
+echo         set "BACKUP_TIME=%%a-%%b"
+echo     ^)
+echo     set "BACKUP_FILE=!BACKUP_DIR!\MEDS_DATA_!BACKUP_DATE!_!BACKUP_TIME!.zip"
+echo     echo Creating backup file: !BACKUP_FILE!
+echo     powershell -NoProfile -ExecutionPolicy Bypass -Command ^"^& { $source = '%%~dp0\pb_data\*'; $dest = '!BACKUP_FILE!'; Write-Host 'Compressing: ' $source ' to ' $dest; Compress-Archive -Path $source -DestinationPath $dest -Force }^"
+echo     if exist "!BACKUP_FILE!" ^(
 echo         echo.
-echo         echo Database backup successfully created at: %%BACKUP_FILE%%
+echo         echo Database backup successfully created at: !BACKUP_FILE!
 echo         echo This backup contains all your medical records data.
 echo         echo Please keep this file safe if you wish to preserve your data.
+echo         echo.
+echo         echo NOTE: The backup will be deleted when uninstallation completes.
+echo         echo Please copy it to a safe location if you wish to keep it.
+echo         pause
 echo     ^) else ^(
 echo         echo.
-echo         echo Warning: Failed to create backup at: %%BACKUP_FILE%%
+echo         echo Warning: Failed to create backup at: !BACKUP_FILE!
 echo         echo Please manually copy the pb_data folder before continuing.
 echo         pause
 echo     ^)
