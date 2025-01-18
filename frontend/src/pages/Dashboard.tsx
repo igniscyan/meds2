@@ -27,6 +27,7 @@ import { Record } from 'pocketbase';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import type { QueueStatus, QueueItem as BaseQueueItem } from '../types/queue';
 
 // Base type for PocketBase list responses
 interface BaseListResult {
@@ -48,29 +49,8 @@ interface QueueAnalytics extends Record {
   date: string;
 }
 
-interface QueueItem extends Record {
-  patient: string;
-  status: 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'completed';
-  assigned_to?: string;
-  check_in_time: string;
-  start_time?: string;
-  end_time?: string;
-  priority: number;
-  expand?: {
-    patient: {
-      first_name: string;
-      last_name: string;
-    };
-    assigned_to?: {
-      id: string;
-      username: string;
-    };
-    encounter?: {
-      id: string;
-    };
-  };
-  line_number: number;
-}
+// Just extend the base type without redefining properties
+type QueueItem = BaseQueueItem;
 
 interface AnalyticsSummary {
   patientsToday: number;
@@ -84,8 +64,6 @@ interface QueueSection {
   description: string;
 }
 
-type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'completed';
-
 // Add Patient interface
 interface Patient extends Record {
   first_name: string;
@@ -94,6 +72,12 @@ interface Patient extends Record {
   gender: string;
   age: number;
   smoker: string;
+  height_inches?: number | null;
+  weight?: number | null;
+  temperature?: number | null;
+  heart_rate?: number | null;
+  systolic_pressure?: number | null;
+  diastolic_pressure?: number | null;
 }
 
 const Dashboard: React.FC = () => {
@@ -201,27 +185,59 @@ const Dashboard: React.FC = () => {
 
   const handleClaimPatient = async (queueId: string) => {
     try {
+      // Get patient ID first
+      const queueItem = await pb.collection('queue').getOne<QueueItem>(queueId) as QueueItem;
+      
+      console.warn('🔍 QUEUE START ENCOUNTER: Getting patient details...');
+      const patient = await pb.collection('patients').getOne<Patient>(queueItem.patient);
+      console.warn('🔍 QUEUE START ENCOUNTER: Patient found:', patient);
+
+      // Check for existing encounters
+      console.warn('🔍 QUEUE START ENCOUNTER: Checking for existing encounters...');
+      const result = await pb.collection('encounters').getList(1, 1, {
+        filter: `patient = "${queueItem.patient}"`,
+        sort: '-created'
+      });
+
+      console.warn('🔍 QUEUE START ENCOUNTER: Found encounters:', result);
+
+      let encounterId;
+      
+      if (result.items.length > 0) {
+        // Use existing encounter
+        const latestEncounter = result.items[0];
+        console.warn('🔍 QUEUE START ENCOUNTER: Using existing encounter:', latestEncounter);
+        encounterId = latestEncounter.id;
+      } else {
+        // Create new encounter
+        console.warn('🔍 QUEUE START ENCOUNTER: Creating new encounter...');
+        const encounter = await pb.collection('encounters').create({
+          patient: queueItem.patient,
+          created: new Date().toISOString(),
+          // Include vitals from patient if they exist
+          height_inches: patient.height_inches ?? null,
+          weight: patient.weight ?? null,
+          temperature: patient.temperature ?? null,
+          heart_rate: patient.heart_rate ?? null,
+          systolic_pressure: patient.systolic_pressure ?? null,
+          diastolic_pressure: patient.diastolic_pressure ?? null,
+        });
+        console.warn('🔍 QUEUE START ENCOUNTER: Created new encounter:', encounter);
+        encounterId = encounter.id;
+      }
+
+      // Update queue status and encounter reference
+      console.warn('🔍 QUEUE START ENCOUNTER: Updating queue item...');
       await pb.collection('queue').update(queueId, {
         status: 'with_care_team',
         assigned_to: pb.authStore.model?.id,
-        start_time: new Date().toISOString()
+        start_time: new Date().toISOString(),
+        encounter: encounterId
       });
       
-      // Get patient ID and navigate to encounter
-      const queueItem = await pb.collection('queue').getOne<QueueItem>(queueId) as QueueItem;
-      // Create a new encounter first
-      const encounter = await pb.collection('encounters').create({
-        patient: queueItem.patient,
-        created: new Date().toISOString(),
-      });
-      
-      // Update queue item with the encounter reference
-      await pb.collection('queue').update(queueId, {
-        encounter: encounter.id
-      });
-      
-      // Navigate to the new encounter
-      navigate(`/encounter/${queueItem.patient}/${encounter.id}`, { 
+      // Navigate to the encounter
+      console.warn('🔍 QUEUE START ENCOUNTER: Navigating to encounter...');
+      navigate(`/encounter/${queueItem.patient}/${encounterId}`, { 
         state: { mode: 'edit' } 
       });
     } catch (error) {
@@ -275,6 +291,12 @@ const Dashboard: React.FC = () => {
       title: 'With Pharmacy',
       description: 'Medications being disbursed',
       items: queueItems.filter(item => item.status === 'with_pharmacy')
+    },
+    {
+      status: 'at_checkout',
+      title: 'At Checkout',
+      description: 'Receiving standard items and completing survey',
+      items: queueItems.filter(item => item.status === 'at_checkout')
     }
   ];
 
@@ -343,6 +365,29 @@ const Dashboard: React.FC = () => {
       console.error('Error updating pharmacy status:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       setError(`Failed to ${action} pharmacy process: ${errorMessage}`);
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const handleCheckoutAction = async (queueId: string, action: 'start' | 'complete') => {
+    setProcessing(queueId);
+    try {
+      if (action === 'start') {
+        await pb.collection('queue').update(queueId, {
+          status: 'at_checkout',
+          assigned_to: pb.authStore.model?.id
+        });
+      } else {
+        await pb.collection('queue').update(queueId, {
+          status: 'completed',
+          end_time: new Date().toISOString()
+        });
+      }
+    } catch (error: unknown) {
+      console.error('Error updating checkout status:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(`Failed to ${action} checkout process: ${errorMessage}`);
     } finally {
       setProcessing(null);
     }
@@ -460,6 +505,25 @@ const Dashboard: React.FC = () => {
               size={isMobile ? "small" : "medium"}
             >
               Continue Review
+            </Button>
+          </RoleBasedAccess>
+        )}
+        {queueItem.status === 'at_checkout' && (
+          <RoleBasedAccess requiredRole="provider">
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => {
+                if (queueItem.expand?.encounter?.id) {
+                  navigate(`/encounter/${queueItem.patient}/${queueItem.expand.encounter.id}`, {
+                    state: { mode: 'checkout' }
+                  });
+                }
+              }}
+              fullWidth={isMobile}
+              size={isMobile ? "small" : "medium"}
+            >
+              Complete Checkout
             </Button>
           </RoleBasedAccess>
         )}

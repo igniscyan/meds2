@@ -26,7 +26,7 @@ import type { DisbursementItem, MedicationRecord } from '../components/Disbursem
 import EncounterQuestions from '../components/EncounterQuestions';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 
-type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'completed';
+type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'at_checkout' | 'completed';
 
 interface QueueItem extends BaseModel {
   patient: string;
@@ -114,7 +114,7 @@ interface EncounterRecord extends BaseModel {
 }
 
 interface EncounterProps {
-  mode?: 'create' | 'view' | 'edit' | 'pharmacy';
+  mode?: 'create' | 'view' | 'edit' | 'pharmacy' | 'checkout';
 }
 
 interface SavedEncounter {
@@ -169,6 +169,8 @@ interface EncounterResponseRecord extends BaseModel {
   }
 }
 
+export type EncounterMode = 'create' | 'edit' | 'view' | 'pharmacy' | 'checkout';
+
 export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'create' }) => {
   const { patientId, encounterId } = useParams();
   const navigate = useNavigate();
@@ -177,24 +179,31 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [error, setError] = useState<string | null>(null);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [isNewEncounter, setIsNewEncounter] = useState(true);
+  const [currentQueueItem, setCurrentQueueItem] = useState<QueueItem | null>(null);
 
   // Memoize the mode determination to prevent unnecessary re-renders
   const currentMode = React.useMemo(() => {
     const locationMode = location.state?.mode;
     const computedMode = (locationMode || initialMode);
+    
+    // If we're in checkout status, force checkout mode
+    if (currentQueueItem?.status === 'at_checkout') {
+      return 'checkout' as const;
+    }
+    
     return (computedMode === 'create' || (isNewEncounter && computedMode !== 'pharmacy')) ? 'edit' : computedMode;
-  }, [location.state?.mode, initialMode, isNewEncounter]);
+  }, [location.state?.mode, initialMode, isNewEncounter, currentQueueItem?.status]);
 
-  console.log('Current mode:', currentMode, 'Initial mode:', 'create', 'Is new encounter:', isNewEncounter);
+  console.log('Current mode:', currentMode, 'Initial mode:', initialMode, 'Is new encounter:', isNewEncounter, 'Queue status:', currentQueueItem?.status);
 
   const [formData, setFormData] = useState<Partial<EncounterRecord>>({
     patient: patientId,
-    height_inches: null,
-    weight: null,
-    temperature: null,
-    heart_rate: null,
-    systolic_pressure: null,
-    diastolic_pressure: null,
+    height_inches: location.state?.initialVitals?.height_inches ?? null,
+    weight: location.state?.initialVitals?.weight ?? null,
+    temperature: location.state?.initialVitals?.temperature ?? null,
+    heart_rate: location.state?.initialVitals?.heart_rate ?? null,
+    systolic_pressure: location.state?.initialVitals?.systolic_pressure ?? null,
+    diastolic_pressure: location.state?.initialVitals?.diastolic_pressure ?? null,
     chief_complaint: '',
     history_of_present_illness: '',
     past_medical_history: '',
@@ -206,7 +215,6 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [showOtherComplaint, setShowOtherComplaint] = useState(false);
   const [otherComplaintValue, setOtherComplaintValue] = useState('');
   const [questionResponses, setQuestionResponses] = useState<QuestionResponse[]>([]);
-  const [currentQueueItem, setCurrentQueueItem] = useState<QueueItem | null>(null);
   const [savedEncounter, setSavedEncounter] = useState<SavedEncounter | null>(null);
 
   const OTHER_COMPLAINT_VALUE = '__OTHER__';
@@ -218,23 +226,16 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         return;
       }
       try {
-        // Load patient data
+        // Load patient data and chief complaints
         const [patientRecord, complaintsResult] = await Promise.all([
           pb.collection('patients').getOne(patientId, {
-            $autoCancel: false  // Prevent auto-cancellation
+            $autoCancel: false
           }),
           pb.collection('chief_complaints').getList<ChiefComplaint>(1, 50, {
             sort: 'name',
-            $autoCancel: false  // Prevent auto-cancellation
+            $autoCancel: false
           })
         ]);
-        
-        // Debug log to check for duplicates
-        console.log('Loaded chief complaints:', complaintsResult.items.map(c => c.name));
-        
-        // Ensure uniqueness by using a Set
-        const uniqueComplaints = Array.from(new Set(complaintsResult.items.map(c => c.name)));
-        console.log('Unique chief complaints:', uniqueComplaints);
         
         setPatient(patientRecord as Patient);
         setChiefComplaints(complaintsResult.items.filter((c, index, self) => 
@@ -246,23 +247,22 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           const [encounterRecord, disbursements] = await Promise.all([
             pb.collection('encounters').getOne<EncounterRecord>(encounterId, { 
               expand: 'chief_complaint',
-              $autoCancel: false  // Prevent auto-cancellation
+              $autoCancel: false
             }),
             pb.collection('disbursements').getList(1, 50, {
               filter: `encounter = "${encounterId}"`,
               expand: 'medication',
-              $autoCancel: false  // Prevent auto-cancellation
+              $autoCancel: false
             })
           ]);
 
           // Convert disbursements to DisbursementItems
           const disbursementItems = (disbursements.items as Disbursement[]).map(d => {
-            // Calculate the multiplier based on the actual quantity and the medication's fixed quantity
             const medication = d.expand?.medication as MedicationRecord;
             const multiplier = medication ? d.quantity / medication.fixed_quantity : 1;
             
             return {
-              id: d.id,  // Keep track of existing disbursement ID
+              id: d.id,
               medication: d.medication,
               quantity: medication?.fixed_quantity || d.quantity,
               disbursement_multiplier: multiplier,
@@ -272,10 +272,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             };
           });
 
-          // Get the chief complaint name from the expanded relation
           const chiefComplaintName = encounterRecord.expand?.chief_complaint?.name || '';
           
-          // If the chief complaint is "OTHER (Custom Text Input)", show the custom complaint
           if (chiefComplaintName === 'OTHER (Custom Text Input)') {
             setShowOtherComplaint(true);
             setOtherComplaintValue(encounterRecord.other_chief_complaint || '');
@@ -283,6 +281,12 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
           setFormData({
             ...encounterRecord,
+            height_inches: encounterRecord.height_inches,
+            weight: encounterRecord.weight,
+            temperature: encounterRecord.temperature,
+            heart_rate: encounterRecord.heart_rate,
+            systolic_pressure: encounterRecord.systolic_pressure,
+            diastolic_pressure: encounterRecord.diastolic_pressure,
             chief_complaint: chiefComplaintName,
             disbursements: disbursementItems.length > 0 ? disbursementItems : [{
               medication: '',
@@ -291,11 +295,24 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               notes: '',
             }]
           });
+        } else {
+          // For new encounters, check if we have initial vitals from state
+          const initialVitals = location.state?.initialVitals;
+          if (initialVitals) {
+            setFormData(prev => ({
+              ...prev,
+              height_inches: initialVitals.height_inches ?? null,
+              weight: initialVitals.weight ?? null,
+              temperature: initialVitals.temperature ?? null,
+              heart_rate: initialVitals.heart_rate ?? null,
+              systolic_pressure: initialVitals.systolic_pressure ?? null,
+              diastolic_pressure: initialVitals.diastolic_pressure ?? null,
+            }));
+          }
         }
         setLoading(false);
       } catch (error: any) {
         console.error('Error loading data:', error);
-        // Only navigate away if it's not an auto-cancellation and not an abort error
         if (!error?.message?.includes('autocancelled') && 
             !error?.message?.includes('aborted') && 
             !error?.isAbort) {
@@ -305,7 +322,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       }
     };
     loadData();
-  }, [patientId, encounterId, currentMode, navigate]);
+  }, [patientId, encounterId, currentMode, navigate, location.state?.initialVitals]);
 
   // Subscribe to queue changes with auto-cancellation disabled
   const { records: queueRecords } = useRealtimeSubscription<QueueItem>(
@@ -374,7 +391,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   }, [currentMode, patientId, patient]);
 
   // Handle pharmacy mode specific actions
-  const handlePharmacyAction = async (action: 'complete' | 'save') => {
+  const handlePharmacyAction = async (action: 'save' | 'checkout') => {
     console.log('Pharmacy action triggered:', { action, currentQueueItem });
     try {
       if (!currentQueueItem) {
@@ -386,26 +403,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       console.log('Saving disbursement changes');
       await saveDisbursementChanges();
 
-      if (action === 'complete') {
-        console.log('Processing complete action');
-        // Mark all disbursements as processed
-        const validDisbursements = formData.disbursements?.filter(d => d.medication && d.quantity > 0) || [];
-        console.log('Valid disbursements to process:', validDisbursements);
-        
-        for (const disbursement of validDisbursements) {
-          if (disbursement.id) {
-            console.log('Marking disbursement as processed:', disbursement);
-            await pb.collection('disbursements').update(disbursement.id, {
-              processed: true
-            });
-          }
-        }
-
-        // Update queue status
-        console.log('Updating queue status to completed');
+      if (action === 'checkout') {
+        // Update queue status to at_checkout
+        console.log('Sending to checkout');
         await pb.collection('queue').update(currentQueueItem.id, {
-          status: 'completed',
-          end_time: new Date().toISOString()
+          status: 'at_checkout'
         });
         navigate('/dashboard');
       }
@@ -430,7 +432,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             Cancel
           </Button>
           <Button
-            variant="outlined"
+            variant="contained"
             color="primary"
             onClick={() => handlePharmacyAction('save')}
           >
@@ -438,10 +440,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           </Button>
           <Button
             variant="contained"
-            color="primary"
-            onClick={() => handlePharmacyAction('complete')}
+            color="secondary"
+            onClick={() => handlePharmacyAction('checkout')}
           >
-            Medications Disbursed
+            Send to Checkout
           </Button>
         </>
       </RoleBasedAccess>
@@ -1021,6 +1023,75 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     });
   }, [inventoryRecords]);
 
+  // Handle checkout mode specific actions
+  const handleCheckoutAction = async (action: 'complete' | 'save') => {
+    console.log('Checkout action triggered:', { action, currentQueueItem });
+    try {
+      if (!currentQueueItem) {
+        console.error('No current queue item found');
+        return;
+      }
+
+      if (action === 'complete') {
+        console.log('Processing complete action');
+        // Update queue status
+        console.log('Updating queue status to completed');
+        await pb.collection('queue').update(currentQueueItem.id, {
+          status: 'completed',
+          end_time: new Date().toISOString()
+        });
+        navigate('/dashboard');
+      }
+    } catch (error) {
+      console.error('Error in checkout action:', error);
+      alert('Failed to complete checkout action: ' + (error as Error).message);
+    }
+  };
+
+  // Render checkout mode buttons
+  const renderCheckoutButtons = () => {
+    console.log('DEBUG Checkout Buttons:', {
+      currentMode,
+      queueStatus: currentQueueItem?.status,
+      queueItem: currentQueueItem,
+      location: location.state
+    });
+    
+    if (currentMode !== 'checkout') {
+      console.log('Checkout buttons not shown: mode is not checkout');
+      return null;
+    }
+
+    return (
+      <RoleBasedAccess requiredRole="provider">
+        <>
+          <Button
+            variant="outlined"
+            onClick={handleBack}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={() => handleCheckoutAction('complete')}
+          >
+            Complete Checkout
+          </Button>
+        </>
+      </RoleBasedAccess>
+    );
+  };
+
+  // Add debug logging near the button render section
+  console.log('DEBUG Action Buttons:', {
+    currentMode,
+    queueStatus: currentQueueItem?.status,
+    showingPharmacyButtons: currentMode === 'pharmacy',
+    showingCheckoutButtons: currentMode === 'checkout',
+    location: location.state
+  });
+
   if (loading || !patient) {
     return <Typography>Loading...</Typography>;
   }
@@ -1208,6 +1279,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 encounterId={encounterId}
                 disabled={currentMode === 'view'}
                 mode={currentMode}
+                defaultExpanded={currentMode === 'checkout'}
                 onResponsesChange={(responses: QuestionResponse[]) => {
                   setQuestionResponses(responses);
                 }}
@@ -1220,8 +1292,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 {/* Pharmacy Mode */}
                 {currentMode === 'pharmacy' && renderPharmacyButtons()}
 
+                {/* Checkout Mode */}
+                {currentMode === 'checkout' && renderCheckoutButtons()}
+
                 {/* Provider Mode - Ready for Pharmacy Button */}
-                {currentMode !== 'view' && currentMode !== 'pharmacy' && currentQueueItem && (
+                {currentMode === 'edit' && !currentQueueItem?.status?.includes('checkout') && currentQueueItem && (
                   <RoleBasedAccess requiredRole="provider">
                     <Button
                       variant="contained"

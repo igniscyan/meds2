@@ -1,6 +1,6 @@
 import { Record } from 'pocketbase';
 
-export type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'completed';
+export type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'at_checkout' | 'completed';
 
 export interface QueueItem extends Record {
   patient: string;

@@ -30,7 +30,7 @@ interface EncounterQuestion extends Record {
 interface StandardItem {
   id: string;
   question_text: string;
-  quantity: number;
+  quantity: number | null;
 }
 
 interface BulkDistribution extends Record {
@@ -95,7 +95,7 @@ export const BulkDistributionModal: React.FC<BulkDistributionModalProps> = ({
           questions.items.map(item => ({
             id: item.id,
             question_text: item.question_text,
-            quantity: 0,
+            quantity: null,
           }))
         );
         setLoading(false);
@@ -112,7 +112,7 @@ export const BulkDistributionModal: React.FC<BulkDistributionModalProps> = ({
   }, [open]);
 
   const handleQuantityChange = (id: string, value: string) => {
-    const numValue = parseInt(value) || 0;
+    const numValue = value === '' ? null : parseInt(value);
     setStandardItems(prev =>
       prev.map(item =>
         item.id === id ? { ...item, quantity: numValue } : item
@@ -122,8 +122,8 @@ export const BulkDistributionModal: React.FC<BulkDistributionModalProps> = ({
 
   const handleSubmit = async () => {
     try {
-      // Filter out items with quantity 0
-      const itemsToSave = standardItems.filter(item => item.quantity > 0);
+      // Filter out items with quantity 0 or null
+      const itemsToSave = standardItems.filter(item => item.quantity && item.quantity > 0);
       
       if (itemsToSave.length === 0) {
         setError('Please enter at least one item quantity');
@@ -213,7 +213,7 @@ export const BulkDistributionModal: React.FC<BulkDistributionModalProps> = ({
                   <TextField
                     label={item.question_text}
                     type="number"
-                    value={item.quantity}
+                    value={item.quantity ?? ''}
                     onChange={(e) => handleQuantityChange(item.id, e.target.value)}
                     InputProps={{ inputProps: { min: 0 } }}
                     fullWidth

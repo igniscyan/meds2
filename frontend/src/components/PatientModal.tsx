@@ -36,6 +36,12 @@ interface PatientModalProps {
     gender: string;
     age: number;
     smoker: string;
+    height_inches?: number | null;
+    weight?: number | null;
+    temperature?: number | null;
+    heart_rate?: number | null;
+    systolic_pressure?: number | null;
+    diastolic_pressure?: number | null;
   };
   mode?: 'create' | 'edit';
 }
@@ -57,6 +63,12 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     gender: '',
     age: 0,
     smoker: '',
+    height_inches: null as number | null,
+    weight: null as number | null,
+    temperature: null as number | null,
+    heart_rate: null as number | null,
+    systolic_pressure: null as number | null,
+    diastolic_pressure: null as number | null,
   });
 
   const [addToQueue, setAddToQueue] = useState(true);
@@ -76,6 +88,12 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         gender: initialData.gender,
         age: initialData.age,
         smoker: initialData.smoker,
+        height_inches: initialData.height_inches ?? null,
+        weight: initialData.weight ?? null,
+        temperature: initialData.temperature ?? null,
+        heart_rate: initialData.heart_rate ?? null,
+        systolic_pressure: initialData.systolic_pressure ?? null,
+        diastolic_pressure: initialData.diastolic_pressure ?? null,
       });
 
       // Set date value if DOB exists
@@ -219,22 +237,42 @@ export const PatientModal: React.FC<PatientModalProps> = ({
       } else {
         const newPatient = await pb.collection('patients').create(submissionData);
         patientId = newPatient.id;
-      }
 
-      // Add to queue if requested and line number is provided
-      if (mode === 'create' && addToQueue && lineNumber !== '') {
-        console.log('Adding to queue with line number:', lineNumber);
-        await pb.collection('queue').create({
+        // Create an initial encounter with the vitals
+        const encounterData = {
           patient: patientId,
-          status: 'checked_in',
-          check_in_time: new Date().toISOString(),
-          line_number: parseInt(String(lineNumber)),
-          priority: 3,
-          assigned_to: null,
-          start_time: null,
-          end_time: null,
-          encounter: null,
-        });
+          height_inches: formData.height_inches ? Number(formData.height_inches) : null,
+          weight: formData.weight ? Number(formData.weight) : null,
+          temperature: formData.temperature ? Number(formData.temperature) : null,
+          heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
+          systolic_pressure: formData.systolic_pressure ? Number(formData.systolic_pressure) : null,
+          diastolic_pressure: formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null,
+          chief_complaint: null,
+          other_chief_complaint: '',
+          history_of_present_illness: '',
+          past_medical_history: '',
+          assessment: '',
+          plan: '',
+          disbursements: []
+        };
+
+        const newEncounter = await pb.collection('encounters').create(encounterData);
+
+        // Add to queue if requested and line number is provided
+        if (addToQueue && lineNumber !== '') {
+          console.log('Adding to queue with line number:', lineNumber);
+          await pb.collection('queue').create({
+            patient: patientId,
+            status: 'checked_in',
+            check_in_time: new Date().toISOString(),
+            line_number: parseInt(String(lineNumber)),
+            priority: 3,
+            assigned_to: null,
+            start_time: null,
+            end_time: null,
+            encounter: newEncounter.id, // Link the queue item to the new encounter
+          });
+        }
       }
 
       onSave();
@@ -307,6 +345,37 @@ export const PatientModal: React.FC<PatientModalProps> = ({
             />
           </Grid>
           
+          <Grid item xs={12} sm={6}>
+            <LocalizationProvider dateAdapter={AdapterDateFns}>
+              <DatePicker
+                label="Date of Birth"
+                value={dateValue}
+                onChange={handleDateChange}
+                slotProps={{
+                  textField: {
+                    fullWidth: true,
+                    required: true
+                  }
+                }}
+              />
+            </LocalizationProvider>
+          </Grid>
+
+          <Grid item xs={12} sm={6}>
+            <FormControl fullWidth required>
+              <InputLabel>Gender</InputLabel>
+              <Select
+                value={formData.gender}
+                label="Gender"
+                onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+              >
+                <MenuItem value="male">Male</MenuItem>
+                <MenuItem value="female">Female</MenuItem>
+                <MenuItem value="other">Other</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+
           <Grid item xs={12}>
             <FormControlLabel
               control={
@@ -315,78 +384,120 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                   onChange={handleManualAgeToggle}
                 />
               }
-              label="Enter age manually"
+              label="Manually enter age"
             />
           </Grid>
 
-          {!useManualAge && (
+          {useManualAge && (
             <Grid item xs={12} sm={6}>
-              <LocalizationProvider dateAdapter={AdapterDateFns}>
-                <DatePicker
-                  label="Date of Birth"
-                  value={dateValue}
-                  onChange={handleDateChange}
-                  disabled={false}
-                  format="MM/dd/yyyy"
-                  slotProps={{
-                    textField: {
-                      fullWidth: true,
-                      required: true,
-                      sx: { mb: { xs: 2, sm: 0 } },
-                      inputProps: {
-                        placeholder: "MM/DD/YYYY"
-                      }
-                    }
-                  }}
-                  disableFuture
-                  reduceAnimations
-                  showDaysOutsideCurrentMonth
-                />
-              </LocalizationProvider>
+              <TextField
+                fullWidth
+                type="number"
+                label="Age"
+                value={formData.age}
+                onChange={handleAgeChange}
+              />
             </Grid>
           )}
-          <Grid item xs={12} sm={useManualAge ? 12 : 6}>
-            <TextField
-              fullWidth
-              label="Age"
-              type="number"
-              value={formData.age}
-              onChange={handleAgeChange}
-              required
-              disabled={!useManualAge}
-              inputProps={{ min: 0 }}
-              sx={{ mb: { xs: 2, sm: 0 } }}
-            />
-          </Grid>
+
           <Grid item xs={12} sm={6}>
-            <FormControl fullWidth sx={{ mb: { xs: 2, sm: 0 } }}>
-              <InputLabel>Gender</InputLabel>
-              <Select
-                value={formData.gender}
-                label="Gender"
-                onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
-                required
-              >
-                <MenuItem value="male">Male</MenuItem>
-                <MenuItem value="female">Female</MenuItem>
-                <MenuItem value="other">Other</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <FormControl fullWidth>
+            <FormControl fullWidth required>
               <InputLabel>Smoker</InputLabel>
               <Select
                 value={formData.smoker}
                 label="Smoker"
                 onChange={(e) => setFormData(prev => ({ ...prev, smoker: e.target.value }))}
-                required
               >
                 <MenuItem value="yes">Yes</MenuItem>
                 <MenuItem value="no">No</MenuItem>
                 <MenuItem value="former">Former</MenuItem>
+                <MenuItem value="unknown">Unknown</MenuItem>
               </Select>
             </FormControl>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Typography variant="h6" gutterBottom>
+              Vitals (Optional)
+            </Typography>
+          </Grid>
+
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Height (inches)"
+              value={formData.height_inches ?? ''}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                height_inches: e.target.value ? Number(e.target.value) : null 
+              }))}
+            />
+          </Grid>
+
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Weight (lbs)"
+              value={formData.weight ?? ''}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                weight: e.target.value ? Number(e.target.value) : null 
+              }))}
+            />
+          </Grid>
+
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Temperature (°F)"
+              value={formData.temperature ?? ''}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                temperature: e.target.value ? Number(e.target.value) : null 
+              }))}
+            />
+          </Grid>
+
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Heart Rate (bpm)"
+              value={formData.heart_rate ?? ''}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                heart_rate: e.target.value ? Number(e.target.value) : null 
+              }))}
+            />
+          </Grid>
+
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Systolic Blood Pressure"
+              value={formData.systolic_pressure ?? ''}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                systolic_pressure: e.target.value ? Number(e.target.value) : null 
+              }))}
+            />
+          </Grid>
+
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              type="number"
+              label="Diastolic Blood Pressure"
+              value={formData.diastolic_pressure ?? ''}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                diastolic_pressure: e.target.value ? Number(e.target.value) : null 
+              }))}
+            />
           </Grid>
 
           {mode === 'create' && (
@@ -403,15 +514,14 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                 />
               </Grid>
               {addToQueue && (
-                <Grid item xs={12}>
+                <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label="Line Number"
                     type="number"
+                    label="Line Number"
                     value={lineNumber}
-                    onChange={(e) => setLineNumber(parseInt(e.target.value) || '')}
+                    onChange={(e) => setLineNumber(e.target.value ? parseInt(e.target.value) : '')}
                     required={addToQueue}
-                    inputProps={{ min: 0 }}
                   />
                 </Grid>
               )}

@@ -11,10 +11,15 @@ import {
   FormControlLabel,
   Paper,
   FormHelperText,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { BaseModel } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
+import { EncounterMode } from '../pages/Encounter';
 
 interface QuestionResponse extends BaseModel {
   encounter: string;
@@ -49,28 +54,34 @@ interface Category extends BaseModel {
 interface EncounterQuestionsProps {
   encounterId?: string;
   disabled?: boolean;
-  mode?: 'create' | 'view' | 'edit' | 'pharmacy';
+  mode?: EncounterMode;
+  defaultExpanded?: boolean;
   onResponsesChange: (responses: QuestionResponse[]) => void;
+}
+
+interface ResponseMap {
+  [key: string]: QuestionResponse;
 }
 
 export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
   encounterId,
   disabled = false,
-  mode = 'edit',
-  onResponsesChange,
+  mode = 'create',
+  defaultExpanded = false,
+  onResponsesChange
 }) => {
-  const [responses, setResponses] = useState<{ [key: string]: any }>({});
+  const [expanded, setExpanded] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const responsesRef = useRef<{ [key: string]: any }>({});
+  const responsesRef = useRef<ResponseMap>({});
   const isInitializedRef = useRef(false);
 
   // Add debug logging for subscriptions
-  const { records: categories, loading: categoriesLoading } = useRealtimeSubscription<Category>(
+  const { records: categoryRecords, loading: categoriesLoading } = useRealtimeSubscription<Category>(
     'encounter_question_categories',
     useMemo(() => ({ sort: 'order', filter: 'archived = false' }), [])
   );
 
-  const { records: questions, loading: questionsLoading } = useRealtimeSubscription<Question>(
+  const { records: questionRecords, loading: questionsLoading } = useRealtimeSubscription<Question>(
     'encounter_questions',
     useMemo(() => ({ sort: 'order', filter: 'archived = false', expand: 'category' }), [])
   );
@@ -85,190 +96,84 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       : undefined, [encounterId])
   );
 
-  // Memoize the response array creation
-  const createResponseArray = useMemo(() => (currentResponses: { [key: string]: any }) => {
-    return questions.map(q => {
-      const responseValue = currentResponses[q.id];
-      const existing = existingResponses?.find(r => r.question === q.id);
-      
-      // Always include checkbox responses
-      if (q.input_type === 'checkbox') {
-        return {
-          id: existing?.id || '',
-          created: existing?.created || '',
-          updated: existing?.updated || '',
-          collectionId: existing?.collectionId || '',
-          collectionName: existing?.collectionName || '',
-          encounter: encounterId || '',
-          question: q.id,
-          response_value: responseValue === true,
-          expand: { question: q }
-        };
-      }
-      
-      // For dependent fields, include if parent is checked
-      if (q.depends_on) {
-        const parentValue = currentResponses[q.depends_on];
-        if (parentValue === true) {
-          return {
-            id: existing?.id || '',
-            created: existing?.created || '',
-            updated: existing?.updated || '',
-            collectionId: existing?.collectionId || '',
-            collectionName: existing?.collectionName || '',
-            encounter: encounterId || '',
-            question: q.id,
-            response_value: responseValue || null,
-            expand: { question: q }
-          };
-        }
-        return null;
-      }
-      
-      // For other types, include if they have a value or are required
-      if (q.required || (responseValue !== undefined && responseValue !== '' && responseValue !== null)) {
-        return {
-          id: existing?.id || '',
-          created: existing?.created || '',
-          updated: existing?.updated || '',
-          collectionId: existing?.collectionId || '',
-          collectionName: existing?.collectionName || '',
-          encounter: encounterId || '',
-          question: q.id,
-          response_value: responseValue || null,
-          expand: { question: q }
-        };
-      }
-      return null;
-    }).filter(Boolean) as QuestionResponse[];
-  }, [questions, existingResponses, encounterId]);
+  const [responses, setResponses] = useState<ResponseMap>({});
 
-  // Initialize responses whenever any of the data changes
+  // Update loading state based on all subscriptions
   useEffect(() => {
-    if (questionsLoading || (encounterId && responsesLoading) || categoriesLoading || isInitializedRef.current) {
-      return;
-    }
+    const isCategoriesLoading = categoriesLoading === true;
+    const isQuestionsLoading = questionsLoading === true;
+    const isResponsesLoading = encounterId ? responsesLoading === true : false;
+    const isLoading = isCategoriesLoading || isQuestionsLoading || isResponsesLoading;
+    setLoading(isLoading);
+  }, [categoriesLoading, questionsLoading, responsesLoading, encounterId]);
 
-    const initializeResponses = () => {
-      console.log('[Response Init] Starting response initialization', {
-        questionsCount: questions.length,
-        existingResponsesCount: existingResponses?.length || 0
+  // Initialize responses from existingResponses
+  useEffect(() => {
+    if (!responsesLoading && existingResponses && !isInitializedRef.current) {
+      const responseMap: ResponseMap = {};
+      existingResponses.forEach(response => {
+        responseMap[response.question] = response;
       });
-      
-      const responseMap: { [key: string]: any } = {};
-      
-      // Initialize all questions with default values
-      questions.forEach(q => {
-        responseMap[q.id] = q.input_type === 'checkbox' ? false : '';
-      });
-
-      // Set existing responses
-      if (existingResponses) {
-        existingResponses.forEach(response => {
-          if (response.response_value !== undefined) {
-            responseMap[response.question] = response.response_value;
-          }
-        });
-      }
-
       setResponses(responseMap);
       responsesRef.current = responseMap;
-      
-      // Create initial response array
-      const responseArray = createResponseArray(responseMap);
-      onResponsesChange(responseArray);
-      
-      setLoading(false);
       isInitializedRef.current = true;
-    };
-
-    initializeResponses();
-  }, [questions, existingResponses, encounterId, questionsLoading, responsesLoading, categoriesLoading, createResponseArray, onResponsesChange]);
+    }
+  }, [existingResponses, responsesLoading]);
 
   // Handle response changes
   const handleResponseChange = useCallback((questionId: string, value: any) => {
-    const currentQuestion = questions.find(q => q.id === questionId);
-    
     setResponses(prev => {
       const newResponses = { ...prev };
-      newResponses[questionId] = value;
+      const baseResponse: QuestionResponse = {
+        id: '',
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+        collectionId: '',
+        collectionName: 'encounter_responses',
+        encounter: encounterId || '',
+        question: questionId,
+        response_value: value
+      };
+
+      newResponses[questionId] = baseResponse;
 
       // Handle dependent fields
-      if (currentQuestion?.input_type === 'checkbox') {
-        questions.forEach(q => {
+      if (questionRecords) {
+        questionRecords.forEach(q => {
           if (q.depends_on === questionId && !value) {
-            newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
+            newResponses[q.id] = {
+              ...baseResponse,
+              question: q.id,
+              response_value: q.input_type === 'checkbox' ? false : ''
+            };
           }
         });
       }
 
-      responsesRef.current = newResponses;
-      
-      // Only update parent if we have an encounterId
-      if (encounterId) {
-        const responseArray = createResponseArray(newResponses);
-        onResponsesChange(responseArray);
-      }
-      
       return newResponses;
     });
-  }, [questions, createResponseArray, onResponsesChange, encounterId]);
+  }, [questionRecords, encounterId]);
 
-  // Memoize the question rendering function
+  // Render question based on type
   const renderQuestion = useCallback((question: Question, category: Category) => {
     const isSurveyQuestion = category.type === 'survey';
-    const isCounterQuestion = category.type === 'counter';
-    
-    if (isCounterQuestion && question.input_type !== 'checkbox') {
-      return null;
-    }
-
+    const currentValue = responses[question.id]?.response_value;
     const isRequired = isSurveyQuestion && question.required;
-    const currentValue = responses[question.id];
-    
-    // Check dependencies
-    if (question.depends_on) {
-      const dependentValue = responses[question.depends_on];
-      // Only hide if parent checkbox is explicitly false
-      if (dependentValue === false) {
-        return null;
-      }
-    }
-
-    // Improved value validation based on input type
-    const hasValidValue = (() => {
-      if (question.input_type === 'checkbox') {
-        return typeof currentValue === 'boolean';
-      }
-      // For dependent fields, they're valid if parent is checked
-      if (question.depends_on && responses[question.depends_on]) {
-        return true;
-      }
-      if (currentValue === undefined || currentValue === null) return false;
-      switch (question.input_type) {
-        case 'select':
-          return currentValue !== '';
-        case 'text':
-          return currentValue.trim() !== '';
-        default:
-          return false;
-      }
-    })();
-
     const isPharmacyMode = mode === 'pharmacy';
-    const shouldDisableField = disabled || isPharmacyMode;
 
+    // Common props for form controls
     const commonProps = {
-      disabled: shouldDisableField,
-      error: !isPharmacyMode && isRequired && !hasValidValue,
-      helperText: !isPharmacyMode && isRequired ? (hasValidValue ? question.description : 'This field is required') : question.description,
-      sx: { mb: isSurveyQuestion ? 3 : 1 }
+      disabled: disabled || isPharmacyMode,
+      error: !isPharmacyMode && isRequired && !currentValue,
+      helperText: question.description,
+      sx: { mb: 2 }
     };
 
     switch (question.input_type) {
       case 'checkbox':
         return (
           <FormControlLabel
+            key={question.id}
             control={
               <Checkbox
                 checked={!!currentValue}
@@ -276,12 +181,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
                 {...commonProps}
               />
             }
-            label={
-              <Box component="span" sx={{ color: isRequired && !isPharmacyMode ? 'error.main' : 'inherit' }}>
-                {question.question_text}
-                {isRequired && !isPharmacyMode && ' *'}
-              </Box>
-            }
+            label={question.question_text}
           />
         );
 
@@ -289,11 +189,12 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
         if (!isSurveyQuestion) return null;
         return (
           <TextField
+            key={question.id}
             fullWidth
-            required={isRequired && !isPharmacyMode}
             label={question.question_text}
-            value={currentValue ?? ''}
+            value={currentValue || ''}
             onChange={(e) => handleResponseChange(question.id, e.target.value)}
+            required={isRequired && !isPharmacyMode}
             {...commonProps}
           />
         );
@@ -301,12 +202,16 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       case 'select':
         if (!isSurveyQuestion) return null;
         return (
-          <FormControl fullWidth error={commonProps.error} required={isRequired && !isPharmacyMode}>
+          <FormControl 
+            key={question.id}
+            fullWidth 
+            required={isRequired && !isPharmacyMode}
+            {...commonProps}
+          >
             <FormLabel>{question.question_text}</FormLabel>
             <Select
-              value={currentValue ?? ''}
+              value={currentValue || ''}
               onChange={(e) => handleResponseChange(question.id, e.target.value)}
-              {...commonProps}
             >
               <MenuItem value="">
                 <em>Select an option</em>
@@ -328,42 +233,48 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
     }
   }, [responses, disabled, mode, handleResponseChange]);
 
+  // Handle accordion expansion/collapse
+  const handleAccordionChange = (categoryId: string) => (_event: React.SyntheticEvent, isExpanded: boolean) => {
+    setExpanded(prev => 
+      isExpanded 
+        ? [...prev, categoryId]
+        : prev.filter(id => id !== categoryId)
+    );
+  };
+
+  // Initialize expanded state when categories load or defaultExpanded changes
+  useEffect(() => {
+    if (defaultExpanded && categoryRecords?.length > 0) {
+      setExpanded(categoryRecords.map(cat => cat.id));
+    }
+  }, [categoryRecords, defaultExpanded]);
+
   return (
-    <Box>
-      {loading ? (
-        <Typography>Loading additional questions...</Typography>
-      ) : (
-        categories.map((category) => {
-          const categoryQuestions = questions.filter((q) => q.category === category.id);
-          if (categoryQuestions.length === 0) return null;
-          return (
-            <Paper 
-              key={category.id} 
-              sx={{ 
-                p: 2, 
-                mb: 2,
-                backgroundColor: category.type === 'survey' ? 'background.default' : 'action.hover',
-                borderRadius: category.type === 'survey' ? 2 : 1
-              }}
-            >
-              <Typography variant="h6" sx={{ mb: category.type === 'survey' ? 3 : 2 }}>
-                {category.name}
-                {category.type === 'counter' && (
-                  <Typography variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
-                    (Item Counter)
-                  </Typography>
-                )}
-              </Typography>
+    <Box sx={{ mt: 2 }}>
+      {categoryRecords?.map(category => {
+        const categoryQuestions = questionRecords?.filter(q => q.category === category.id) || [];
+        if (categoryQuestions.length === 0) return null;
+
+        return (
+          <Accordion
+            key={category.id}
+            expanded={expanded.includes(category.id)}
+            onChange={handleAccordionChange(category.id)}
+            sx={{ mb: 1 }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6">{category.name}</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
               <Box sx={{ pl: 2 }}>
-                {categoryQuestions.map((question) => (
-                  <Box key={question.id} sx={{ mb: 2 }}>
-                    {renderQuestion(question, category)}
-                  </Box>
-                ))}
+                {categoryQuestions.map(question => renderQuestion(question, category))}
               </Box>
-            </Paper>
-          );
-        })
+            </AccordionDetails>
+          </Accordion>
+        );
+      })}
+      {loading && (
+        <Typography>Loading questions...</Typography>
       )}
     </Box>
   );

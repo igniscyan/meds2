@@ -1,38 +1,31 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Typography,
   Button,
-  Paper,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  TextField,
+  Paper,
   IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Stack,
+  Tooltip,
 } from '@mui/material';
 import {
   Add as AddIcon,
-  Search as SearchIcon,
   Edit as EditIcon,
-  Person as PersonIcon,
-  Queue as QueueIcon,
-  AddCircle as AddCircleIcon,
-  Inventory as InventoryIcon,
+  Visibility as VisibilityIcon,
+  Delete as DeleteIcon,
+  FormatListBulleted as ListIcon,
 } from '@mui/icons-material';
-import PatientModal from '../components/PatientModal';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { Record } from 'pocketbase';
-import { pb } from '../atoms/auth';
-import { useNavigate } from 'react-router-dom';
+import PatientModal from '../components/PatientModal';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
+import DeletePatientDialog from '../components/DeletePatientDialog';
 import BulkDistributionModal from '../components/BulkDistributionModal';
 
 interface Patient extends Record {
@@ -42,221 +35,128 @@ interface Patient extends Record {
   gender: string;
   age: number;
   smoker: string;
-  date_created: string;
 }
 
-const Patients: React.FC = () => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+export const Patients = () => {
   const navigate = useNavigate();
-  const { records: patients, loading, error } = useRealtimeSubscription<Patient>('patients');
-  const [checkInDialogOpen, setCheckInDialogOpen] = useState(false);
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
-  const [lineNumber, setLineNumber] = useState<number>(0);
-  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
+  const [bulkDistributionOpen, setBulkDistributionOpen] = useState(false);
+  
+  const { records: patients, loading } = useRealtimeSubscription<Patient>('patients', {
+    sort: '-created',
+  });
 
-  useEffect(() => {
-    console.log('Patients updated:', patients);
-  }, [patients]);
-
-  const handleCreatePatient = async () => {
-    try {
-      handleCloseModal();
-    } catch (error) {
-      console.error('Error saving patient:', error);
-      if (error instanceof Error) {
-        alert(`Failed to save patient: ${error.message}`);
-      } else {
-        alert('Failed to save patient');
-      }
-    }
+  const handleAddClick = () => {
+    setSelectedPatient(null);
+    setModalOpen(true);
   };
 
-  const handleStartEncounter = (patientId: string) => {
-    navigate(`/encounter/${patientId}`, { state: { mode: 'edit' } });
-  };
-
-  const handleEditPatient = (patient: Patient) => {
+  const handleEditClick = (patient: Patient) => {
     setSelectedPatient(patient);
-    setIsModalOpen(true);
+    setModalOpen(true);
   };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
+  const handleDeleteClick = (patient: Patient) => {
+    setPatientToDelete(patient);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleModalClose = () => {
+    setModalOpen(false);
     setSelectedPatient(null);
   };
 
-  const handleCheckIn = async (patientId: string) => {
-    setSelectedPatientId(patientId);
-    setCheckInDialogOpen(true);
-  };
-
-  const handleCheckInConfirm = async () => {
-    try {
-      const data = {
-        patient: selectedPatientId,
-        status: 'checked_in',
-        check_in_time: new Date().toISOString(),
-        line_number: lineNumber,
-        priority: 3,
-        assigned_to: null,
-        start_time: null,
-        end_time: null,
-        encounter: null,
-      };
-
-      await pb.collection('queue').create(data);
-      alert('Patient checked in successfully');
-      setCheckInDialogOpen(false);
-    } catch (error) {
-      console.error('Error checking in patient:', error);
-      if (error instanceof Error) {
-        alert(`Failed to check in patient: ${error.message}`);
-      } else {
-        alert('Failed to check in patient');
-      }
-    }
-  };
-
-  const filteredPatients = useMemo(() => {
-    return patients.filter((patient) => {
-      const searchLower = searchQuery.toLowerCase();
-      return (
-        patient.first_name.toLowerCase().includes(searchLower) ||
-        patient.last_name.toLowerCase().includes(searchLower)
-      );
-    });
-  }, [patients, searchQuery]);
-
   const handleBulkDistributionComplete = () => {
-    setIsBulkModalOpen(false);
+    setBulkDistributionOpen(false);
   };
 
   if (loading) {
     return <Typography>Loading...</Typography>;
   }
 
-  if (error) {
-    return <Typography color="error">Error loading patients: {error.message}</Typography>;
-  }
-
   return (
-    <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
         <Typography variant="h4">Patients</Typography>
         <RoleBasedAccess requiredRole="provider">
-          <Stack direction="row" spacing={2}>
+          <Box sx={{ display: 'flex', gap: 2 }}>
             <Button
               variant="contained"
               color="primary"
               startIcon={<AddIcon />}
-              onClick={() => setIsModalOpen(true)}
+              onClick={handleAddClick}
             >
-              New Patient
+              Add Patient
             </Button>
             <Button
               variant="contained"
-              color="secondary"
-              startIcon={<InventoryIcon />}
-              onClick={() => setIsBulkModalOpen(true)}
+              sx={{ 
+                backgroundColor: '#9c27b0',
+                '&:hover': {
+                  backgroundColor: '#7b1fa2',
+                },
+                textTransform: 'uppercase'
+              }}
+              startIcon={<ListIcon />}
+              onClick={() => setBulkDistributionOpen(true)}
             >
               Fast Track Patient
             </Button>
-          </Stack>
+          </Box>
         </RoleBasedAccess>
-      </Box>
-
-      <Box mb={3} display="flex" alignItems="center">
-        <TextField
-          fullWidth
-          variant="outlined"
-          placeholder="Search patients by name"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          InputProps={{
-            startAdornment: <SearchIcon color="action" sx={{ mr: 1 }} />,
-          }}
-        />
       </Box>
 
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Full Name</TableCell>
+              <TableCell>Name</TableCell>
               <TableCell>Age</TableCell>
               <TableCell>Gender</TableCell>
-              <TableCell>Date of Birth</TableCell>
-              <TableCell>Smoking Status</TableCell>
+              <TableCell>Smoker</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredPatients.map((patient) => (
+            {patients.map((patient) => (
               <TableRow key={patient.id}>
-                <TableCell
-                  sx={{ 
-                    cursor: 'pointer',
-                    color: 'primary.main',
-                    '&:hover': {
-                      textDecoration: 'underline'
-                    }
-                  }}
-                  onClick={() => navigate(`/patient/${patient.id}`)}
-                >
-                  {`${patient.first_name} ${patient.last_name}`}
-                </TableCell>
+                <TableCell>{patient.first_name} {patient.last_name}</TableCell>
                 <TableCell>{patient.age}</TableCell>
                 <TableCell>{patient.gender}</TableCell>
-                <TableCell>
-                  {patient.dob ? (() => {
-                    const datePart = patient.dob.split(' ')[0];
-                    const [year, month, day] = datePart.split('-').map(Number);
-                    const date = new Date(year, month - 1, day);
-                    return date.toLocaleDateString();
-                  })() : 'Invalid Date'}
-                </TableCell>
-                <TableCell>{patient.smoker ? patient.smoker.charAt(0).toUpperCase() + patient.smoker.slice(1) : ''}</TableCell>
+                <TableCell>{patient.smoker}</TableCell>
                 <TableCell align="right">
-                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                    <RoleBasedAccess requiredRole="provider">
-                      <IconButton
-                        color="primary"
-                        size="small"
-                        onClick={() => handleEditPatient(patient)}
-                        title="Edit Patient"
-                      >
-                        <EditIcon />
-                      </IconButton>
-                    </RoleBasedAccess>
-                    <IconButton
-                      color="primary"
-                      size="small"
-                      onClick={() => navigate(`/patient/${patient.id}`)}
-                      title="View Patient"
-                    >
-                      <PersonIcon />
-                    </IconButton>
-                    <RoleBasedAccess requiredRole="provider">
-                      <IconButton
-                        color="primary"
-                        size="small"
-                        onClick={() => handleCheckIn(patient.id)}
-                        title="Check In Patient"
-                      >
-                        <QueueIcon />
-                      </IconButton>
-                      <IconButton
-                        color="primary"
-                        size="small"
-                        onClick={() => navigate(`/encounter/${patient.id}`)}
-                        title="New Encounter"
-                      >
-                        <AddCircleIcon />
-                      </IconButton>
-                    </RoleBasedAccess>
-                  </Box>
+                  <RoleBasedAccess requiredRole="provider">
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                      <Tooltip title="View Patient">
+                        <IconButton
+                          size="small"
+                          onClick={() => navigate(`/patient/${patient.id}`)}
+                        >
+                          <VisibilityIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Edit Patient">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleEditClick(patient)}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete Patient">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDeleteClick(patient)}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  </RoleBasedAccess>
                 </TableCell>
               </TableRow>
             ))}
@@ -265,39 +165,31 @@ const Patients: React.FC = () => {
       </TableContainer>
 
       <PatientModal
-        open={isModalOpen}
-        onClose={handleCloseModal}
-        onSave={handleCreatePatient}
+        open={modalOpen}
+        onClose={handleModalClose}
+        onSave={handleModalClose}
         initialData={selectedPatient || undefined}
         mode={selectedPatient ? 'edit' : 'create'}
       />
 
       <BulkDistributionModal
-        open={isBulkModalOpen}
-        onClose={() => setIsBulkModalOpen(false)}
+        open={bulkDistributionOpen}
+        onClose={() => setBulkDistributionOpen(false)}
         onComplete={handleBulkDistributionComplete}
       />
 
-      <Dialog open={checkInDialogOpen} onClose={() => setCheckInDialogOpen(false)}>
-        <DialogTitle>Check In Patient</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            label="Line Number"
-            type="number"
-            value={lineNumber}
-            onChange={(e) => setLineNumber(parseInt(e.target.value))}
-            margin="normal"
-            required
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCheckInDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleCheckInConfirm} variant="contained" color="primary">
-            Check In
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {patientToDelete && (
+        <DeletePatientDialog
+          open={deleteDialogOpen}
+          onClose={() => {
+            setDeleteDialogOpen(false);
+            setPatientToDelete(null);
+          }}
+          patientId={patientToDelete.id}
+          patientName={`${patientToDelete.first_name} ${patientToDelete.last_name}`}
+          redirectToList={false}
+        />
+      )}
     </Box>
   );
 };
