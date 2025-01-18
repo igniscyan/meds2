@@ -490,86 +490,31 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   };
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    console.log('Form submission started');
+    
     try {
-      console.log('[Form Submit] Starting form submission with responses:', questionResponses);
-
-      // Add detailed logging for ALL responses
-      console.log('[SUBMITTED FOR SAVING] All responses:', questionResponses.map(r => ({
-        question: r.expand?.question?.question_text,
-        type: r.expand?.question?.input_type,
-        value: r.response_value,
-        id: r.id,
-        isDependent: !!r.expand?.question?.depends_on,
-        dependsOn: r.expand?.question?.depends_on,
-        hasParentChecked: r.expand?.question?.depends_on ? 
-          questionResponses.find(pr => pr.question === r.expand?.question?.depends_on)?.response_value : 
-          'not_dependent',
-        parentQuestion: r.expand?.question?.depends_on ? 
-          questionResponses.find(pr => pr.question === r.expand?.question?.depends_on)?.expand?.question?.question_text :
-          'none'
-      })));
-
-      // Get all required survey questions first
-      const allRequiredQuestions = await pb.collection('encounter_questions').getList<EncounterQuestion>(1, 100, {
-        filter: 'required = true',
-        expand: 'category',
+      // Log the current state for debugging
+      console.log('DEBUG Form Data:', {
+        formData,
+        mode: currentMode,
+        patientId,
+        encounterId,
+        currentQueueItem
       });
-
-      // Filter to only survey questions that are actually required
-      const requiredSurveyQuestions = allRequiredQuestions.items.filter(question => 
-        question.expand?.category?.type === 'survey' && question.required
-      );
-
-      // Check for missing required questions
-      const missingRequiredQuestions = requiredSurveyQuestions.filter(question => {
-        const response = questionResponses.find(r => r.question === question.id);
-        console.log('[Form Submit] Checking required question:', {
-          question: question.question_text,
-          hasResponse: !!response,
-          responseValue: response?.response_value
-        });
-        
-        if (!response) return true;
-
-        const value = response.response_value;
-        const questionType = response.expand?.question?.input_type || question.input_type;
-        
-        // Handle different input types
-        switch (questionType) {
-          case 'select':
-            return !value || value === '';
-          case 'text':
-            return !value || (typeof value === 'string' && value.trim() === '');
-          case 'checkbox':
-            return value === undefined || value === null;
-          default:
-            return true;
-        }
-      });
-
-      if (missingRequiredQuestions.length > 0) {
-        console.log('[Form Submit] Missing required questions:', 
-          missingRequiredQuestions.map(q => q.question_text)
-        );
-        const missingFields = missingRequiredQuestions
-          .map(q => q.question_text)
-          .filter(Boolean);
-
-        alert(`Please fill in all required survey questions:\n\n${missingFields.join('\n')}`);
-        return;
-      }
-
-      // Get the ID of the selected complaint
-      let chiefComplaintId = null;
-      if (formData.chief_complaint) {
-        const selectedComplaint = chiefComplaints.find(c => c.name === formData.chief_complaint);
-        if (selectedComplaint) {
-          chiefComplaintId = selectedComplaint.id;
-        }
-      }
 
       // Validate vital signs if this is a provider encounter
-      if (currentMode !== 'pharmacy') {
+      if (currentMode !== 'pharmacy' && currentMode !== 'checkout') {
+        console.log('DEBUG: Running provider validation');
+        
+        // Validate chief complaint first as it's always required
+        if (!formData.chief_complaint && !formData.other_chief_complaint) {
+          const message = 'Please select a chief complaint or enter a custom one';
+          console.error('Validation failed:', message);
+          alert(message);
+          return;
+        }
+        console.log('DEBUG: Chief complaint validation passed');
+
         const requiredVitals = [
           { field: 'height_inches', label: 'Height' },
           { field: 'weight', label: 'Weight' },
@@ -582,50 +527,55 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         const missingVitals = requiredVitals.filter(
           vital => {
             const value = formData[vital.field as keyof typeof formData];
+            console.log('DEBUG: Checking vital:', vital.field, 'Value:', value);
             return value === undefined || value === null || value === '';
           }
         );
 
         if (missingVitals.length > 0) {
-          alert(`Please fill in all required vital signs:\n\n${missingVitals.map(v => v.label).join('\n')}`);
+          const message = `Please fill in all required vital signs:\n\n${missingVitals.map(v => v.label).join('\n')}`;
+          console.error('Validation failed:', message);
+          alert(message);
           return;
         }
-
-        // Validate chief complaint
-        if (!chiefComplaintId && !formData.other_chief_complaint) {
-          alert('Please select a chief complaint or enter a custom one');
-          return;
-        }
+        console.log('DEBUG: Vitals validation passed');
       }
 
-      // Convert string values to numbers for numeric fields
+      // Prepare encounter data
       const encounterData = {
         patient: patientId,
+        // Only include chief_complaint if it's not "OTHER (Custom Text Input)"
+        chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? null : 
+          chiefComplaints.find(c => c.name === formData.chief_complaint)?.id || null,
+        other_chief_complaint: formData.other_chief_complaint || '',
+        // Ensure these fields are properly typed for PocketBase
         height_inches: formData.height_inches ? Number(formData.height_inches) : null,
         weight: formData.weight ? Number(formData.weight) : null,
         temperature: formData.temperature ? Number(formData.temperature) : null,
         heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
         systolic_pressure: formData.systolic_pressure ? Number(formData.systolic_pressure) : null,
         diastolic_pressure: formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null,
-        chief_complaint: chiefComplaintId,
-        other_chief_complaint: formData.other_chief_complaint || '',
-        history_of_present_illness: formData.history_of_present_illness || '',
-        past_medical_history: formData.past_medical_history || '',
-        assessment: formData.assessment || '',
-        plan: formData.plan || '',
       };
+
+      console.log('DEBUG: Prepared encounter data:', encounterData);
 
       let savedEncounter: SavedEncounter;
       try {
-        if (currentMode === 'edit' && encounterId) {
+        // Always update if we have an encounterId, regardless of mode
+        if (encounterId) {
+          console.log('DEBUG: Updating existing encounter:', encounterId);
           // Update existing encounter
           savedEncounter = await pb.collection('encounters').update(encounterId, encounterData);
+          console.log('DEBUG: Update successful:', savedEncounter);
 
-          // Save disbursements
-          await saveDisbursementChanges();
-          
+          // Save disbursements if in pharmacy mode or if there are any disbursements
+          if (currentMode === 'pharmacy' || (formData.disbursements && formData.disbursements.length > 0)) {
+            console.log('DEBUG: Saving disbursements');
+            await saveDisbursementChanges();
+          }
+
           // Process all responses in a single batch
-          console.log('[Form Submit] Processing responses:', 
+          console.log('DEBUG: Processing responses:', 
             questionResponses.map(r => ({
               question: r.expand?.question?.question_text,
               value: r.response_value,
@@ -647,42 +597,43 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             existingResponses.items.map(r => [r.question, r])
           );
 
-          // Process responses in sequence to avoid race conditions
+          // Process each response
           for (const response of questionResponses) {
-            try {
-              const existingResponse = existingResponseMap.get(response.question);
-              
-              console.log('[Saving Response]', {
-                question: response.expand?.question?.question_text,
-                value: response.response_value,
-                type: response.expand?.question?.input_type,
-                isDependent: !!response.expand?.question?.depends_on,
-                existingId: existingResponse?.id,
-                action: existingResponse ? 'update' : 'create'
-              });
-
-              if (existingResponse) {
+            const existingResponse = existingResponseMap.get(response.question);
+            
+            if (existingResponse) {
+              // Update existing response if value changed
+              if (JSON.stringify(existingResponse.response_value) !== JSON.stringify(response.response_value)) {
                 await pb.collection('encounter_responses').update(existingResponse.id, {
                   response_value: response.response_value
                 });
-              } else {
-                await pb.collection('encounter_responses').create({
-                  encounter: encounterId,
-                  question: response.question,
-                  response_value: response.response_value
-                });
               }
-            } catch (error) {
-              console.error('[Save Error]', {
-                question: response.expand?.question?.question_text,
-                error
+              // Remove from map to track which ones need to be deleted
+              existingResponseMap.delete(response.question);
+            } else {
+              // Create new response
+              await pb.collection('encounter_responses').create({
+                encounter: encounterId,
+                question: response.question,
+                response_value: response.response_value
               });
-              throw error;
             }
           }
+
+          // Delete any remaining responses that weren't in the current set
+          for (const [_, response] of Array.from(existingResponseMap)) {
+            await pb.collection('encounter_responses').delete(response.id);
+          }
         } else {
-          // Create new encounter
+          console.log('DEBUG: Creating new encounter');
           savedEncounter = await pb.collection('encounters').create(encounterData);
+          console.log('DEBUG: Create successful:', savedEncounter);
+
+          // Save disbursements for new encounter
+          if (formData.disbursements && formData.disbursements.length > 0) {
+            console.log('DEBUG: Saving disbursements for new encounter');
+            await saveDisbursementChanges();
+          }
 
           // Process responses in sequence to avoid race conditions
           for (const response of questionResponses) {
@@ -704,6 +655,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
         // Update queue item with encounter ID if needed
         if (currentQueueItem && savedEncounter) {
+          console.log('DEBUG: Updating queue item with encounter ID');
           await pb.collection('queue').update(currentQueueItem.id, {
             encounter: savedEncounter.id
           });
@@ -718,18 +670,25 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           return;
         }
       } catch (error: any) {
-        // Only show error if it's not an autocancellation
-        if (!error.message?.includes('autocancelled')) {
-          console.error('Error saving encounter:', error);
-          alert('Failed to save encounter. Please try again.');
-        }
+        console.error('DEBUG: Error saving encounter:', {
+          error,
+          errorMessage: error.message,
+          errorData: error.data,
+          originalError: error.originalError
+        });
+        alert('Failed to save encounter: ' + error.message);
+        throw error;
       }
     } catch (error: any) {
-      // Handle any other errors
-      if (!error.message?.includes('autocancelled')) {
-        console.error('[Form Submit] Error:', error);
-        alert('An error occurred. Please try again.');
-      }
+      // Handle any errors
+      console.error('DEBUG: Form submission error:', {
+        error,
+        errorMessage: error.message,
+        errorData: error.data,
+        originalError: error.originalError
+      });
+      const errorMessage = error.message || 'An unknown error occurred';
+      alert(`Failed to save encounter: ${errorMessage}\nPlease try again.`);
     }
   };
 
@@ -1032,6 +991,39 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         return;
       }
 
+      // Create a form element
+      const form = document.createElement('form');
+      
+      // Create a native event
+      const nativeEvent = new Event('submit', { bubbles: true, cancelable: true });
+      
+      // Track event state
+      let defaultPrevented = false;
+      let propagationStopped = false;
+      
+      // Create a synthetic event using React's event interface
+      const syntheticEvent = {
+        preventDefault: () => { defaultPrevented = true; },
+        target: form,
+        currentTarget: form,
+        bubbles: true,
+        cancelable: true,
+        defaultPrevented: false,
+        eventPhase: 0,
+        isTrusted: true,
+        timeStamp: Date.now(),
+        type: 'submit',
+        nativeEvent,
+        stopPropagation: () => { propagationStopped = true; },
+        stopImmediatePropagation: () => { propagationStopped = true; },
+        persist: () => {},
+        isDefaultPrevented: () => defaultPrevented,
+        isPropagationStopped: () => propagationStopped
+      } as unknown as React.FormEvent<HTMLFormElement>;
+
+      // First save any changes
+      await handleSubmit(syntheticEvent);
+
       if (action === 'complete') {
         console.log('Processing complete action');
         // Update queue status
@@ -1092,6 +1084,32 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     location: location.state
   });
 
+  // Add function to handle re-adding to queue
+  const handleAddToQueue = async () => {
+    try {
+      if (!patientId || !encounterId) {
+        console.error('Missing patient or encounter ID');
+        return;
+      }
+
+      // Create new queue entry
+      const queueData = {
+        patient: patientId,
+        status: 'at_checkout',
+        priority: 3, // Default priority
+        check_in_time: new Date().toISOString(),
+        encounter: encounterId
+      };
+
+      await pb.collection('queue').create(queueData);
+      alert('Patient added back to queue in checkout status');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Error adding to queue:', error);
+      alert('Failed to add patient to queue: ' + (error as Error).message);
+    }
+  };
+
   if (loading || !patient) {
     return <Typography>Loading...</Typography>;
   }
@@ -1121,6 +1139,15 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               >
                 Edit Encounter
               </Button>
+              {!currentQueueItem && (
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  onClick={handleAddToQueue}
+                >
+                  Add to Queue
+                </Button>
+              )}
             </Box>
           )}
         </Box>

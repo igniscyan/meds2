@@ -249,6 +249,33 @@ const PatientDashboard: React.FC = () => {
                   >
                     View Details
                   </Button>
+                  <RoleBasedAccess requiredRole="provider">
+                    <Button
+                      size="small"
+                      color="secondary"
+                      onClick={async () => {
+                        try {
+                          // Create new queue entry
+                          const queueData = {
+                            patient: patientId,
+                            status: 'at_checkout',
+                            priority: 3,
+                            check_in_time: new Date().toISOString(),
+                            encounter: encounter.id
+                          };
+                          await pb.collection('queue').create(queueData);
+                          alert('Patient added back to queue in checkout status');
+                          navigate('/dashboard');
+                        } catch (error) {
+                          console.error('Error adding to queue:', error);
+                          alert('Failed to add patient to queue: ' + (error as Error).message);
+                        }
+                      }}
+                      sx={{ ml: 1 }}
+                    >
+                      Add to Queue
+                    </Button>
+                  </RoleBasedAccess>
                 </TableCell>
               </TableRow>
             ))}

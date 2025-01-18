@@ -9,6 +9,57 @@ import (
 	"github.com/pocketbase/pocketbase/tools/types"
 )
 
+type SeedQuestion struct {
+	QuestionText string
+	InputType    string
+	Description  string
+	Options      []string
+	Order        int
+	Required     bool
+	DependsOn    string
+}
+
+func seedQuestions(dao *daos.Dao, categoryId string, questions []SeedQuestion) error {
+	collection, err := dao.FindCollectionByNameOrId("encounter_questions")
+	if err != nil {
+		return err
+	}
+
+	for _, q := range questions {
+		// Check if question already exists
+		existingQuestion, err := dao.FindFirstRecordByData("encounter_questions", "question_text", q.QuestionText)
+		if err == nil && existingQuestion != nil {
+			// Update existing question
+			existingQuestion.Set("input_type", q.InputType)
+			existingQuestion.Set("description", q.Description)
+			existingQuestion.Set("options", q.Options)
+			existingQuestion.Set("order", q.Order)
+			existingQuestion.Set("required", q.Required)
+			existingQuestion.Set("depends_on", q.DependsOn)
+			existingQuestion.Set("category", categoryId)
+			if err := dao.SaveRecord(existingQuestion); err != nil {
+				return err
+			}
+			continue
+		}
+
+		// Create new question
+		record := models.NewRecord(collection)
+		record.Set("question_text", q.QuestionText)
+		record.Set("input_type", q.InputType)
+		record.Set("description", q.Description)
+		record.Set("options", q.Options)
+		record.Set("order", q.Order)
+		record.Set("required", q.Required)
+		record.Set("depends_on", q.DependsOn)
+		record.Set("category", categoryId)
+		if err := dao.SaveRecord(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func init() {
 	m.Register(func(db dbx.Builder) error {
 		dao := daos.New(db)
@@ -968,6 +1019,35 @@ func init() {
 			if err := dao.SaveRecord(record); err != nil {
 				return err
 			}
+		}
+
+		// Seed survey questions
+		if err := seedQuestions(dao, surveyCategory.Id, []SeedQuestion{
+			{
+				QuestionText: "How would you rate your overall experience?",
+				InputType:    "select",
+				Description:  "Please rate your overall experience with our clinic",
+				Options:      []string{"Excellent", "Good", "Fair", "Poor"},
+				Order:        1,
+				Required:     false,
+			},
+			{
+				QuestionText: "Would you recommend our clinic to others?",
+				InputType:    "select",
+				Description:  "Would you recommend our services to friends or family?",
+				Options:      []string{"Yes, definitely", "Maybe", "No"},
+				Order:        2,
+				Required:     false,
+			},
+			{
+				QuestionText: "What could we improve?",
+				InputType:    "text",
+				Description:  "Please share any suggestions for improvement",
+				Order:        3,
+				Required:     false,
+			},
+		}); err != nil {
+			return err
 		}
 
 		return nil

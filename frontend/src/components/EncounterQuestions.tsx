@@ -120,6 +120,14 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
     }
   }, [existingResponses, responsesLoading]);
 
+  // Add a function to check if a question should be visible
+  const isQuestionVisible = useCallback((question: Question) => {
+    if (!question.depends_on) return true;
+    
+    const parentResponse = responses[question.depends_on];
+    return parentResponse?.response_value === true;
+  }, [responses]);
+
   // Handle response changes
   const handleResponseChange = useCallback((questionId: string, value: any) => {
     setResponses(prev => {
@@ -137,28 +145,38 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
 
       newResponses[questionId] = baseResponse;
 
-      // Handle dependent fields
+      // Clear dependent questions when parent is unchecked
       if (questionRecords) {
         questionRecords.forEach(q => {
-          if (q.depends_on === questionId && !value) {
-            newResponses[q.id] = {
-              ...baseResponse,
-              question: q.id,
-              response_value: q.input_type === 'checkbox' ? false : ''
-            };
+          if (q.depends_on === questionId) {
+            if (!value) {
+              // Clear dependent question's value
+              newResponses[q.id] = {
+                ...baseResponse,
+                question: q.id,
+                response_value: q.input_type === 'checkbox' ? false : ''
+              };
+            }
           }
         });
       }
 
+      // Notify parent of changes
+      const responseArray = Object.values(newResponses).filter(r => r.response_value !== undefined);
+      onResponsesChange(responseArray);
+
       return newResponses;
     });
-  }, [questionRecords, encounterId]);
+  }, [questionRecords, encounterId, onResponsesChange]);
 
   // Render question based on type
   const renderQuestion = useCallback((question: Question, category: Category) => {
+    // Don't render if this is a dependent question and parent condition isn't met
+    if (!isQuestionVisible(question)) return null;
+
     const isSurveyQuestion = category.type === 'survey';
     const currentValue = responses[question.id]?.response_value;
-    const isRequired = isSurveyQuestion && question.required;
+    const isRequired = false;
     const isPharmacyMode = mode === 'pharmacy';
 
     // Common props for form controls
@@ -231,7 +249,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       default:
         return null;
     }
-  }, [responses, disabled, mode, handleResponseChange]);
+  }, [responses, disabled, mode, handleResponseChange, isQuestionVisible]);
 
   // Handle accordion expansion/collapse
   const handleAccordionChange = (categoryId: string) => (_event: React.SyntheticEvent, isExpanded: boolean) => {
