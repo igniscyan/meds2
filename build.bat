@@ -86,7 +86,7 @@ copy install.bat dist\package\
 copy uninstall.bat dist\package\
 
 echo Creating ZIP archive...
-powershell Compress-Archive -Path dist\package\* -DestinationPath dist\MedicalRecordsSystem.zip -Force
+powershell -Command "& { Import-Module Microsoft.PowerShell.Archive -ErrorAction SilentlyContinue; if (Get-Command Compress-Archive -ErrorAction SilentlyContinue) { Compress-Archive -Path dist\package\* -DestinationPath dist\MedicalRecordsSystem.zip -Force } else { Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory('dist\package', 'dist\MedicalRecordsSystem.zip') } }"
 
 echo Build complete! 
 echo.
