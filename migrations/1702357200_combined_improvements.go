@@ -642,10 +642,10 @@ func init() {
 		// Set rules for other collections
 		authRule := "@request.auth.id != ''"
 		deleteRule := "@request.auth.role = 'provider' || @request.auth.role = 'admin'"
+		pharmacyDeleteRule := "@request.auth.role = 'provider' || @request.auth.role = 'admin' || @request.auth.role = 'pharmacy'"
 
 		collections := []*models.Collection{
-			inventory, encounters, disbursements,
-			chiefComplaints, questionCategories, questions,
+			inventory, encounters, chiefComplaints, questionCategories, questions,
 			responses, bulkDistributions, bulkItems, queue,
 		}
 
@@ -659,6 +659,17 @@ func init() {
 			if err := dao.SaveCollection(c); err != nil {
 				return err
 			}
+		}
+
+		// Set special delete rule for disbursements to allow pharmacy role
+		disbursements.CreateRule = &authRule
+		disbursements.UpdateRule = &authRule
+		disbursements.DeleteRule = &pharmacyDeleteRule
+		disbursements.ListRule = &authRule
+		disbursements.ViewRule = &authRule
+
+		if err := dao.SaveCollection(disbursements); err != nil {
+			return err
 		}
 
 		// Create queue line number trigger

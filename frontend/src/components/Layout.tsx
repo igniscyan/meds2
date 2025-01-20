@@ -1,8 +1,8 @@
 import React from 'react';
-import { Box, AppBar, Toolbar, Typography, Button, useTheme, useMediaQuery, IconButton, Drawer, List, ListItem, Container } from '@mui/material';
+import { Box, AppBar, Toolbar, Typography, Button, useTheme, useMediaQuery, IconButton, Drawer, List, ListItem, Container, Chip } from '@mui/material';
 import { useNavigate, Outlet } from 'react-router-dom';
-import { useSetAtom } from 'jotai';
-import { logoutAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { logoutAtom, pb } from '../atoms/auth';
 import MenuIcon from '@mui/icons-material/Menu';
 import { RoleBasedAccess } from './RoleBasedAccess';
 
@@ -11,10 +11,18 @@ export const Layout: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  const logout = useSetAtom(logoutAtom);
+  const [isLoggedIn, logout] = useAtom(logoutAtom);
 
-  const handleLogout = () => {
-    logout();
+  const userInfo = pb.authStore.model;
+  const userRole = (pb.authStore.model as any)?.role;
+
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
   };
 
   const navItems = [
@@ -22,10 +30,6 @@ export const Layout: React.FC = () => {
     { text: 'Patients', path: '/patients' },
     { text: 'Inventory', path: '/inventory', role: 'pharmacy' as const },
   ];
-
-  const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen);
-  };
 
   const drawer = (
     <Box sx={{ bgcolor: theme.palette.primary.main, height: '100%' }}>
@@ -123,11 +127,42 @@ export const Layout: React.FC = () => {
             onClick={() => navigate('/dashboard')} 
             sx={{ 
               cursor: 'pointer',
-              flexGrow: isMobile ? 1 : 0
+              flexGrow: 0
             }}
           >
             MEDS
           </Typography>
+
+          {userInfo && (
+            <Box sx={{ 
+              ml: 2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              flexGrow: 1,
+              color: 'primary.contrastText',
+              fontSize: '0.875rem'
+            }}>
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                {userInfo.email}
+              </Typography>
+              {userRole && (
+                <Chip 
+                  label={userRole.charAt(0).toUpperCase() + userRole.slice(1)} 
+                  size="small"
+                  sx={{ 
+                    height: 20,
+                    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                    color: 'primary.contrastText',
+                    '& .MuiChip-label': {
+                      px: 1,
+                      fontSize: '0.75rem'
+                    }
+                  }}
+                />
+              )}
+            </Box>
+          )}
 
           <Box sx={{ 
             display: 'flex', 
