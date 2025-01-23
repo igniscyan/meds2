@@ -424,7 +424,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
     return (
       <RoleBasedAccess requiredRole="pharmacy">
-        <>
+        <Box sx={{ display: 'flex', gap: 2 }}>
           <Button
             variant="outlined"
             onClick={handleBack}
@@ -433,19 +433,19 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           </Button>
           <Button
             variant="contained"
-            color="primary"
-            onClick={() => handlePharmacyAction('save')}
-          >
-            Save Changes
-          </Button>
-          <Button
-            variant="contained"
             color="secondary"
             onClick={() => handlePharmacyAction('checkout')}
           >
             Send to Checkout
           </Button>
-        </>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => handlePharmacyAction('save')}
+          >
+            Save Changes
+          </Button>
+        </Box>
       </RoleBasedAccess>
     );
   };
@@ -548,6 +548,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? null : 
           chiefComplaints.find(c => c.name === formData.chief_complaint)?.id || null,
         other_chief_complaint: formData.other_chief_complaint || '',
+        subjective_notes: formData.subjective_notes || '',
         // Ensure these fields are properly typed for PocketBase
         height_inches: formData.height_inches ? Number(formData.height_inches) : null,
         weight: formData.weight ? Number(formData.weight) : null,
@@ -909,9 +910,26 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                   const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
                   const newStock = updatedMedication.stock - stockChange;
                   
-                  await pb.collection('inventory').update(disbursement.medication, {
-                    stock: newStock
-                  });
+                  if (newStock < 0) {
+                    throw new Error(`Not enough stock for ${updatedMedication.drug_name}. Available: ${updatedMedication.stock}, Needed: ${quantity}`);
+                  }
+
+                  // Update stock first
+                  try {
+                    await pb.collection('inventory').update(disbursement.medication, {
+                      stock: newStock,
+                      disbursement_multiplier: 1 // Ensure this is set to prevent validation errors
+                    });
+                  } catch (error: any) {
+                    console.error('DEBUG: Error updating inventory:', {
+                      error,
+                      medication: updatedMedication.drug_name,
+                      currentStock: updatedMedication.stock,
+                      requestedQuantity: quantity,
+                      calculatedNewStock: newStock
+                    });
+                    throw error;
+                  }
                 }
               }
               
@@ -932,10 +950,26 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
           const newStock = updatedMedication.stock - quantity;
           
+          if (newStock < 0) {
+            throw new Error(`Not enough stock for ${updatedMedication.drug_name}. Available: ${updatedMedication.stock}, Needed: ${quantity}`);
+          }
+
           // Update stock first
-          await pb.collection('inventory').update(disbursement.medication, {
-            stock: newStock
-          });
+          try {
+            await pb.collection('inventory').update(disbursement.medication, {
+              stock: newStock,
+              disbursement_multiplier: 1 // Ensure this is set to prevent validation errors
+            });
+          } catch (error: any) {
+            console.error('DEBUG: Error updating inventory:', {
+              error,
+              medication: updatedMedication.drug_name,
+              currentStock: updatedMedication.stock,
+              requestedQuantity: quantity,
+              calculatedNewStock: newStock
+            });
+            throw error;
+          }
           
           // Then create disbursement
           const created = await pb.collection('disbursements').create({
@@ -1162,7 +1196,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
     return (
       <RoleBasedAccess requiredRole="provider">
-        <>
+        <Box sx={{ display: 'flex', gap: 2 }}>
           <Button
             variant="outlined"
             onClick={handleBack}
@@ -1176,7 +1210,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           >
             Complete Checkout
           </Button>
-        </>
+        </Box>
       </RoleBasedAccess>
     );
   };
@@ -1375,6 +1409,18 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     />
                   </Grid>
                 )}
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Subjective Notes"
+                    placeholder="Any additional data regarding diagnosis, interesting items, etc."
+                    value={formData.subjective_notes || ''}
+                    onChange={handleInputChange('subjective_notes')}
+                    disabled={currentMode === 'view'}
+                    multiline
+                    rows={4}
+                  />
+                </Grid>
               </Grid>
             </Grid>
 
@@ -1428,28 +1474,26 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 {/* Checkout Mode */}
                 {currentMode === 'checkout' && renderCheckoutButtons()}
 
-                {/* Provider Mode - Ready for Pharmacy Button */}
-                {currentMode === 'edit' && !currentQueueItem?.status?.includes('checkout') && currentQueueItem && (
-                  <RoleBasedAccess requiredRole="provider">
-                    <Button
-                      variant="contained"
-                      color="secondary"
-                      onClick={() => handleQueueStatusChange('ready_pharmacy')}
-                    >
-                      Ready for Pharmacy
-                    </Button>
-                  </RoleBasedAccess>
-                )}
-
-                {/* Edit/Save Buttons */}
+                {/* Provider Mode */}
                 {(currentMode === 'edit' || currentMode === 'create') && (
-                  <>
+                  <Box sx={{ display: 'flex', gap: 2 }}>
                     <Button
                       variant="outlined"
                       onClick={handleBack}
                     >
                       Cancel
                     </Button>
+                    {currentMode === 'edit' && !currentQueueItem?.status?.includes('checkout') && currentQueueItem && (
+                      <RoleBasedAccess requiredRole="provider">
+                        <Button
+                          variant="contained"
+                          color="secondary"
+                          onClick={() => handleQueueStatusChange('ready_pharmacy')}
+                        >
+                          Ready for Pharmacy
+                        </Button>
+                      </RoleBasedAccess>
+                    )}
                     <Button
                       type="submit"
                       variant="contained"
@@ -1457,7 +1501,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     >
                       {currentMode === 'edit' ? 'Save Changes' : 'Save Encounter'}
                     </Button>
-                  </>
+                  </Box>
                 )}
               </Box>
             </Grid>

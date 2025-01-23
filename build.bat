@@ -75,6 +75,22 @@ echo 2. Follow the prompts to complete the installation
 echo 3. The application will be installed to Program Files
 echo 4. Shortcuts will be created on desktop and start menu
 echo.
+echo Access Information:
+echo - Main Application: http://[YOUR-IP]:8090
+echo - Admin Interface: http://[YOUR-IP]:8090/_/
+echo.
+echo To find your IP address:
+echo 1. Open Command Prompt
+echo 2. Type 'ipconfig' and press Enter
+echo 3. Look for "IPv4 Address" under your active network adapter
+echo 4. Use this IP address in place of [YOUR-IP] above
+echo.
+echo Default User Accounts:
+echo - Admin Interface user: user@example.com
+echo - Provider accounts: provider@example.com through provider6@example.com
+echo - Pharmacy accounts: pharmacyuser@example.com through pharmacyuser4@example.com
+echo - All accounts use password: password123
+echo.
 echo To uninstall:
 echo 1. Run uninstall.bat from the installation directory
 echo   or

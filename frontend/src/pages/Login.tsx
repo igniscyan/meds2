@@ -50,7 +50,7 @@ const Login: React.FC = () => {
         }}
       >
         <Typography variant="h4" component="h1" gutterBottom>
-          Login
+          MEDS Login
         </Typography>
         {error && (
           <Typography color="error" sx={{ mb: 2 }}>

@@ -466,9 +466,27 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                   <Grid item xs={12} sm={4}>
                     <Autocomplete
                       options={medications || []}
-                      getOptionLabel={(option) => 
-                        typeof option === 'string' ? option : `${option.drug_name} ${option.dose} (${option.unit_size})`
-                      }
+                      getOptionLabel={(option) => {
+                        if (typeof option === 'string') return option;
+                        const parts = [];
+                        parts.push(option.drug_name);
+                        if (option.dose) parts.push(option.dose);
+                        if (option.unit_size) parts.push(`(${option.unit_size})`);
+                        return parts.join(' ');
+                      }}
+                      filterOptions={(options, { inputValue }) => {
+                        const searchTerms = inputValue.toLowerCase().split(' ');
+                        return options.filter(option => {
+                          if (typeof option === 'string') return false;
+                          const drugName = option.drug_name.toLowerCase();
+                          const category = option.drug_category.toLowerCase();
+                          
+                          // Check if all search terms are found in either drug name or category
+                          return searchTerms.every(term => 
+                            drugName.includes(term) || category.includes(term)
+                          );
+                        });
+                      }}
                       isOptionEqualToValue={(option, value) => 
                         option.id === (typeof value === 'string' ? value : value?.id)
                       }
@@ -484,7 +502,27 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                           fullWidth
                           error={!disbursement.medication}
                           helperText={!disbursement.medication ? 'Required' : ''}
+                          placeholder="Search by name or category..."
                         />
+                      )}
+                      renderOption={(props, option) => (
+                        <li {...props}>
+                          <Box sx={{ 
+                            width: '100%', 
+                            display: 'flex', 
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}>
+                            <Typography>
+                              {option.drug_name}
+                              {option.dose && ` ${option.dose}`}
+                              {option.unit_size && ` (${option.unit_size})`}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
+                              {option.drug_category}
+                            </Typography>
+                          </Box>
+                        </li>
                       )}
                       disabled={disabled}
                     />
