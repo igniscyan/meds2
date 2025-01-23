@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, AppBar, Toolbar, Typography, Button, useTheme, useMediaQuery, IconButton, Drawer, List, ListItem, Container, Chip } from '@mui/material';
 import { useNavigate, Outlet } from 'react-router-dom';
-import { useAtom } from 'jotai';
+import { useAtom, useSetAtom } from 'jotai';
 import { logoutAtom, pb } from '../atoms/auth';
 import MenuIcon from '@mui/icons-material/Menu';
 import { RoleBasedAccess } from './RoleBasedAccess';
@@ -12,6 +12,7 @@ export const Layout: React.FC = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [isLoggedIn, logout] = useAtom(logoutAtom);
+  const logoutSet = useSetAtom(logoutAtom);
 
   const userInfo = pb.authStore.model;
   const userRole = (pb.authStore.model as any)?.role;
@@ -21,7 +22,7 @@ export const Layout: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await logout();
+    await logoutSet();
     navigate('/login', { replace: true });
   };
 

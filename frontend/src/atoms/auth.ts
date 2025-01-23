@@ -35,13 +35,11 @@ export const isLoadingAtom = atom(false);
 isLoadingAtom.debugLabel = 'isLoadingAtom';
 
 export const logoutAtom = atom(
-  (get) => get(authModelAtom) !== null,
-  async (_get, set) => {
-    // Clear auth state first
+  null,
+  (get, set) => {
     set(authModelAtom, null);
     pb.authStore.clear();
-    
-    // Dispatch auth change event
+    // Instead of using window.location.href, dispatch an event that AuthGuard will handle
     window.dispatchEvent(new Event('pocketbase-auth-change'));
   }
 );

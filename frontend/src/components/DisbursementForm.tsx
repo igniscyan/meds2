@@ -77,6 +77,14 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     wasRestored: boolean;
   }>>(new Map());
 
+  // Track initial state of disbursements
+  const [initialDisbursementState, setInitialDisbursementState] = useState<{
+    medication: string;
+    quantity: number;
+    disbursement_multiplier: number;
+    medicationDetails?: MedicationRecord;
+  }[]>([]);
+
   // Initialize disbursements and their initial state
   useEffect(() => {
     if (initialDisbursements?.length) {
@@ -127,6 +135,20 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     }
   }, [initialDisbursements]);
 
+  useEffect(() => {
+    if (initialDisbursements) {
+      // Reset disbursements and their initial state when initialDisbursements changes
+      setDisbursements(initialDisbursements);
+      // Store the initial state for stock change calculations
+      setInitialDisbursementState(initialDisbursements.map(d => ({
+        medication: d.medication,
+        quantity: d.quantity,
+        disbursement_multiplier: d.disbursement_multiplier,
+        medicationDetails: d.medicationDetails
+      })));
+    }
+  }, [initialDisbursements]);
+
   const handleAddDisbursement = () => {
     const newDisbursement = {
       medication: '',
@@ -173,51 +195,34 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     }
   };
 
-  const calculateStockChange = (disbursement: DisbursementItem) => {
+  // Calculate stock changes based on initial state
+  const calculateStockChange = (disbursement: DisbursementItem, index: number) => {
     if (!disbursement.medicationDetails || !disbursement.medication) return null;
-    
-    const currentTotal = disbursement.quantity * disbursement.disbursement_multiplier;
-    const wasInitialMedication = initialMedicationState.has(disbursement.medication);
-    const initialState = wasInitialMedication ? initialMedicationState.get(disbursement.medication) : null;
-    
-    console.log('STOCK DEBUG: Calculating stock for:', {
-      medication: disbursement.medicationDetails.drug_name,
-      currentTotal,
-      currentStock: disbursement.medicationDetails.stock,
-      wasInitialMedication,
-      initialState
-    });
 
-    // Always check against initial state first
-    if (wasInitialMedication && initialState) {
-      const initialTotal = initialState.quantity * initialState.multiplier;
-      const stockChange = currentTotal - initialTotal;
-      
-      console.log('STOCK DEBUG: Initial medication calculation:', {
-        initialTotal,
-        currentTotal,
-        stockChange,
-        newStock: disbursement.medicationDetails.stock - stockChange
-      });
-      
-      if (stockChange === 0) {
-        return 'No Change (Initial)';
-      } else {
-        const newStock = disbursement.medicationDetails.stock - stockChange;
-        const changeSymbol = stockChange > 0 ? '-' : '+';
-        return `→ ${newStock} (${changeSymbol}${Math.abs(stockChange)})`;
-      }
+    const currentQuantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+    const initialState = initialDisbursementState[index];
+    
+    // If this is a new disbursement (no ID), show the pending change
+    if (!disbursement.id) {
+      return -currentQuantity;
     }
     
-    // This is a completely new disbursement
-    console.log('STOCK DEBUG: New disbursement:', {
-      currentTotal,
-      currentStock: disbursement.medicationDetails.stock,
-      newStock: disbursement.medicationDetails.stock - currentTotal
-    });
-    
-    const newStock = disbursement.medicationDetails.stock - currentTotal;
-    return `→ ${newStock} (-${currentTotal})`;
+    // If this disbursement matches its initial state, return null to show "No Change"
+    if (initialState && 
+        initialState.medication === disbursement.medication &&
+        initialState.quantity === disbursement.quantity &&
+        initialState.disbursement_multiplier === disbursement.disbursement_multiplier) {
+      return null;
+    }
+
+    // If the medication changed, calculate full change
+    if (!initialState || initialState.medication !== disbursement.medication) {
+      return -currentQuantity;
+    }
+
+    // Calculate change from initial state
+    const initialQuantity = initialState.quantity * (initialState.disbursement_multiplier || 1);
+    return initialQuantity - currentQuantity;
   };
 
   const handleDisbursementChange = (
@@ -544,14 +549,20 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                           Current Stock: {disbursement.medicationDetails.stock}
                         </Typography>
                         {disbursement.quantity && disbursement.disbursement_multiplier && (
-                          <Typography 
-                            variant="caption" 
+                          <Typography
+                            variant="caption"
                             sx={{ 
                               display: 'block',
-                              color: calculateStockChange(disbursement)?.includes('No Change') ? 'text.secondary' : 'error.main'
+                              color: calculateStockChange(disbursement, index) === null ? 'text.secondary' : 'error.main'
                             }}
                           >
-                            {calculateStockChange(disbursement)}
+                            {(() => {
+                              const stockChange = calculateStockChange(disbursement, index);
+                              if (stockChange === null) {
+                                return 'No Change (Initial)';
+                              }
+                              return `→ ${disbursement.medicationDetails.stock + stockChange} (${stockChange})`;
+                            })()}
                           </Typography>
                         )}
                       </Box>

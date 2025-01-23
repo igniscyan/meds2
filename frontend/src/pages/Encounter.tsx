@@ -219,6 +219,26 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
   const OTHER_COMPLAINT_VALUE = '__OTHER__';
 
+  const userRole = (pb.authStore.model as any)?.role;
+
+  // Helper function to determine if a field should be disabled
+  const isFieldDisabled = (section: 'vitals' | 'subjective' | 'disbursement' | 'questions') => {
+    if (currentMode === 'view') return true;
+    
+    // In pharmacy mode, only disbursement section is editable
+    if (currentMode === 'pharmacy') {
+      return section !== 'disbursement';
+    }
+    
+    // In checkout mode, only questions section is editable
+    if (currentMode === 'checkout') {
+      return section !== 'questions';
+    }
+    
+    // In provider mode (edit/create), all sections are editable
+    return false;
+  };
+
   useEffect(() => {
     const loadData = async () => {
       if (!patientId) {
@@ -273,8 +293,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           });
 
           const chiefComplaintName = encounterRecord.expand?.chief_complaint?.name || '';
+          const hasOtherComplaint = encounterRecord.other_chief_complaint && encounterRecord.other_chief_complaint.length > 0;
           
-          if (chiefComplaintName === 'OTHER (Custom Text Input)') {
+          // Show other complaint if either the chief complaint is "OTHER" or we have an other_chief_complaint value
+          if (chiefComplaintName === 'OTHER (Custom Text Input)' || hasOtherComplaint) {
             setShowOtherComplaint(true);
             setOtherComplaintValue(encounterRecord.other_chief_complaint || '');
           }
@@ -287,7 +309,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             heart_rate: encounterRecord.heart_rate,
             systolic_pressure: encounterRecord.systolic_pressure,
             diastolic_pressure: encounterRecord.diastolic_pressure,
-            chief_complaint: chiefComplaintName,
+            chief_complaint: hasOtherComplaint ? 'OTHER (Custom Text Input)' : chiefComplaintName,
             disbursements: disbursementItems.length > 0 ? disbursementItems : [{
               medication: '',
               quantity: 1,
@@ -544,8 +566,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       // Prepare encounter data
       const encounterData = {
         patient: patientId,
-        // Only include chief_complaint if it's not "OTHER (Custom Text Input)"
-        chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? null : 
+        // For "OTHER", find the ID of the "OTHER" option in chief_complaints
+        chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? 
+          chiefComplaints.find(c => c.name === 'OTHER (Custom Text Input)')?.id || null : 
           chiefComplaints.find(c => c.name === formData.chief_complaint)?.id || null,
         other_chief_complaint: formData.other_chief_complaint || '',
         subjective_notes: formData.subjective_notes || '',
@@ -828,19 +851,38 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         const existing = existingMap.get(disbursement.id);
         if (existing && !existing.processed) {
           try {
-            console.log('DEBUG: Attempting to delete disbursement:', {
+            console.log('DEBUG: Processing deletion for disbursement:', {
               id: disbursement.id,
-              existing: existing
+              existing: existing,
+              quantity: existing.quantity,
+              medicationId: existing.medication
             });
             
-            // Delete the disbursement
+            // First, get the current medication stock
+            const medication = await pb.collection('inventory').getOne<MedicationRecord>(existing.medication);
+            const newStock = medication.stock + existing.quantity;
+            
+            console.log('DEBUG: Restoring stock:', {
+              medicationName: medication.drug_name,
+              currentStock: medication.stock,
+              quantityToRestore: existing.quantity,
+              newStock: newStock
+            });
+
+            // Restore the stock first
+            await pb.collection('inventory').update(existing.medication, {
+              stock: newStock,
+              disbursement_multiplier: 1 // Ensure this is set to prevent validation errors
+            });
+            
+            // Then delete the disbursement
             await pb.collection('disbursements').delete(disbursement.id);
-            console.log('DEBUG: Successfully deleted disbursement');
+            console.log('DEBUG: Successfully deleted disbursement and restored stock');
             
             // Remove from existingMap so it's not processed again
             existingMap.delete(disbursement.id);
           } catch (error: any) {
-            console.error('DEBUG: Error deleting disbursement:', {
+            console.error('DEBUG: Error in deletion process:', {
               error,
               status: error?.status,
               response: error?.response,
@@ -889,7 +931,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             // In pharmacy mode, we might be changing the medication
             const medicationChanged = existing.medication !== disbursement.medication;
             
-            if (medicationChanged || existing.quantity !== quantity || existing.notes !== disbursement.notes) {
+            if (medicationChanged || existing.quantity !== quantity) {
               // If medication changed, we need to handle stock for both old and new medication
               if (medicationChanged) {
                 // Restore stock for old medication
@@ -984,31 +1026,41 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       }
 
       // Update form data with processed disbursements to prevent double creation
-      setFormData(prev => {
-        // If we have no valid disbursements and some were marked for deletion,
-        // we should clear the disbursements array
-        if (validDisbursements.length === 0 && markedForDeletion.length > 0) {
-          console.log('DEBUG: Clearing all disbursements from form data');
-          return {
-            ...prev,
-            disbursements: []
-          };
-        }
-
-        // Otherwise update with processed disbursements
-        console.log('DEBUG: Updating form data with processed disbursements:', processedDisbursements);
-        return {
+      if (validDisbursements.length === 0 && markedForDeletion.length > 0) {
+        console.log('DEBUG: Clearing all disbursements from form data');
+        setFormData(prev => ({
           ...prev,
-          disbursements: processedDisbursements.map(d => ({
-            id: d.id,
-            medication: d.medication,
-            quantity: d.quantity,
-            disbursement_multiplier: d.disbursement_multiplier || 1,
-            notes: d.notes || '',
-            medicationDetails: d.expand?.medication
-          }))
-        };
-      });
+          disbursements: []
+        }));
+      } else {
+        // Get the latest medication details for each processed disbursement
+        const updatedDisbursements = await Promise.all(
+          processedDisbursements.map(async d => {
+            // Get the fresh medication details
+            const medication = await pb.collection('inventory').getOne<MedicationRecord>(d.medication);
+            
+            return {
+              id: d.id,
+              medication: d.medication,
+              quantity: medication.fixed_quantity || d.quantity,
+              // After save, disbursement_multiplier should reflect the actual state
+              disbursement_multiplier: medication.fixed_quantity ? d.quantity / medication.fixed_quantity : 1,
+              notes: d.notes || '',
+              medicationDetails: medication,
+              // Reset any deletion flags
+              markedForDeletion: false
+            };
+          })
+        );
+
+        console.log('DEBUG: Updated disbursements with fresh medication details:', updatedDisbursements);
+
+        // Now set the state with the resolved disbursements
+        setFormData(prev => ({
+          ...prev,
+          disbursements: updatedDisbursements
+        }));
+      }
 
       alert('Changes saved successfully');
     } catch (error) {
@@ -1307,7 +1359,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     type="number"
                     value={formData.height_inches}
                     onChange={handleInputChange('height_inches')}
-                    disabled={currentMode === 'view'}
+                    disabled={isFieldDisabled('vitals')}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1317,7 +1369,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     type="number"
                     value={formData.weight}
                     onChange={handleInputChange('weight')}
-                    disabled={currentMode === 'view'}
+                    disabled={isFieldDisabled('vitals')}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1328,7 +1380,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     inputProps={{ step: "0.1" }}
                     value={formData.temperature}
                     onChange={handleInputChange('temperature')}
-                    disabled={currentMode === 'view'}
+                    disabled={isFieldDisabled('vitals')}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1338,7 +1390,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     type="number"
                     value={formData.heart_rate}
                     onChange={handleInputChange('heart_rate')}
-                    disabled={currentMode === 'view'}
+                    disabled={isFieldDisabled('vitals')}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1348,7 +1400,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     type="number"
                     value={formData.systolic_pressure}
                     onChange={handleInputChange('systolic_pressure')}
-                    disabled={currentMode === 'view'}
+                    disabled={isFieldDisabled('vitals')}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1358,7 +1410,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     type="number"
                     value={formData.diastolic_pressure}
                     onChange={handleInputChange('diastolic_pressure')}
-                    disabled={currentMode === 'view'}
+                    disabled={isFieldDisabled('vitals')}
                   />
                 </Grid>
               </Grid>
@@ -1380,7 +1432,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                       value={formData.chief_complaint || null}
                       onChange={handleComplaintChange}
                       options={chiefComplaints.map(c => c.name)}
-                      disabled={currentMode === 'view'}
+                      disabled={isFieldDisabled('subjective')}
                       renderInput={(params) => (
                         <TextField
                           {...params}
@@ -1403,7 +1455,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                       label="Specify Other Chief Complaint"
                       value={currentMode === 'view' ? formData.other_chief_complaint : otherComplaintValue}
                       onChange={handleOtherComplaintChange}
-                      disabled={currentMode === 'view'}
+                      disabled={isFieldDisabled('subjective')}
                       placeholder="Enter new chief complaint"
                       helperText="Please use all caps for consistency"
                     />
@@ -1413,12 +1465,12 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                   <TextField
                     fullWidth
                     label="Subjective Notes"
-                    placeholder="Any additional data regarding diagnosis, interesting items, etc."
                     value={formData.subjective_notes || ''}
                     onChange={handleInputChange('subjective_notes')}
-                    disabled={currentMode === 'view'}
+                    disabled={isFieldDisabled('subjective')}
                     multiline
                     rows={4}
+                    placeholder="Any additional data regarding diagnosis, interesting items, etc."
                   />
                 </Grid>
               </Grid>
@@ -1428,14 +1480,14 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               <Divider sx={{ my: 2 }} />
             </Grid>
 
-            {/* Disbursements Section */}
+            {/* Disbursement Section */}
             <Grid item xs={12}>
               <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
                 Disbursements
               </Typography>
               <DisbursementForm
                 encounterId={encounterId}
-                disabled={currentMode === 'view'}
+                disabled={isFieldDisabled('disbursement')}
                 mode={currentMode}
                 initialDisbursements={formData.disbursements}
                 onDisbursementsChange={(disbursements: DisbursementItem[]) => 
@@ -1444,7 +1496,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               />
             </Grid>
 
-            {/* Additional Questions Section */}
+            {/* Questions Section */}
             <Grid item xs={12}>
               <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
                 Additional Questions
@@ -1456,7 +1508,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               </Typography>
               <EncounterQuestions
                 encounterId={encounterId}
-                disabled={currentMode === 'view'}
+                disabled={isFieldDisabled('questions')}
                 mode={currentMode}
                 defaultExpanded={currentMode === 'checkout'}
                 onResponsesChange={(responses: QuestionResponse[]) => {

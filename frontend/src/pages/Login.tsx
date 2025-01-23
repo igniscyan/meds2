@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Button, TextField, Typography, Paper } from '@mui/material';
+import { Box, Button, TextField, Typography, Paper, Container } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSetAtom } from 'jotai';
 import { authModelAtom, AuthModel, pb } from '../atoms/auth';
@@ -87,6 +87,19 @@ const Login: React.FC = () => {
           </Button>
         </form>
       </Paper>
+      <Typography 
+        variant="caption" 
+        color="text.secondary" 
+        align="center" 
+        sx={{ 
+          mt: 4,
+          position: 'absolute',
+          bottom: 16,
+          width: '100%'
+        }}
+      >
+        Created By: David Clark & Brandon Clark
+      </Typography>
     </Box>
   );
 };
