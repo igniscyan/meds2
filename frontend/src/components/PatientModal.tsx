@@ -18,12 +18,15 @@ import {
   FormControlLabel,
   Switch,
   FormHelperText,
+  FormGroup,
+  Checkbox,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import CloseIcon from '@mui/icons-material/Close';
 import { pb } from '../atoms/auth';
+import { useSettings } from '../hooks/useSettings';
 
 interface PatientModalProps {
   open: boolean;
@@ -38,7 +41,7 @@ interface PatientModalProps {
     age: number;
     smoker: string;
     allergies?: string;
-    height_inches?: number | null;
+    height?: number | null;
     weight?: number | null;
     temperature?: number | null;
     heart_rate?: number | null;
@@ -57,21 +60,25 @@ export const PatientModal: React.FC<PatientModalProps> = ({
 }) => {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
+  const { unitDisplay } = useSettings();
   
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
     dob: '',
     gender: '',
-    age: 0,
+    age: '' as string | number,
     smoker: '',
-    height_inches: null as number | null,
+    height: null as number | null,
     weight: null as number | null,
     temperature: null as number | null,
     heart_rate: null as number | null,
     systolic_pressure: null as number | null,
     diastolic_pressure: null as number | null,
     allergies: '' as string,
+    urinalysis: false,
+    blood_sugar: false,
+    pregnancy_test: false,
   });
 
   const [addToQueue, setAddToQueue] = useState(true);
@@ -91,52 +98,83 @@ export const PatientModal: React.FC<PatientModalProps> = ({
 
   // Initialize data when modal opens or initialData changes
   useEffect(() => {
+    if (!open) return; // Only run when modal is opening
+
     if (initialData) {
-      console.log('DATE DEBUG: initialData received:', initialData);
-      // Set form data
+      // If editing existing patient, populate with their data
       setFormData({
-        first_name: initialData.first_name,
-        last_name: initialData.last_name,
-        dob: initialData.dob,
-        gender: initialData.gender,
-        age: initialData.age,
-        smoker: initialData.smoker,
-        height_inches: initialData.height_inches ?? null,
+        first_name: initialData.first_name ?? '',
+        last_name: initialData.last_name ?? '',
+        dob: initialData.dob ?? '',
+        gender: initialData.gender ?? '',
+        age: initialData.age ?? '',
+        smoker: initialData.smoker ?? '',
+        height: initialData.height ?? null,
         weight: initialData.weight ?? null,
         temperature: initialData.temperature ?? null,
         heart_rate: initialData.heart_rate ?? null,
         systolic_pressure: initialData.systolic_pressure ?? null,
         diastolic_pressure: initialData.diastolic_pressure ?? null,
         allergies: initialData.allergies ?? '',
+        urinalysis: false,
+        blood_sugar: false,
+        pregnancy_test: false,
       });
-
-      // Set date value if DOB exists
-      if (initialData.dob) {
-        try {
-          console.log('DATE DEBUG: Parsing DOB:', initialData.dob);
-          // Extract just the date part from the timestamp
-          const datePart = initialData.dob.split(' ')[0];
-          console.log('DATE DEBUG: Extracted date part:', datePart);
-          
-          const [year, month, day] = datePart.split('-').map(Number);
-          console.log('DATE DEBUG: Parsed components:', { year, month, day });
-          
-          // Create date in local timezone
-          const date = new Date(year, month - 1, day);
-          console.log('DATE DEBUG: Created date object:', date);
-          
-          if (!isNaN(date.getTime())) {
-            console.log('DATE DEBUG: Setting dateValue to:', date);
-            setDateValue(date);
-          } else {
-            console.log('DATE DEBUG: Invalid date detected');
-          }
-        } catch (error) {
-          console.error('DATE DEBUG: Error parsing date:', error);
-        }
-      }
+      setDateValue(initialData.dob ? new Date(initialData.dob) : null);
+    } else {
+      // If creating new patient, reset to default values
+      setFormData({
+        first_name: '',
+        last_name: '',
+        dob: '',
+        gender: '',
+        age: '',
+        smoker: '',
+        height: null,
+        weight: null,
+        temperature: null,
+        heart_rate: null,
+        systolic_pressure: null,
+        diastolic_pressure: null,
+        allergies: '',
+        urinalysis: false,
+        blood_sugar: false,
+        pregnancy_test: false,
+      });
+      setDateValue(null);
+      setUseManualAge(false);
+      setAddToQueue(true);
+      setLineNumber('');
     }
-  }, [initialData]);
+
+    // Cleanup function to reset state when modal closes
+    return () => {
+      if (!open) {
+        setFormData({
+          first_name: '',
+          last_name: '',
+          dob: '',
+          gender: '',
+          age: '',
+          smoker: '',
+          height: null,
+          weight: null,
+          temperature: null,
+          heart_rate: null,
+          systolic_pressure: null,
+          diastolic_pressure: null,
+          allergies: '',
+          urinalysis: false,
+          blood_sugar: false,
+          pregnancy_test: false,
+        });
+        setDateValue(null);
+        setUseManualAge(false);
+        setAddToQueue(true);
+        setLineNumber('');
+      }
+    };
+  }, [initialData, open]);
 
   const calculateAge = (dob: string): number => {
     try {
@@ -164,13 +202,69 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     }
   };
 
-  // Handle manual age change
+  // Add helper function to parse smart age input
+  const parseSmartAge = (input: string): number => {
+    // Remove any spaces and convert to lowercase
+    const cleanInput = input.toLowerCase().trim();
+    
+    // Try to match patterns like "6m", "2w", "1.5"
+    const monthMatch = cleanInput.match(/^(\d+\.?\d*)m$/);
+    const weekMatch = cleanInput.match(/^(\d+\.?\d*)w$/);
+    
+    if (monthMatch) {
+      // Convert months to years
+      return parseFloat(monthMatch[1]) / 12;
+    } else if (weekMatch) {
+      // Convert weeks to years
+      return parseFloat(weekMatch[1]) / 52;
+    } else {
+      // Assume it's in years
+      return parseFloat(cleanInput);
+    }
+  };
+
+  // Add helper function to format age display
+  const formatAgeDisplay = (ageInYears: number): string => {
+    if (ageInYears >= 1) {
+      return `${Math.floor(ageInYears)} years`;
+    } else {
+      const months = Math.floor(ageInYears * 12);
+      if (months >= 1) {
+        return `${months} months`;
+      } else {
+        const weeks = Math.floor(ageInYears * 52);
+        return `${weeks} weeks`;
+      }
+    }
+  };
+
+  // Update handleAgeChange to handle smart input
   const handleAgeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const newAge = parseInt(event.target.value) || 0;
+    const inputValue = event.target.value;
+    
+    // Always update the display value
     setFormData(prev => ({
       ...prev,
-      age: newAge
+      age: inputValue
     }));
+  };
+
+  // Add handler for age input blur
+  const handleAgeBlur = () => {
+    const inputValue = formData.age.toString();
+    if (!inputValue) return;
+
+    try {
+      const ageInYears = parseSmartAge(inputValue);
+      if (!isNaN(ageInYears)) {
+        setFormData(prev => ({
+          ...prev,
+          age: ageInYears
+        }));
+      }
+    } catch (error) {
+      console.error('Error parsing age:', error);
+    }
   };
 
   // Handle date picker change
@@ -258,18 +352,34 @@ export const PatientModal: React.FC<PatientModalProps> = ({
       console.log('DATE DEBUG: Submitting with formData:', formData);
       console.log('DATE DEBUG: Current dateValue:', dateValue);
       
-      // Set a default DOB if using manual age
+      // Convert age to number if it's a string
+      const ageValue = typeof formData.age === 'string' ? 
+        (formData.age ? parseSmartAge(formData.age) : 0) : 
+        (typeof formData.age === 'number' ? formData.age : 0);
+
+      // Calculate DOB based on age
+      let defaultDob = '';
+      if (useManualAge && !formData.dob) {
+        const now = new Date();
+        if (ageValue >= 1) {
+          // For ages 1 and above, use year calculation
+          defaultDob = `${now.getFullYear() - Math.floor(ageValue)}-01-01`;
+        } else {
+          // For ages less than 1, calculate months/weeks back from current date
+          const msInYear = 365.25 * 24 * 60 * 60 * 1000;
+          const ageInMs = ageValue * msInYear;
+          const dobDate = new Date(now.getTime() - ageInMs);
+          defaultDob = dobDate.toISOString().split('T')[0];
+        }
+      }
+
       const submissionData = {
         ...formData,
-        // Preserve empty strings for text fields
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        dob: useManualAge && !formData.dob ? 
-          `${new Date().getFullYear() - formData.age}-01-01` : 
-          formData.dob,
+        age: ageValue,
+        dob: useManualAge && !formData.dob ? defaultDob : formData.dob,
         smoker: formData.smoker,
         // Only convert numeric fields to null when they're empty/zero
-        height_inches: formData.height_inches || (formData.height_inches === 0 ? null : formData.height_inches),
+        height: formData.height || (formData.height === 0 ? null : formData.height),
         weight: formData.weight || (formData.weight === 0 ? null : formData.weight),
         temperature: formData.temperature || (formData.temperature === 0 ? null : formData.temperature),
         heart_rate: formData.heart_rate || (formData.heart_rate === 0 ? null : formData.heart_rate),
@@ -302,7 +412,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         // Create an initial encounter with the vitals
         const encounterData = {
           patient: patientId,
-          height_inches: formData.height_inches ? Number(formData.height_inches) : null,
+          height: formData.height ? Number(formData.height) : null,
           weight: formData.weight ? Number(formData.weight) : null,
           temperature: formData.temperature ? Number(formData.temperature) : null,
           heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
@@ -374,6 +484,13 @@ export const PatientModal: React.FC<PatientModalProps> = ({
       ...prev,
       gender: field === 'gender' ? !formData.gender : prev.gender,
       lineNumber: field === 'lineNumber' && addToQueue ? !lineNumber : prev.lineNumber
+    }));
+  };
+
+  const handleInputChange = (field: keyof typeof formData, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
     }));
   };
 
@@ -487,10 +604,22 @@ export const PatientModal: React.FC<PatientModalProps> = ({
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                type="number"
                 label="Age"
                 value={formData.age}
                 onChange={handleAgeChange}
+                onBlur={handleAgeBlur}
+                placeholder="Enter age (e.g. 2, 6m, 2w)"
+                helperText={
+                  typeof formData.age === 'number' && formData.age > 0 
+                    ? `Will be saved as: ${formatAgeDisplay(formData.age)}`
+                    : "Enter age in years (2), months (6m), or weeks (2w)"
+                }
+                InputProps={{
+                  inputProps: { 
+                    inputMode: 'text',
+                    pattern: '^\\d*\\.?\\d*[mw]?$'
+                  }
+                }}
               />
             </Grid>
           )}
@@ -515,12 +644,50 @@ export const PatientModal: React.FC<PatientModalProps> = ({
             <TextField
               fullWidth
               label="Allergies"
-              value={formData.allergies ?? ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, allergies: e.target.value }))}
               multiline
               rows={2}
+              value={formData.allergies}
+              onChange={(e) => handleInputChange('allergies', e.target.value)}
               placeholder="Enter any known allergies"
             />
+          </Grid>
+
+          <Grid item xs={12}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={4}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={formData.urinalysis ?? false}
+                      onChange={(e) => handleInputChange('urinalysis', e.target.checked)}
+                    />
+                  }
+                  label="Urinalysis"
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={formData.blood_sugar ?? false}
+                      onChange={(e) => handleInputChange('blood_sugar', e.target.checked)}
+                    />
+                  }
+                  label="Blood Sugar"
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={formData.pregnancy_test ?? false}
+                      onChange={(e) => handleInputChange('pregnancy_test', e.target.checked)}
+                    />
+                  }
+                  label="Pregnancy Test"
+                />
+              </Grid>
+            </Grid>
           </Grid>
 
           <Grid item xs={12}>
@@ -533,11 +700,11 @@ export const PatientModal: React.FC<PatientModalProps> = ({
             <TextField
               fullWidth
               type="number"
-              label="Height (inches)"
-              value={formData.height_inches ?? ''}
+              label={`Height (${unitDisplay.height})`}
+              value={formData.height ?? ''}
               onChange={(e) => setFormData(prev => ({ 
                 ...prev, 
-                height_inches: e.target.value ? Number(e.target.value) : null 
+                height: e.target.value ? Number(e.target.value) : null 
               }))}
             />
           </Grid>
@@ -546,7 +713,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
             <TextField
               fullWidth
               type="number"
-              label="Weight (lbs)"
+              label={`Weight (${unitDisplay.weight})`}
               value={formData.weight ?? ''}
               onChange={(e) => setFormData(prev => ({ 
                 ...prev, 
@@ -559,7 +726,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
             <TextField
               fullWidth
               type="number"
-              label="Temperature (°F)"
+              label={`Temperature (°${unitDisplay.temperature})`}
               value={formData.temperature ?? ''}
               onChange={(e) => setFormData(prev => ({ 
                 ...prev, 

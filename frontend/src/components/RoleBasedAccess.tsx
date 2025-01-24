@@ -1,5 +1,6 @@
 import { pb } from '../atoms/auth';
 import { Record } from 'pocketbase';
+import React from 'react';
 
 interface UserRecord extends Record {
   role?: 'pharmacy' | 'provider' | 'admin';
@@ -19,12 +20,42 @@ export const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({
   requiredRole,
   children
 }) => {
+  React.useEffect(() => {
+    console.log('RoleBasedAccess mounted:', {
+      requiredRole,
+      currentRole: (pb.authStore.model as UserRecord)?.role,
+      authModel: pb.authStore.model,
+    });
+  }, [requiredRole]);
+
   const userRole = (pb.authStore.model as UserRecord)?.role;
   
-  // Allow admin users to access any role-restricted content
-  if (!userRole || (userRole !== requiredRole && userRole !== 'admin')) {
+  console.log('RoleBasedAccess Debug:', {
+    userRole,
+    requiredRole,
+    authModel: pb.authStore.model,
+    isValid: pb.authStore.isValid,
+    timestamp: new Date().toISOString()
+  });
+  
+  // If no user role, deny access
+  if (!userRole) {
+    console.log('RoleBasedAccess: No user role found, denying access');
     return null;
   }
+
+  // Admin can access everything
+  if (userRole === 'admin') {
+    console.log('RoleBasedAccess: Admin access granted for', requiredRole);
+    return <>{children}</>;
+  }
+
+  // Other roles can only access their specific role content
+  if (userRole === requiredRole) {
+    console.log(`RoleBasedAccess: Role match (${userRole}), access granted`);
+    return <>{children}</>;
+  }
   
-  return <>{children}</>;
+  console.log(`RoleBasedAccess: Role mismatch (${userRole} ≠ ${requiredRole}), denying access`);
+  return null;
 }; 

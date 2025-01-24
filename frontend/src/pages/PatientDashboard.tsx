@@ -28,7 +28,7 @@ interface Patient extends Record {
   gender: string;
   age: number;
   smoker: string;
-  height_inches?: number | null;
+  height?: number | null;
   weight?: number | null;
   temperature?: number | null;
   heart_rate?: number | null;
@@ -38,7 +38,7 @@ interface Patient extends Record {
 
 interface Encounter extends Record {
   patient: string;
-  height_inches: number;
+  height: number;
   weight: number;
   temperature: number;
   heart_rate: number;
@@ -54,6 +54,21 @@ interface Encounter extends Record {
     };
   };
 }
+
+// Add helper function to format age display
+const formatAgeDisplay = (ageInYears: number): string => {
+  if (ageInYears >= 1) {
+    return `${Math.floor(ageInYears)} years`;
+  } else {
+    const months = Math.floor(ageInYears * 12);
+    if (months >= 1) {
+      return `${months} months`;
+    } else {
+      const weeks = Math.floor(ageInYears * 52);
+      return `${weeks} weeks`;
+    }
+  }
+};
 
 const PatientDashboard: React.FC = () => {
   const { patientId } = useParams();
@@ -121,7 +136,7 @@ const PatientDashboard: React.FC = () => {
         const newMessage = '🔍 ENCOUNTER CHECK: No existing encounters found, creating new encounter';
         console.warn(newMessage);
         console.warn('🔍 ENCOUNTER CHECK: Patient vitals:', {
-          height: patient.height_inches,
+          height: patient.height,
           weight: patient.weight,
           temp: patient.temperature,
           hr: patient.heart_rate,
@@ -134,7 +149,7 @@ const PatientDashboard: React.FC = () => {
           state: { 
             mode: 'edit',
             initialVitals: {
-              height_inches: patient.height_inches ?? null,
+              height: patient.height ?? null,
               weight: patient.weight ?? null,
               temperature: patient.temperature ?? null,
               heart_rate: patient.heart_rate ?? null,
@@ -186,7 +201,7 @@ const PatientDashboard: React.FC = () => {
           </Grid>
           <Grid item xs={12} sm={4}>
             <Typography variant="body1">
-              <strong>Age:</strong> {patient.age}
+              <strong>Age:</strong> {formatAgeDisplay(patient.age)}
             </Typography>
           </Grid>
           <Grid item xs={12} sm={4}>

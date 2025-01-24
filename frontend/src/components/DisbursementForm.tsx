@@ -503,10 +503,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                         <TextField
                           {...params}
                           label="Medication"
-                          required
                           fullWidth
-                          error={!disbursement.medication}
-                          helperText={!disbursement.medication ? 'Required' : ''}
                           placeholder="Search by name or category..."
                         />
                       )}

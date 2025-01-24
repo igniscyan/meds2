@@ -366,6 +366,21 @@ func init() {
 					Type:     "number",
 					Required: false,
 				},
+				&schema.SchemaField{
+					Name:     "urinalysis",
+					Type:     "bool",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "blood_sugar",
+					Type:     "bool",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "pregnancy_test",
+					Type:     "bool",
+					Required: false,
+				},
 			),
 		}
 

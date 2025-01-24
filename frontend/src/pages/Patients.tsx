@@ -70,6 +70,21 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
+// Add helper function to format age display
+const formatAgeDisplay = (ageInYears: number): string => {
+  if (ageInYears >= 1) {
+    return `${Math.floor(ageInYears)} years`;
+  } else {
+    const months = Math.floor(ageInYears * 12);
+    if (months >= 1) {
+      return `${months} months`;
+      } else {
+      const weeks = Math.floor(ageInYears * 52);
+      return `${weeks} weeks`;
+    }
+  }
+};
+
 export const Patients = () => {
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
@@ -245,50 +260,50 @@ export const Patients = () => {
         <Table>
           <TableHead>
             <TableRow>
-            <TableCell>Name</TableCell>
+              <TableCell>Name</TableCell>
               <TableCell>Age</TableCell>
               <TableCell>Gender</TableCell>
-            <TableCell>Smoker</TableCell>
+              <TableCell>Smoker</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-          {patientList.map((patient) => (
+            {patientList.map((patient) => (
               <TableRow key={patient.id}>
-              <TableCell>{patient.first_name} {patient.last_name}</TableCell>
-                <TableCell>{patient.age}</TableCell>
+                <TableCell>{patient.first_name} {patient.last_name}</TableCell>
+                <TableCell>{formatAgeDisplay(patient.age)}</TableCell>
                 <TableCell>{patient.gender}</TableCell>
-              <TableCell>{patient.smoker}</TableCell>
+                <TableCell>{patient.smoker}</TableCell>
                 <TableCell align="right">
                     <RoleBasedAccess requiredRole="provider">
-                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                    <Tooltip title="View Patient">
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                      <Tooltip title="View Patient">
+                    <IconButton
+                      size="small"
+                      onClick={() => navigate(`/patient/${patient.id}`)}
+                    >
+                          <VisibilityIcon />
+                    </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Edit Patient">
                       <IconButton
                         size="small"
-                        onClick={() => navigate(`/patient/${patient.id}`)}
+                          onClick={() => handleEditClick(patient)}
                       >
-                        <VisibilityIcon />
+                          <EditIcon />
                       </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Edit Patient">
+                      </Tooltip>
+                      <Tooltip title="Delete Patient">
                       <IconButton
                         size="small"
-                        onClick={() => handleEditClick(patient)}
+                          color="error"
+                          onClick={() => handleDeleteClick(patient)}
                       >
-                        <EditIcon />
+                          <DeleteIcon />
                       </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete Patient">
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => handleDeleteClick(patient)}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </RoleBasedAccess>
+                      </Tooltip>
+                    </Box>
+                    </RoleBasedAccess>
                 </TableCell>
               </TableRow>
             ))}

@@ -78,7 +78,7 @@ interface Patient extends Record {
   gender: string;
   age: number;
   smoker: string;
-  height_inches?: number | null;
+  height?: number | null;
   weight?: number | null;
   temperature?: number | null;
   heart_rate?: number | null;
@@ -257,7 +257,7 @@ const Dashboard: React.FC = () => {
           patient: queueItem.patient,
           created: new Date().toISOString(),
           // Include vitals from patient if they exist
-          height_inches: patient.height_inches ?? null,
+          height: patient.height ?? null,
           weight: patient.weight ?? null,
           temperature: patient.temperature ?? null,
           heart_rate: patient.heart_rate ?? null,
@@ -700,23 +700,25 @@ const Dashboard: React.FC = () => {
                 </MenuItem>
               ))}
             </Select>
-            <Select
-              value={queueItem.priority}
-              onChange={(e) => handlePriorityChange(queueItem.id, Number(e.target.value))}
-              size="small"
-              sx={{ 
-                minWidth: { xs: '100%', sm: 120 },
-                '& .MuiSelect-select': {
-                  py: 0.5
-                }
-              }}
-            >
-              {[1, 2, 3, 4, 5].map(priority => (
-                <MenuItem key={priority} value={priority}>
-                  Priority {priority}
-                </MenuItem>
-              ))}
-            </Select>
+            {displayPreferences.show_priority_dropdown && (
+              <Select
+                value={queueItem.priority}
+                onChange={(e) => handlePriorityChange(queueItem.id, Number(e.target.value))}
+                size="small"
+                sx={{ 
+                  minWidth: { xs: '100%', sm: 120 },
+                  '& .MuiSelect-select': {
+                    py: 0.5
+                  }
+                }}
+              >
+                {[1, 2, 3, 4, 5].map(priority => (
+                  <MenuItem key={priority} value={priority}>
+                    Priority {priority}
+                  </MenuItem>
+                ))}
+              </Select>
+            )}
           </Box>
         </Box>
 

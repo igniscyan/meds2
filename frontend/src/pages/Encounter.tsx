@@ -16,6 +16,8 @@ import {
   IconButton,
   Divider,
   Autocomplete,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import ArrowBack from '@mui/icons-material/ArrowBack';
 import { pb } from '../atoms/auth';
@@ -25,6 +27,8 @@ import { DisbursementForm } from '../components/DisbursementForm';
 import type { DisbursementItem, MedicationRecord } from '../components/DisbursementForm';
 import EncounterQuestions from '../components/EncounterQuestions';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
+import { useSettings } from '../hooks/useSettings';
+import AddIcon from '@mui/icons-material/Add';
 
 type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'at_checkout' | 'completed';
 
@@ -59,6 +63,10 @@ interface Patient extends BaseModel {
   gender: string;
   age: number;
   smoker: string;
+  allergies: string;
+  urinalysis: boolean;
+  blood_sugar: boolean;
+  pregnancy_test: boolean;
 }
 
 interface ChiefComplaint extends BaseModel {
@@ -92,12 +100,16 @@ interface DisbursementWithId extends DisbursementItem {
 
 interface EncounterRecord extends BaseModel {
   patient?: string;
-  height_inches: number | null;
+  height: number | null;
   weight: number | null;
   temperature: number | null;
   heart_rate: number | null;
   systolic_pressure: number | null;
   diastolic_pressure: number | null;
+  allergies: string;
+  urinalysis: boolean;
+  blood_sugar: boolean;
+  pregnancy_test: boolean;
   chief_complaint?: string;
   other_chief_complaint?: string;
   history_of_present_illness?: string;
@@ -180,6 +192,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [patient, setPatient] = useState<Patient | null>(null);
   const [isNewEncounter, setIsNewEncounter] = useState(true);
   const [currentQueueItem, setCurrentQueueItem] = useState<QueueItem | null>(null);
+  const { unitDisplay } = useSettings();
 
   // Memoize the mode determination to prevent unnecessary re-renders
   const currentMode = React.useMemo(() => {
@@ -198,14 +211,17 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
   const [formData, setFormData] = useState<Partial<EncounterRecord>>({
     patient: patientId,
-    height_inches: location.state?.initialVitals?.height_inches ?? null,
+    height: location.state?.initialVitals?.height ?? null,
     weight: location.state?.initialVitals?.weight ?? null,
     temperature: location.state?.initialVitals?.temperature ?? null,
     heart_rate: location.state?.initialVitals?.heart_rate ?? null,
     systolic_pressure: location.state?.initialVitals?.systolic_pressure ?? null,
     diastolic_pressure: location.state?.initialVitals?.diastolic_pressure ?? null,
+    allergies: '',
+    urinalysis: false,
+    blood_sugar: false,
+    pregnancy_test: false,
     chief_complaint: '',
-    history_of_present_illness: '',
     past_medical_history: '',
     assessment: '',
     plan: '',
@@ -216,6 +232,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [otherComplaintValue, setOtherComplaintValue] = useState('');
   const [questionResponses, setQuestionResponses] = useState<QuestionResponse[]>([]);
   const [savedEncounter, setSavedEncounter] = useState<SavedEncounter | null>(null);
+  const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
 
   const OTHER_COMPLAINT_VALUE = '__OTHER__';
 
@@ -303,7 +320,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
           setFormData({
             ...encounterRecord,
-            height_inches: encounterRecord.height_inches,
+            height: encounterRecord.height,
             weight: encounterRecord.weight,
             temperature: encounterRecord.temperature,
             heart_rate: encounterRecord.heart_rate,
@@ -323,7 +340,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           if (initialVitals) {
             setFormData(prev => ({
               ...prev,
-              height_inches: initialVitals.height_inches ?? null,
+              height: initialVitals.height ?? null,
               weight: initialVitals.weight ?? null,
               temperature: initialVitals.temperature ?? null,
               heart_rate: initialVitals.heart_rate ?? null,
@@ -533,12 +550,12 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           const message = 'Please select a chief complaint or enter a custom one';
           console.error('Validation failed:', message);
           alert(message);
-        return;
-      }
+          return;
+        }
         console.log('DEBUG: Chief complaint validation passed');
 
         const requiredVitals = [
-          { field: 'height_inches', label: 'Height' },
+          { field: 'height', label: 'Height' },
           { field: 'weight', label: 'Weight' },
           { field: 'temperature', label: 'Temperature' },
           { field: 'heart_rate', label: 'Heart Rate' },
@@ -566,19 +583,18 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       // Prepare encounter data
       const encounterData = {
         patient: patientId,
-        // For "OTHER", find the ID of the "OTHER" option in chief_complaints
-        chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? 
-          chiefComplaints.find(c => c.name === 'OTHER (Custom Text Input)')?.id || null : 
-          chiefComplaints.find(c => c.name === formData.chief_complaint)?.id || null,
-        other_chief_complaint: formData.other_chief_complaint || '',
-        subjective_notes: formData.subjective_notes || '',
-        // Ensure these fields are properly typed for PocketBase
-        height_inches: formData.height_inches ? Number(formData.height_inches) : null,
+        height: formData.height ? Number(formData.height) : null,
         weight: formData.weight ? Number(formData.weight) : null,
         temperature: formData.temperature ? Number(formData.temperature) : null,
         heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
         systolic_pressure: formData.systolic_pressure ? Number(formData.systolic_pressure) : null,
         diastolic_pressure: formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null,
+        chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? 
+          chiefComplaints.find(c => c.name === 'OTHER (Custom Text Input)')?.id || null : 
+          chiefComplaints.find(c => c.name === formData.chief_complaint)?.id || null,
+        other_chief_complaint: formData.other_chief_complaint || '',
+        past_medical_history: formData.past_medical_history || '',
+        subjective_notes: formData.subjective_notes || '',
       };
 
       console.log('DEBUG: Prepared encounter data:', encounterData);
@@ -729,6 +745,24 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     if (!currentQueueItem) return;
 
     try {
+      // Check for chief complaint when moving to pharmacy or checkout
+      if (newStatus === 'ready_pharmacy' || newStatus === 'at_checkout') {
+        if (!formData.chief_complaint) {
+          alert('A chief complaint is required before progressing the encounter.');
+          return;
+        }
+
+        // Check if there are any medications
+        const hasDisbursements = formData.disbursements && formData.disbursements.some(d => d.medication && !d.markedForDeletion);
+        
+        if (!hasDisbursements) {
+          const confirmMessage = 'No medications are currently selected for disbursement. Are you sure you want to continue?';
+          if (!window.confirm(confirmMessage)) {
+            return;
+          }
+        }
+      }
+
       // First save any pending changes
       if (currentMode === 'edit' || currentMode === 'pharmacy') {
         // In pharmacy mode, directly call saveDisbursementChanges
@@ -736,32 +770,32 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           await saveDisbursementChanges();
         } else {
           // For edit mode, use the form submission approach
-        const form = document.createElement('form');
-        const nativeEvent = new Event('submit', { bubbles: true, cancelable: true });
-        
-        let defaultPrevented = false;
-        let propagationStopped = false;
-        
-        const syntheticEvent = {
-          preventDefault: () => { defaultPrevented = true; },
-          target: form,
-          currentTarget: form,
-          bubbles: true,
-          cancelable: true,
-          defaultPrevented: false,
-          eventPhase: 0,
-          isTrusted: true,
-          timeStamp: Date.now(),
-          type: 'submit',
-          nativeEvent,
-          stopPropagation: () => { propagationStopped = true; },
-          stopImmediatePropagation: () => { propagationStopped = true; },
-          persist: () => {},
-          isDefaultPrevented: () => defaultPrevented,
-          isPropagationStopped: () => propagationStopped
-        } as unknown as React.FormEvent<HTMLFormElement>;
+          const form = document.createElement('form');
+          const nativeEvent = new Event('submit', { bubbles: true, cancelable: true });
+          
+          let defaultPrevented = false;
+          let propagationStopped = false;
+          
+          const syntheticEvent = {
+            preventDefault: () => { defaultPrevented = true; },
+            target: form,
+            currentTarget: form,
+            bubbles: true,
+            cancelable: true,
+            defaultPrevented: false,
+            eventPhase: 0,
+            isTrusted: true,
+            timeStamp: Date.now(),
+            type: 'submit',
+            nativeEvent,
+            stopPropagation: () => { propagationStopped = true; },
+            stopImmediatePropagation: () => { propagationStopped = true; },
+            persist: () => {},
+            isDefaultPrevented: () => defaultPrevented,
+            isPropagationStopped: () => propagationStopped
+          } as unknown as React.FormEvent<HTMLFormElement>;
 
-        await handleSubmit(syntheticEvent);
+          await handleSubmit(syntheticEvent);
         }
       }
 
@@ -1310,11 +1344,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Typography variant="h4">
-              {currentMode === 'create' ? 'New' : currentMode === 'edit' ? 'Edit' : ''} Encounter for {patient?.first_name} {patient?.last_name}
-            </Typography>
-          </Box>
+          <Typography variant="h4">
+            {currentMode === 'create' ? 'New' : currentMode === 'edit' ? 'Edit' : ''} Encounter for {patient?.first_name} {patient?.last_name}
+          </Typography>
           {currentMode === 'view' && (
             <Box sx={{ display: 'flex', gap: 2 }}>
               <Button
@@ -1355,17 +1387,17 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label="Height (inches)"
+                    label={`Height (${unitDisplay.height})`}
                     type="number"
-                    value={formData.height_inches}
-                    onChange={handleInputChange('height_inches')}
+                    value={formData.height}
+                    onChange={handleInputChange('height')}
                     disabled={isFieldDisabled('vitals')}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label="Weight (lbs)"
+                    label={`Weight (${unitDisplay.weight})`}
                     type="number"
                     value={formData.weight}
                     onChange={handleInputChange('weight')}
@@ -1375,7 +1407,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
-                    label="Temperature (°F)"
+                    label={`Temperature (°${unitDisplay.temperature})`}
                     type="number"
                     inputProps={{ step: "0.1" }}
                     value={formData.temperature}
@@ -1411,6 +1443,64 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     value={formData.diastolic_pressure}
                     onChange={handleInputChange('diastolic_pressure')}
                     disabled={isFieldDisabled('vitals')}
+                  />
+                </Grid>
+
+                {/* Add Divider for Health Screening Section */}
+                <Grid item xs={12}>
+                  <Typography variant="subtitle1" color="primary" sx={{ mt: 2, mb: 1 }}>
+                    Health Screening
+                  </Typography>
+                </Grid>
+
+                {/* Allergies Field */}
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    label="Allergies"
+                    value={formData.allergies}
+                    onChange={handleInputChange('allergies')}
+                    disabled={isFieldDisabled('vitals')}
+                    multiline
+                    rows={2}
+                  />
+                </Grid>
+
+                {/* Health Screening Checkboxes */}
+                <Grid item xs={12} sm={4}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={formData.urinalysis}
+                        onChange={(e) => setFormData(prev => ({ ...prev, urinalysis: e.target.checked }))}
+                        disabled={isFieldDisabled('vitals')}
+                      />
+                    }
+                    label="Urinalysis"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={formData.blood_sugar}
+                        onChange={(e) => setFormData(prev => ({ ...prev, blood_sugar: e.target.checked }))}
+                        disabled={isFieldDisabled('vitals')}
+                      />
+                    }
+                    label="Blood Sugar"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={formData.pregnancy_test}
+                        onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
+                        disabled={isFieldDisabled('vitals')}
+                      />
+                    }
+                    label="Pregnancy Test"
                   />
                 </Grid>
               </Grid>
@@ -1461,30 +1551,48 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     />
                   </Grid>
                 )}
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="Past Medical History"
-                    value={formData.past_medical_history || ''}
-                    onChange={handleInputChange('past_medical_history')}
-                    disabled={isFieldDisabled('subjective')}
-                    multiline
-                    rows={3}
-                    placeholder="Enter patient's past medical history"
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    label="Subjective Notes"
-                    value={formData.subjective_notes || ''}
-                    onChange={handleInputChange('subjective_notes')}
-                    disabled={isFieldDisabled('subjective')}
-                    multiline
-                    rows={4}
-                    placeholder="Any additional data regarding diagnosis, interesting items, etc."
-                  />
-                </Grid>
+                {/* Add Additional Details Button */}
+                {!showAdditionalDetails && currentMode !== 'view' && (
+                  <Grid item xs={12}>
+                    <Button
+                      variant="outlined"
+                      onClick={() => setShowAdditionalDetails(true)}
+                      startIcon={<AddIcon />}
+                      sx={{ mt: 1 }}
+                    >
+                      Add Additional Details
+                    </Button>
+                  </Grid>
+                )}
+                {/* Additional Details Fields */}
+                {(showAdditionalDetails || currentMode === 'view' || formData.past_medical_history || formData.subjective_notes) && (
+                  <>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Past Medical History"
+                        value={formData.past_medical_history || ''}
+                        onChange={handleInputChange('past_medical_history')}
+                        disabled={isFieldDisabled('subjective')}
+                        multiline
+                        rows={3}
+                        placeholder="Enter patient's past medical history"
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        label="Subjective Notes"
+                        value={formData.subjective_notes || ''}
+                        onChange={handleInputChange('subjective_notes')}
+                        disabled={isFieldDisabled('subjective')}
+                        multiline
+                        rows={4}
+                        placeholder="Any additional data regarding diagnosis, interesting items, etc."
+                      />
+                    </Grid>
+                  </>
+                )}
               </Grid>
             </Grid>
 

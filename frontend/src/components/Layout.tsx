@@ -18,6 +18,21 @@ export const Layout: React.FC = () => {
   const userInfo = pb.authStore.model;
   const userRole = (pb.authStore.model as any)?.role;
 
+  // Add debug logging for layout render
+  console.log('Layout Debug:', {
+    userInfo,
+    userRole,
+    isMobile,
+    isLoggedIn
+  });
+
+  React.useEffect(() => {
+    console.log('Layout mounted with role:', userRole);
+    if (!isMobile && userRole === 'admin') {
+      console.log('Settings icon should be visible for admin');
+    }
+  }, [userRole, isMobile]);
+
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
@@ -84,6 +99,31 @@ export const Layout: React.FC = () => {
             )}
           </ListItem>
         ))}
+        <ListItem disablePadding>
+          <RoleBasedAccess requiredRole="admin">
+            <Button
+              color="inherit"
+              onClick={() => {
+                navigate('/settings');
+                handleDrawerToggle();
+              }}
+              sx={{ 
+                width: '100%',
+                justifyContent: 'flex-start',
+                textAlign: 'left',
+                py: 1.5,
+                px: 2,
+                color: theme.palette.primary.contrastText,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1
+              }}
+            >
+              <SettingsIcon fontSize="small" />
+              Settings
+            </Button>
+          </RoleBasedAccess>
+        </ListItem>
         <ListItem disablePadding>
           <Button
             color="inherit"
@@ -171,31 +211,34 @@ export const Layout: React.FC = () => {
             alignItems: 'center',
             ...(isMobile ? { justifyContent: 'flex-end' } : {})
           }}>
-            {!isMobile && navItems.map((item) => (
-              item.role ? (
-                <RoleBasedAccess key={item.path} requiredRole={item.role}>
+            {!isMobile && navItems.map((item) => {
+              console.log('Rendering nav item:', item.text, 'requires role:', item.role);
+              return (
+                item.role ? (
+                  <RoleBasedAccess key={item.path} requiredRole={item.role}>
+                    <Button
+                      color="inherit"
+                      onClick={() => navigate(item.path)}
+                      sx={{ mx: 1 }}
+                    >
+                      {item.text}
+                    </Button>
+                  </RoleBasedAccess>
+                ) : (
                   <Button
+                    key={item.path}
                     color="inherit"
                     onClick={() => navigate(item.path)}
                     sx={{ mx: 1 }}
                   >
                     {item.text}
                   </Button>
-                </RoleBasedAccess>
-              ) : (
-                <Button
-                  key={item.path}
-                  color="inherit"
-                  onClick={() => navigate(item.path)}
-                  sx={{ mx: 1 }}
-                >
-                  {item.text}
-                </Button>
-              )
-            ))}
+                )
+              );
+            })}
             {!isMobile && (
               <>
-                {userRole === 'admin' && (
+                <RoleBasedAccess requiredRole="admin">
                   <IconButton
                     color="inherit"
                     onClick={() => navigate('/settings')}
@@ -203,7 +246,7 @@ export const Layout: React.FC = () => {
                   >
                     <SettingsIcon />
                   </IconButton>
-                )}
+                </RoleBasedAccess>
                 <Button color="inherit" onClick={handleLogout}>
                   Logout
                 </Button>

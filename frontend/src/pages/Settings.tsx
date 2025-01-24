@@ -128,6 +128,9 @@ const Settings: React.FC = () => {
 
         <Paper sx={{ p: 3 }}>
           <Typography variant="h6" gutterBottom>Unit Display Preferences</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            These settings only affect how units are displayed during data entry. Changing these settings will not convert or alter any existing data in the system.
+          </Typography>
           
           <Box sx={{ mb: 3 }}>
             <Typography variant="subtitle1" gutterBottom>Height</Typography>
