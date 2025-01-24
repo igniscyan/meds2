@@ -17,6 +17,7 @@ import {
   Typography,
   FormControlLabel,
   Switch,
+  FormHelperText,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -36,6 +37,7 @@ interface PatientModalProps {
     gender: string;
     age: number;
     smoker: string;
+    allergies?: string;
     height_inches?: number | null;
     weight?: number | null;
     temperature?: number | null;
@@ -69,12 +71,23 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     heart_rate: null as number | null,
     systolic_pressure: null as number | null,
     diastolic_pressure: null as number | null,
+    allergies: '' as string,
   });
 
   const [addToQueue, setAddToQueue] = useState(true);
   const [lineNumber, setLineNumber] = useState<number | ''>('');
   const [useManualAge, setUseManualAge] = useState(false);
   const [dateValue, setDateValue] = useState<Date | null>(null);
+  
+  // Add validation state
+  const [validationErrors, setValidationErrors] = useState({
+    gender: false,
+    lineNumber: false
+  });
+  const [touched, setTouched] = useState({
+    gender: false,
+    lineNumber: false
+  });
 
   // Initialize data when modal opens or initialData changes
   useEffect(() => {
@@ -94,6 +107,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         heart_rate: initialData.heart_rate ?? null,
         systolic_pressure: initialData.systolic_pressure ?? null,
         diastolic_pressure: initialData.diastolic_pressure ?? null,
+        allergies: initialData.allergies ?? '',
       });
 
       // Set date value if DOB exists
@@ -219,24 +233,71 @@ export const PatientModal: React.FC<PatientModalProps> = ({
 
   const handleSubmit = async () => {
     try {
+      // Validate required fields
+      const newValidationErrors = {
+        gender: !formData.gender,
+        lineNumber: mode === 'create' && addToQueue && !lineNumber
+      };
+      
+      setValidationErrors(newValidationErrors);
+      setTouched({
+        gender: true,
+        lineNumber: true
+      });
+
+      // Check if there are any validation errors
+      if (Object.values(newValidationErrors).some(error => error)) {
+        const errorMessages = [];
+        if (newValidationErrors.gender) errorMessages.push("Gender is required");
+        if (newValidationErrors.lineNumber) errorMessages.push("Line Number is required when adding to queue");
+        
+        alert(errorMessages.join("\n"));
+        return;
+      }
+
       console.log('DATE DEBUG: Submitting with formData:', formData);
       console.log('DATE DEBUG: Current dateValue:', dateValue);
       
       // Set a default DOB if using manual age
       const submissionData = {
         ...formData,
+        // Preserve empty strings for text fields
+        first_name: formData.first_name,
+        last_name: formData.last_name,
         dob: useManualAge && !formData.dob ? 
           `${new Date().getFullYear() - formData.age}-01-01` : 
-          formData.dob
+          formData.dob,
+        smoker: formData.smoker,
+        // Only convert numeric fields to null when they're empty/zero
+        height_inches: formData.height_inches || (formData.height_inches === 0 ? null : formData.height_inches),
+        weight: formData.weight || (formData.weight === 0 ? null : formData.weight),
+        temperature: formData.temperature || (formData.temperature === 0 ? null : formData.temperature),
+        heart_rate: formData.heart_rate || (formData.heart_rate === 0 ? null : formData.heart_rate),
+        systolic_pressure: formData.systolic_pressure || (formData.systolic_pressure === 0 ? null : formData.systolic_pressure),
+        diastolic_pressure: formData.diastolic_pressure || (formData.diastolic_pressure === 0 ? null : formData.diastolic_pressure),
       };
+
+      // Add debug logging for submission data
+      console.log('SUBMIT DEBUG: Final submission data:', submissionData);
 
       let patientId: string;
       if (mode === 'edit' && initialData?.id) {
         await pb.collection('patients').update(initialData.id, submissionData);
         patientId = initialData.id;
       } else {
-        const newPatient = await pb.collection('patients').create(submissionData);
-        patientId = newPatient.id;
+        try {
+          const newPatient = await pb.collection('patients').create(submissionData);
+          console.log('SUBMIT DEBUG: Patient created successfully:', newPatient);
+          patientId = newPatient.id;
+        } catch (createError: any) {
+          console.error('SUBMIT DEBUG: Detailed create error:', {
+            error: createError,
+            response: createError.response,
+            data: createError.data,
+            message: createError.message
+          });
+          throw new Error(`Failed to create patient: ${createError.message}`);
+        }
 
         // Create an initial encounter with the vitals
         const encounterData = {
@@ -256,31 +317,64 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           disbursements: []
         };
 
-        const newEncounter = await pb.collection('encounters').create(encounterData);
+        console.log('SUBMIT DEBUG: Creating encounter with data:', encounterData);
 
-        // Add to queue if requested and line number is provided
-        if (addToQueue && lineNumber !== '') {
-          console.log('Adding to queue with line number:', lineNumber);
-          await pb.collection('queue').create({
-            patient: patientId,
-            status: 'checked_in',
-            check_in_time: new Date().toISOString(),
-            line_number: parseInt(String(lineNumber)),
-            priority: 3,
-            assigned_to: null,
-            start_time: null,
-            end_time: null,
-            encounter: newEncounter.id, // Link the queue item to the new encounter
-          });
+        try {
+          const newEncounter = await pb.collection('encounters').create(encounterData);
+          console.log('SUBMIT DEBUG: Encounter created successfully:', newEncounter);
+
+          // Add to queue if requested and line number is provided
+          if (addToQueue && lineNumber !== '') {
+            console.log('SUBMIT DEBUG: Adding to queue with line number:', lineNumber);
+            const queueData = {
+              patient: patientId,
+              status: 'checked_in',
+              check_in_time: new Date().toISOString(),
+              line_number: parseInt(String(lineNumber)),
+              priority: 3,
+              assigned_to: null,
+              start_time: null,
+              end_time: null,
+              encounter: newEncounter.id,
+            };
+
+            console.log('SUBMIT DEBUG: Queue data:', queueData);
+            await pb.collection('queue').create(queueData);
+          }
+        } catch (error: any) {
+          console.error('SUBMIT DEBUG: Error in post-patient creation:', error);
+          // Try to clean up the patient if encounter creation fails
+          try {
+            await pb.collection('patients').delete(patientId);
+          } catch (cleanupError) {
+            console.error('SUBMIT DEBUG: Failed to clean up patient after error:', cleanupError);
+          }
+          throw error;
         }
       }
 
       onSave();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving patient:', error);
-      alert('Failed to save patient');
+      // Show more detailed error message to the user
+      alert(`Failed to save patient: ${error.message || 'Unknown error occurred'}`);
     }
+  };
+
+  // Add field blur handlers
+  const handleFieldBlur = (field: 'gender' | 'lineNumber') => {
+    setTouched(prev => ({
+      ...prev,
+      [field]: true
+    }));
+    
+    // Update validation errors
+    setValidationErrors(prev => ({
+      ...prev,
+      gender: field === 'gender' ? !formData.gender : prev.gender,
+      lineNumber: field === 'lineNumber' && addToQueue ? !lineNumber : prev.lineNumber
+    }));
   };
 
   return (
@@ -329,7 +423,6 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               label="First Name"
               value={formData.first_name}
               onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
-              required
               autoFocus
               sx={{ mb: { xs: 2, sm: 0 } }}
             />
@@ -340,7 +433,6 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               label="Last Name"
               value={formData.last_name}
               onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
-              required
               sx={{ mb: { xs: 2, sm: 0 } }}
             />
           </Grid>
@@ -353,8 +445,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                 onChange={handleDateChange}
                 slotProps={{
                   textField: {
-                    fullWidth: true,
-                    required: true
+                    fullWidth: true
                   }
                 }}
               />
@@ -362,17 +453,21 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           </Grid>
 
           <Grid item xs={12} sm={6}>
-            <FormControl fullWidth required>
+            <FormControl fullWidth required error={touched.gender && validationErrors.gender}>
               <InputLabel>Gender</InputLabel>
               <Select
                 value={formData.gender}
                 label="Gender"
                 onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+                onBlur={() => handleFieldBlur('gender')}
               >
                 <MenuItem value="male">Male</MenuItem>
                 <MenuItem value="female">Female</MenuItem>
                 <MenuItem value="other">Other</MenuItem>
               </Select>
+              {touched.gender && validationErrors.gender && (
+                <FormHelperText>Gender is required</FormHelperText>
+              )}
             </FormControl>
           </Grid>
 
@@ -401,7 +496,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           )}
 
           <Grid item xs={12} sm={6}>
-            <FormControl fullWidth required>
+            <FormControl fullWidth>
               <InputLabel>Smoker</InputLabel>
               <Select
                 value={formData.smoker}
@@ -414,6 +509,18 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                 <MenuItem value="unknown">Unknown</MenuItem>
               </Select>
             </FormControl>
+          </Grid>
+
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              label="Allergies"
+              value={formData.allergies ?? ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, allergies: e.target.value }))}
+              multiline
+              rows={2}
+              placeholder="Enter any known allergies"
+            />
           </Grid>
 
           <Grid item xs={12}>
@@ -521,7 +628,10 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                     label="Line Number"
                     value={lineNumber}
                     onChange={(e) => setLineNumber(e.target.value ? parseInt(e.target.value) : '')}
-                    required={addToQueue}
+                    onBlur={() => handleFieldBlur('lineNumber')}
+                    required
+                    error={touched.lineNumber && validationErrors.lineNumber}
+                    helperText={touched.lineNumber && validationErrors.lineNumber ? 'Line Number is required' : ''}
                   />
                 </Grid>
               )}

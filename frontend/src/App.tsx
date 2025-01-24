@@ -18,6 +18,7 @@ import PatientDashboard from './pages/PatientDashboard';
 import Dashboard from './pages/Dashboard';
 import AuthGuard from './components/AuthGuard';
 import { authModelAtom, isLoadingAtom, useAuthChangeEffect } from './atoms/auth';
+import Settings from './pages/Settings';
 
 const App: React.FC = () => {
   const user = useAtomValue(authModelAtom);
@@ -100,6 +101,14 @@ const App: React.FC = () => {
                 element={
                   <AuthGuard>
                     <Dashboard />
+                  </AuthGuard>
+                } 
+              />
+              <Route 
+                path="/settings" 
+                element={
+                  <AuthGuard>
+                    <Settings />
                   </AuthGuard>
                 } 
               />

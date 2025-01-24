@@ -241,26 +241,26 @@ export const Patients = () => {
   }
 
   const renderPatientTable = (patientList: Patient[]) => (
-    <TableContainer component={Paper}>
-      <Table>
-        <TableHead>
-          <TableRow>
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
             <TableCell>Name</TableCell>
-            <TableCell>Age</TableCell>
-            <TableCell>Gender</TableCell>
+              <TableCell>Age</TableCell>
+              <TableCell>Gender</TableCell>
             <TableCell>Smoker</TableCell>
-            <TableCell align="right">Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
           {patientList.map((patient) => (
-            <TableRow key={patient.id}>
+              <TableRow key={patient.id}>
               <TableCell>{patient.first_name} {patient.last_name}</TableCell>
-              <TableCell>{patient.age}</TableCell>
-              <TableCell>{patient.gender}</TableCell>
+                <TableCell>{patient.age}</TableCell>
+                <TableCell>{patient.gender}</TableCell>
               <TableCell>{patient.smoker}</TableCell>
-              <TableCell align="right">
-                <RoleBasedAccess requiredRole="provider">
+                <TableCell align="right">
+                    <RoleBasedAccess requiredRole="provider">
                   <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
                     <Tooltip title="View Patient">
                       <IconButton
@@ -289,12 +289,12 @@ export const Patients = () => {
                     </Tooltip>
                   </Box>
                 </RoleBasedAccess>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
   );
 
   return (

@@ -61,7 +61,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
         if (!loadedRef.current) {
           console.log('Loading initial data for collection:', collection, 'with params:', queryParams);
           
-          const resultList = await pb.collection(collection).getList(1, 500, {
+          const resultList = await pb.collection(collection).getList(1, 1000, {
             ...stableQueryParams.current,
             $autoCancel: false,
             $cancelKey: collection,

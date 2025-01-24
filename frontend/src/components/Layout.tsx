@@ -5,6 +5,7 @@ import { useAtom, useSetAtom } from 'jotai';
 import { logoutAtom, pb } from '../atoms/auth';
 import MenuIcon from '@mui/icons-material/Menu';
 import { RoleBasedAccess } from './RoleBasedAccess';
+import SettingsIcon from '@mui/icons-material/Settings';
 
 export const Layout: React.FC = () => {
   const navigate = useNavigate();
@@ -193,9 +194,20 @@ export const Layout: React.FC = () => {
               )
             ))}
             {!isMobile && (
-              <Button color="inherit" onClick={handleLogout}>
-                Logout
-              </Button>
+              <>
+                {userRole === 'admin' && (
+                  <IconButton
+                    color="inherit"
+                    onClick={() => navigate('/settings')}
+                    sx={{ mr: 1 }}
+                  >
+                    <SettingsIcon />
+                  </IconButton>
+                )}
+                <Button color="inherit" onClick={handleLogout}>
+                  Logout
+                </Button>
+              </>
             )}
           </Box>
         </Toolbar>

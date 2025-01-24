@@ -27,7 +27,8 @@ import { Record } from 'pocketbase';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import type { QueueStatus, QueueItem as BaseQueueItem } from '../types/queue';
+import type { QueueStatus, QueueItem } from '../types/queue';
+import { useSettings } from '../hooks/useSettings';
 
 // Base type for PocketBase list responses
 interface BaseListResult {
@@ -49,8 +50,13 @@ interface QueueAnalytics extends Record {
   date: string;
 }
 
-// Just extend the base type without redefining properties
-type QueueItem = BaseQueueItem;
+// Add Provider interface
+interface Provider extends Record {
+  username: string;
+  email: string;
+  role: 'provider' | 'pharmacy' | 'admin';
+  name: string;
+}
 
 interface AnalyticsSummary {
   patientsToday: number;
@@ -88,19 +94,62 @@ const Dashboard: React.FC = () => {
   });
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
+  const { displayPreferences, loading: settingsLoading } = useSettings();
 
   // Subscribe to queue changes
-  const { records: queueItems, loading } = useRealtimeSubscription<QueueItem>('queue', {
+  const { records: queueItems, loading: queueLoading } = useRealtimeSubscription<QueueItem>('queue', {
     sort: '-priority,check_in_time',
-    expand: 'patient,assigned_to,encounter',
+    expand: 'patient,assigned_to,intended_provider,encounter',
     filter: 'status != "completed"'
   });
+
+  // Remove provider subscription since we're using care team numbers
+  useEffect(() => {
+    console.log('Display Preferences:', displayPreferences);
+  }, [displayPreferences]);
 
   // Add debug logging for queue items
   useEffect(() => {
     console.log('Queue items received:', queueItems);
     console.log('Queue items expanded data:', queueItems.map(item => item.expand));
   }, [queueItems]);
+
+  // Add debug logging for auth store
+  useEffect(() => {
+    console.log('Auth Store Debug:', {
+      model: pb.authStore.model,
+      isValid: pb.authStore.isValid,
+      userRole: (pb.authStore.model as any)?.role
+    });
+  }, []);
+
+  // Update analytics when queue items change
+  useEffect(() => {
+    if (!queueLoading) {
+      fetchAnalytics();
+    }
+  }, [queueItems, queueLoading]);
+
+  // Show loading state if any critical data is still loading
+  if (queueLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  // Update handler for care team changes
+  const handleCareTeamChange = async (queueId: string, teamNumber: string | null) => {
+    try {
+      await pb.collection('queue').update(queueId, {
+        intended_provider: teamNumber
+      });
+    } catch (error) {
+      console.error('Error updating care team assignment:', error);
+      setError('Failed to update care team assignment');
+    }
+  };
 
   // Fetch analytics data
   const fetchAnalytics = async () => {
@@ -175,13 +224,6 @@ const Dashboard: React.FC = () => {
       }
     }
   };
-
-  // Update analytics when queue items change
-  useEffect(() => {
-    if (!loading) {
-      fetchAnalytics();
-    }
-  }, [queueItems, loading]);
 
   const handleClaimPatient = async (queueId: string) => {
     try {
@@ -580,7 +622,7 @@ const Dashboard: React.FC = () => {
             {queueItem.expand?.assigned_to && (
               <Chip
                 size="small"
-                label={queueItem.expand.assigned_to.username}
+                label={queueItem.expand.assigned_to.name || 'Unnamed Provider'}
                 variant="outlined"
                 color="primary"
                 sx={{ height: 24 }}
@@ -618,6 +660,29 @@ const Dashboard: React.FC = () => {
             gap: 1,
             width: { xs: '100%', sm: 'auto' }
           }}>
+            {queueItem.status === 'checked_in' && displayPreferences.show_care_team_assignment && (
+              <Select
+                value={queueItem.intended_provider || ''}
+                onChange={(e) => handleCareTeamChange(queueItem.id, e.target.value || null)}
+                size="small"
+                displayEmpty
+                sx={{ 
+                  minWidth: { xs: '100%', sm: 150 },
+                  '& .MuiSelect-select': {
+                    py: 0.5
+                  }
+                }}
+              >
+                <MenuItem value="">
+                  <em>Unassigned</em>
+                </MenuItem>
+                {Array.from({ length: displayPreferences.care_team_count }, (_, i) => i + 1).map(num => (
+                  <MenuItem key={num} value={`team${num}`}>
+                    Care Team {num}
+                  </MenuItem>
+                ))}
+              </Select>
+            )}
             <Select
               value={queueItem.status}
               onChange={(e) => handleStatusChange(queueItem.id, e.target.value as QueueStatus)}
@@ -708,7 +773,7 @@ const Dashboard: React.FC = () => {
               <Typography variant="h5">Queue Overview</Typography>
               <IconButton 
                 onClick={fetchAnalytics} 
-                disabled={loading}
+                disabled={queueLoading}
                 size="small"
               >
                 <RefreshIcon />
@@ -798,7 +863,7 @@ const Dashboard: React.FC = () => {
           ))}
         </Grid>
       </Grid>
-      {loading && (
+      {queueLoading && (
         <Box sx={{ 
           display: 'flex', 
           justifyContent: 'center', 

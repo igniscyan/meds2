@@ -21,7 +21,8 @@ export const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({
 }) => {
   const userRole = (pb.authStore.model as UserRecord)?.role;
   
-  if (!userRole || userRole !== requiredRole) {
+  // Allow admin users to access any role-restricted content
+  if (!userRole || (userRole !== requiredRole && userRole !== 'admin')) {
     return null;
   }
   

@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/daos"
@@ -162,6 +163,94 @@ func init() {
 					}
 				}
 			}
+
+			// Create admin user
+			_, err = dao.FindFirstRecordByData("users", "email", "admin@example.com")
+			if err != nil {
+				record := models.NewRecord(users)
+				record.Set("username", "admin")
+				record.Set("email", "admin@example.com")
+				record.Set("emailVisibility", true)
+				record.Set("role", "admin")
+				record.SetPassword("password123")
+				record.Set("verified", true)
+				if err := dao.SaveRecord(record); err != nil {
+					return err
+				}
+			}
+		}
+
+		// Create settings collection
+		settings := &models.Collection{
+			Name: "settings",
+			Type: "base",
+			Schema: schema.NewSchema(
+				&schema.SchemaField{
+					Name:     "unit_display",
+					Type:     "json",
+					Required: true,
+					Options: &schema.JsonOptions{
+						MaxSize: 2097152, // 2MB
+					},
+				},
+				&schema.SchemaField{
+					Name:     "display_preferences",
+					Type:     "json",
+					Required: true,
+					Options: &schema.JsonOptions{
+						MaxSize: 2097152, // 2MB
+					},
+				},
+				&schema.SchemaField{
+					Name:     "last_updated",
+					Type:     "date",
+					Required: true,
+				},
+				&schema.SchemaField{
+					Name:     "updated_by",
+					Type:     "relation",
+					Required: true,
+					Options: &schema.RelationOptions{
+						CollectionId: "users",
+						MaxSelect:    types.Pointer(1),
+					},
+				},
+			),
+		}
+
+		// Set admin-only rules for settings
+		createRule := "@request.auth.role = 'admin'"
+		updateRule := "@request.auth.role = 'admin'"
+		viewRule := "@request.auth.id != ''"
+		settings.CreateRule = &createRule
+		settings.UpdateRule = &updateRule
+		settings.ViewRule = &viewRule
+		settings.ListRule = &viewRule
+
+		if err := dao.SaveCollection(settings); err != nil {
+			return err
+		}
+
+		// Create default settings record
+		defaultSettings := models.NewRecord(settings)
+		defaultSettings.Set("unit_display", map[string]interface{}{
+			"height":      "cm",
+			"weight":      "kg",
+			"temperature": "F",
+		})
+		defaultSettings.Set("display_preferences", map[string]interface{}{
+			"show_priority_dropdown":   false,
+			"show_provider_assignment": false,
+		})
+		defaultSettings.Set("last_updated", time.Now().Format("2006-01-02 15:04:05.000Z"))
+
+		// Find admin user to set as updated_by
+		adminUser, err := dao.FindFirstRecordByData("users", "email", "admin@example.com")
+		if err == nil {
+			defaultSettings.Set("updated_by", adminUser.Id)
+			if err := dao.SaveRecord(defaultSettings); err != nil {
+				return err
+			}
 		}
 
 		// Create inventory collection
@@ -215,17 +304,17 @@ func init() {
 				&schema.SchemaField{
 					Name:     "first_name",
 					Type:     "text",
-					Required: true,
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name:     "last_name",
 					Type:     "text",
-					Required: true,
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name:     "dob",
 					Type:     "date",
-					Required: true,
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name:     "gender",
@@ -243,7 +332,12 @@ func init() {
 					Required: false,
 				},
 				&schema.SchemaField{
-					Name:     "height_inches",
+					Name:     "allergies",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "height",
 					Type:     "number",
 					Required: false,
 				},
@@ -291,7 +385,7 @@ func init() {
 					Required: false,
 				},
 				&schema.SchemaField{
-					Name:     "height_inches",
+					Name:     "height",
 					Type:     "number",
 					Required: false,
 					Options: &schema.NumberOptions{
@@ -337,6 +431,11 @@ func init() {
 					Options: &schema.NumberOptions{
 						NoDecimal: true,
 					},
+				},
+				&schema.SchemaField{
+					Name:     "past_medical_history",
+					Type:     "text",
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name:     "chief_complaint",
@@ -626,7 +725,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "line_number",
 					Type:     "number",
-					Required: false,
+					Required: true,
 					Options: &schema.NumberOptions{
 						Min: types.Pointer(1.0),
 					},
@@ -639,6 +738,26 @@ func init() {
 						CollectionId: "users",
 						MinSelect:    nil,
 						MaxSelect:    types.Pointer(1),
+					},
+				},
+				&schema.SchemaField{
+					Name:     "intended_provider",
+					Type:     "select",
+					Required: false,
+					Options: &schema.SelectOptions{
+						MaxSelect: 1,
+						Values: []string{
+							"team1",
+							"team2",
+							"team3",
+							"team4",
+							"team5",
+							"team6",
+							"team7",
+							"team8",
+							"team9",
+							"team10",
+						},
 					},
 				},
 				&schema.SchemaField{
@@ -684,8 +803,14 @@ func init() {
 
 		// Set rules for other collections
 		authRule := "@request.auth.id != ''"
-		deleteRule := "@request.auth.role = 'provider' || @request.auth.role = 'admin'"
-		pharmacyDeleteRule := "@request.auth.role = 'provider' || @request.auth.role = 'admin' || @request.auth.role = 'pharmacy'"
+		adminRule := "@request.auth.role = 'admin'"
+		providerRule := "@request.auth.role = 'provider'"
+		pharmacyRule := "@request.auth.role = 'pharmacy'"
+
+		// Base rule that allows admin access to everything, plus role-specific access
+		baseRule := fmt.Sprintf("%s || %s", adminRule, authRule)
+		deleteRule := fmt.Sprintf("%s || %s", adminRule, providerRule)
+		pharmacyDeleteRule := fmt.Sprintf("%s || %s || %s", adminRule, providerRule, pharmacyRule)
 
 		collections := []*models.Collection{
 			inventory, encounters, chiefComplaints, questionCategories, questions,
@@ -693,11 +818,11 @@ func init() {
 		}
 
 		for _, c := range collections {
-			c.CreateRule = &authRule
-			c.UpdateRule = &authRule
+			c.CreateRule = &baseRule
+			c.UpdateRule = &baseRule
 			c.DeleteRule = &deleteRule
-			c.ListRule = &authRule
-			c.ViewRule = &authRule
+			c.ListRule = &baseRule
+			c.ViewRule = &baseRule
 
 			if err := dao.SaveCollection(c); err != nil {
 				return err
@@ -705,11 +830,11 @@ func init() {
 		}
 
 		// Set special delete rule for disbursements to allow pharmacy role
-		disbursements.CreateRule = &authRule
-		disbursements.UpdateRule = &authRule
+		disbursements.CreateRule = &baseRule
+		disbursements.UpdateRule = &baseRule
 		disbursements.DeleteRule = &pharmacyDeleteRule
-		disbursements.ListRule = &authRule
-		disbursements.ViewRule = &authRule
+		disbursements.ListRule = &baseRule
+		disbursements.ViewRule = &baseRule
 
 		if err := dao.SaveCollection(disbursements); err != nil {
 			return err

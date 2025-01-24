@@ -533,8 +533,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           const message = 'Please select a chief complaint or enter a custom one';
           console.error('Validation failed:', message);
           alert(message);
-          return;
-        }
+        return;
+      }
         console.log('DEBUG: Chief complaint validation passed');
 
         const requiredVitals = [
@@ -595,9 +595,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           // Save disbursements if in pharmacy mode or if there are any disbursements
           if (currentMode === 'pharmacy' || (formData.disbursements && formData.disbursements.length > 0)) {
             console.log('DEBUG: Saving disbursements');
-            await saveDisbursementChanges();
+          await saveDisbursementChanges();
           }
-
+          
           // Process all responses in a single batch
           console.log('DEBUG: Processing responses:', 
             questionResponses.map(r => ({
@@ -623,9 +623,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
           // Process each response
           for (const response of questionResponses) {
-            const existingResponse = existingResponseMap.get(response.question);
-            
-            if (existingResponse) {
+              const existingResponse = existingResponseMap.get(response.question);
+
+              if (existingResponse) {
               // Update existing response if value changed
               if (JSON.stringify(existingResponse.response_value) !== JSON.stringify(response.response_value)) {
                 await pb.collection('encounter_responses').update(existingResponse.id, {
@@ -634,14 +634,14 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               }
               // Remove from map to track which ones need to be deleted
               existingResponseMap.delete(response.question);
-            } else {
+              } else {
               // Create new response
-              await pb.collection('encounter_responses').create({
-                encounter: encounterId,
-                question: response.question,
-                response_value: response.response_value
-              });
-            }
+                await pb.collection('encounter_responses').create({
+                  encounter: encounterId,
+                  question: response.question,
+                  response_value: response.response_value
+                });
+              }
           }
 
           // Delete any remaining responses that weren't in the current set
@@ -736,32 +736,32 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           await saveDisbursementChanges();
         } else {
           // For edit mode, use the form submission approach
-          const form = document.createElement('form');
-          const nativeEvent = new Event('submit', { bubbles: true, cancelable: true });
-          
-          let defaultPrevented = false;
-          let propagationStopped = false;
-          
-          const syntheticEvent = {
-            preventDefault: () => { defaultPrevented = true; },
-            target: form,
-            currentTarget: form,
-            bubbles: true,
-            cancelable: true,
-            defaultPrevented: false,
-            eventPhase: 0,
-            isTrusted: true,
-            timeStamp: Date.now(),
-            type: 'submit',
-            nativeEvent,
-            stopPropagation: () => { propagationStopped = true; },
-            stopImmediatePropagation: () => { propagationStopped = true; },
-            persist: () => {},
-            isDefaultPrevented: () => defaultPrevented,
-            isPropagationStopped: () => propagationStopped
-          } as unknown as React.FormEvent<HTMLFormElement>;
+        const form = document.createElement('form');
+        const nativeEvent = new Event('submit', { bubbles: true, cancelable: true });
+        
+        let defaultPrevented = false;
+        let propagationStopped = false;
+        
+        const syntheticEvent = {
+          preventDefault: () => { defaultPrevented = true; },
+          target: form,
+          currentTarget: form,
+          bubbles: true,
+          cancelable: true,
+          defaultPrevented: false,
+          eventPhase: 0,
+          isTrusted: true,
+          timeStamp: Date.now(),
+          type: 'submit',
+          nativeEvent,
+          stopPropagation: () => { propagationStopped = true; },
+          stopImmediatePropagation: () => { propagationStopped = true; },
+          persist: () => {},
+          isDefaultPrevented: () => defaultPrevented,
+          isPropagationStopped: () => propagationStopped
+        } as unknown as React.FormEvent<HTMLFormElement>;
 
-          await handleSubmit(syntheticEvent);
+        await handleSubmit(syntheticEvent);
         }
       }
 
@@ -809,16 +809,16 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         markedForDeletion
       });
 
-      // Get existing disbursements and medications in a single batch
-      const [existingDisbursementsResult, medicationsResult] = await Promise.all([
-        pb.collection('disbursements').getList<ExistingDisbursement>(1, 50, {
-          filter: `encounter = "${encounterId}"`,
-          expand: 'medication'
-        }),
-        Promise.all(validDisbursements.map(d => 
-          pb.collection('inventory').getOne<MedicationRecord>(d.medication)
-        ))
-      ]);
+        // Get existing disbursements and medications in a single batch
+        const [existingDisbursementsResult, medicationsResult] = await Promise.all([
+          pb.collection('disbursements').getList<ExistingDisbursement>(1, 50, {
+            filter: `encounter = "${encounterId}"`,
+            expand: 'medication'
+          }),
+          Promise.all(validDisbursements.map(d => 
+            pb.collection('inventory').getOne<MedicationRecord>(d.medication)
+          ))
+        ]);
 
       console.log('DEBUG: ID Verification:', {
         markedForDeletion: markedForDeletion.map(d => ({
@@ -833,9 +833,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         }))
       });
 
-      const existingMap = new Map<string, ExistingDisbursement>(
-        existingDisbursementsResult.items.map(d => [d.id, d])
-      );
+        const existingMap = new Map<string, ExistingDisbursement>(
+          existingDisbursementsResult.items.map(d => [d.id, d])
+        );
 
       // First handle deletions to free up stock
       for (const disbursement of markedForDeletion) {
@@ -896,37 +896,37 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       }
 
       // Now verify stock levels for remaining valid disbursements
-      for (const disbursement of validDisbursements) {
+        for (const disbursement of validDisbursements) {
         const medication = medicationsResult.find(m => m.id === disbursement.medication);
-        if (!medication) continue;
+          if (!medication) continue;
 
-        const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
-        
-        // Only check stock for new or modified disbursements
-        const existing = disbursement.id ? existingMap.get(disbursement.id) : null;
-        if (!existing || existing.quantity !== quantity) {
-          // For existing disbursements, only check the difference
-          const stockChange = existing ? quantity - existing.quantity : quantity;
-          const newStockLevel = medication.stock - stockChange;
-          if (newStockLevel < 0) {
-            throw new Error(`Not enough stock for ${medication.drug_name}. Available: ${medication.stock}, Needed: ${stockChange}`);
+          const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+          
+          // Only check stock for new or modified disbursements
+          const existing = disbursement.id ? existingMap.get(disbursement.id) : null;
+          if (!existing || existing.quantity !== quantity) {
+            // For existing disbursements, only check the difference
+            const stockChange = existing ? quantity - existing.quantity : quantity;
+            const newStockLevel = medication.stock - stockChange;
+            if (newStockLevel < 0) {
+              throw new Error(`Not enough stock for ${medication.drug_name}. Available: ${medication.stock}, Needed: ${stockChange}`);
+            }
           }
         }
-      }
 
       // Process all valid disbursements in sequence to prevent race conditions
       const processedDisbursements: Record<string, any>[] = [];
-      for (const disbursement of validDisbursements) {
+        for (const disbursement of validDisbursements) {
         const medication = medicationsResult.find(m => m.id === disbursement.medication);
-        if (!medication) continue;
+          if (!medication) continue;
 
-        const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
-        
-        if (disbursement.id) {
-          // Update existing disbursement
-          const existing = existingMap.get(disbursement.id);
-          if (existing) {
-            existingMap.delete(disbursement.id);
+          const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+          
+          if (disbursement.id) {
+            // Update existing disbursement
+            const existing = existingMap.get(disbursement.id);
+            if (existing) {
+              existingMap.delete(disbursement.id);
 
             // In pharmacy mode, we might be changing the medication
             const medicationChanged = existing.medication !== disbursement.medication;
@@ -958,7 +958,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
                   // Update stock first
                   try {
-                    await pb.collection('inventory').update(disbursement.medication, {
+                  await pb.collection('inventory').update(disbursement.medication, {
                       stock: newStock,
                       disbursement_multiplier: 1 // Ensure this is set to prevent validation errors
                     });
@@ -978,25 +978,25 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               // Update the disbursement record
               const updated = await pb.collection('disbursements').update(disbursement.id, {
                 medication: disbursement.medication,
-                quantity: quantity,
-                notes: disbursement.notes || ''
-              });
+                  quantity: quantity,
+                  notes: disbursement.notes || ''
+                });
               processedDisbursements.push(updated);
             } else {
               processedDisbursements.push(existing);
+              }
             }
-          }
-        } else {
-          // Create new disbursement
-          // Get fresh medication record to ensure accurate stock
-          const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
-          const newStock = updatedMedication.stock - quantity;
+          } else {
+            // Create new disbursement
+            // Get fresh medication record to ensure accurate stock
+            const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
+            const newStock = updatedMedication.stock - quantity;
           
           if (newStock < 0) {
             throw new Error(`Not enough stock for ${updatedMedication.drug_name}. Available: ${updatedMedication.stock}, Needed: ${quantity}`);
           }
-
-          // Update stock first
+            
+            // Update stock first
           try {
             await pb.collection('inventory').update(disbursement.medication, {
               stock: newStock,
@@ -1012,15 +1012,15 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             });
             throw error;
           }
-          
-          // Then create disbursement
+            
+            // Then create disbursement
           const created = await pb.collection('disbursements').create({
-            encounter: encounterId,
-            medication: disbursement.medication,
-            quantity: quantity,
-            notes: disbursement.notes || '',
-            processed: false
-          });
+              encounter: encounterId,
+              medication: disbursement.medication,
+              quantity: quantity,
+              notes: disbursement.notes || '',
+              processed: false
+            });
           processedDisbursements.push(created);
         }
       }
@@ -1464,6 +1464,18 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 <Grid item xs={12}>
                   <TextField
                     fullWidth
+                    label="Past Medical History"
+                    value={formData.past_medical_history || ''}
+                    onChange={handleInputChange('past_medical_history')}
+                    disabled={isFieldDisabled('subjective')}
+                    multiline
+                    rows={3}
+                    placeholder="Enter patient's past medical history"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
                     label="Subjective Notes"
                     value={formData.subjective_notes || ''}
                     onChange={handleInputChange('subjective_notes')}
@@ -1536,16 +1548,16 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                       Cancel
                     </Button>
                     {currentMode === 'edit' && !currentQueueItem?.status?.includes('checkout') && currentQueueItem && (
-                      <RoleBasedAccess requiredRole="provider">
-                        <Button
-                          variant="contained"
-                          color="secondary"
-                          onClick={() => handleQueueStatusChange('ready_pharmacy')}
-                        >
-                          Ready for Pharmacy
-                        </Button>
-                      </RoleBasedAccess>
-                    )}
+                  <RoleBasedAccess requiredRole="provider">
+                    <Button
+                      variant="contained"
+                      color="secondary"
+                      onClick={() => handleQueueStatusChange('ready_pharmacy')}
+                    >
+                      Ready for Pharmacy
+                    </Button>
+                  </RoleBasedAccess>
+                )}
                     <Button
                       type="submit"
                       variant="contained"
