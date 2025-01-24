@@ -41,6 +41,9 @@ interface PatientModalProps {
     age: number;
     smoker: string;
     allergies?: string;
+    urinalysis?: boolean;
+    blood_sugar?: boolean;
+    pregnancy_test?: boolean;
     height?: number | null;
     weight?: number | null;
     temperature?: number | null;
@@ -116,9 +119,9 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         systolic_pressure: initialData.systolic_pressure ?? null,
         diastolic_pressure: initialData.diastolic_pressure ?? null,
         allergies: initialData.allergies ?? '',
-        urinalysis: false,
-        blood_sugar: false,
-        pregnancy_test: false,
+        urinalysis: initialData.urinalysis ?? false,
+        blood_sugar: initialData.blood_sugar ?? false,
+        pregnancy_test: initialData.pregnancy_test ?? false,
       });
       setDateValue(initialData.dob ? new Date(initialData.dob) : null);
     } else {
@@ -373,30 +376,24 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         }
       }
 
-      const submissionData = {
-        ...formData,
-        age: ageValue,
+      // Prepare patient data (excluding test fields)
+      const patientData = {
+        first_name: formData.first_name,
+        last_name: formData.last_name,
         dob: useManualAge && !formData.dob ? defaultDob : formData.dob,
+        gender: formData.gender,
+        age: ageValue,
         smoker: formData.smoker,
-        // Only convert numeric fields to null when they're empty/zero
-        height: formData.height || (formData.height === 0 ? null : formData.height),
-        weight: formData.weight || (formData.weight === 0 ? null : formData.weight),
-        temperature: formData.temperature || (formData.temperature === 0 ? null : formData.temperature),
-        heart_rate: formData.heart_rate || (formData.heart_rate === 0 ? null : formData.heart_rate),
-        systolic_pressure: formData.systolic_pressure || (formData.systolic_pressure === 0 ? null : formData.systolic_pressure),
-        diastolic_pressure: formData.diastolic_pressure || (formData.diastolic_pressure === 0 ? null : formData.diastolic_pressure),
+        allergies: formData.allergies,
       };
-
-      // Add debug logging for submission data
-      console.log('SUBMIT DEBUG: Final submission data:', submissionData);
 
       let patientId: string;
       if (mode === 'edit' && initialData?.id) {
-        await pb.collection('patients').update(initialData.id, submissionData);
+        await pb.collection('patients').update(initialData.id, patientData);
         patientId = initialData.id;
       } else {
         try {
-          const newPatient = await pb.collection('patients').create(submissionData);
+          const newPatient = await pb.collection('patients').create(patientData);
           console.log('SUBMIT DEBUG: Patient created successfully:', newPatient);
           patientId = newPatient.id;
         } catch (createError: any) {
@@ -409,7 +406,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           throw new Error(`Failed to create patient: ${createError.message}`);
         }
 
-        // Create an initial encounter with the vitals
+        // Create an initial encounter with the vitals and test fields
         const encounterData = {
           patient: patientId,
           height: formData.height ? Number(formData.height) : null,
@@ -418,6 +415,12 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
           systolic_pressure: formData.systolic_pressure ? Number(formData.systolic_pressure) : null,
           diastolic_pressure: formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null,
+          urinalysis: formData.urinalysis,
+          urinalysis_result: '',
+          blood_sugar: formData.blood_sugar,
+          blood_sugar_result: '',
+          pregnancy_test: formData.pregnancy_test,
+          pregnancy_test_result: '',
           chief_complaint: null,
           other_chief_complaint: '',
           history_of_present_illness: '',
@@ -653,13 +656,16 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           </Grid>
 
           <Grid item xs={12}>
+            <Typography variant="h6" gutterBottom>
+              Initial Tests
+            </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={4}>
                 <FormControlLabel
                   control={
                     <Checkbox
-                      checked={formData.urinalysis ?? false}
-                      onChange={(e) => handleInputChange('urinalysis', e.target.checked)}
+                      checked={formData.urinalysis}
+                      onChange={(e) => setFormData(prev => ({ ...prev, urinalysis: e.target.checked }))}
                     />
                   }
                   label="Urinalysis"
@@ -669,8 +675,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                 <FormControlLabel
                   control={
                     <Checkbox
-                      checked={formData.blood_sugar ?? false}
-                      onChange={(e) => handleInputChange('blood_sugar', e.target.checked)}
+                      checked={formData.blood_sugar}
+                      onChange={(e) => setFormData(prev => ({ ...prev, blood_sugar: e.target.checked }))}
                     />
                   }
                   label="Blood Sugar"
@@ -680,8 +686,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                 <FormControlLabel
                   control={
                     <Checkbox
-                      checked={formData.pregnancy_test ?? false}
-                      onChange={(e) => handleInputChange('pregnancy_test', e.target.checked)}
+                      checked={formData.pregnancy_test}
+                      onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
                     />
                   }
                   label="Pregnancy Test"

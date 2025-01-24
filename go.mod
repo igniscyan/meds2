@@ -7,11 +7,6 @@ toolchain go1.23.4
 require github.com/pocketbase/pocketbase v0.22.0
 
 require (
-	github.com/labstack/echo/v4 v4.13.1 // indirect
-	github.com/labstack/gommon v0.4.2 // indirect
-)
-
-require (
 	github.com/AlecAivazis/survey/v2 v2.3.7 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/aws/aws-sdk-go v1.55.5 // indirect
@@ -73,7 +68,7 @@ require (
 	golang.org/x/net v0.32.0 // indirect
 	golang.org/x/oauth2 v0.24.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/sys v0.28.0
+	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/term v0.27.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/time v0.8.0 // indirect

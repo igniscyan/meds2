@@ -64,9 +64,6 @@ interface Patient extends BaseModel {
   age: number;
   smoker: string;
   allergies: string;
-  urinalysis: boolean;
-  blood_sugar: boolean;
-  pregnancy_test: boolean;
 }
 
 interface ChiefComplaint extends BaseModel {
@@ -108,8 +105,11 @@ interface EncounterRecord extends BaseModel {
   diastolic_pressure: number | null;
   allergies: string;
   urinalysis: boolean;
+  urinalysis_result: string;
   blood_sugar: boolean;
+  blood_sugar_result: string;
   pregnancy_test: boolean;
+  pregnancy_test_result: string;
   chief_complaint?: string;
   other_chief_complaint?: string;
   history_of_present_illness?: string;
@@ -219,8 +219,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     diastolic_pressure: location.state?.initialVitals?.diastolic_pressure ?? null,
     allergies: '',
     urinalysis: false,
+    urinalysis_result: '',
     blood_sugar: false,
+    blood_sugar_result: '',
     pregnancy_test: false,
+    pregnancy_test_result: '',
     chief_complaint: '',
     past_medical_history: '',
     assessment: '',
@@ -265,7 +268,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       try {
         // Load patient data and chief complaints
         const [patientRecord, complaintsResult] = await Promise.all([
-          pb.collection('patients').getOne(patientId, {
+          pb.collection('patients').getOne<Patient>(patientId, {
             $autoCancel: false
           }),
           pb.collection('chief_complaints').getList<ChiefComplaint>(1, 50, {
@@ -274,7 +277,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           })
         ]);
         
-        setPatient(patientRecord as Patient);
+        setPatient(patientRecord);
         setChiefComplaints(complaintsResult.items.filter((c, index, self) => 
           index === self.findIndex(t => t.name === c.name)
         ));
@@ -326,6 +329,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             heart_rate: encounterRecord.heart_rate,
             systolic_pressure: encounterRecord.systolic_pressure,
             diastolic_pressure: encounterRecord.diastolic_pressure,
+            allergies: encounterRecord.allergies || patientRecord.allergies || '',
             chief_complaint: hasOtherComplaint ? 'OTHER (Custom Text Input)' : chiefComplaintName,
             disbursements: disbursementItems.length > 0 ? disbursementItems : [{
               medication: '',
@@ -335,19 +339,17 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             }]
           });
         } else {
-          // For new encounters, check if we have initial vitals from state
-          const initialVitals = location.state?.initialVitals;
-          if (initialVitals) {
-            setFormData(prev => ({
-              ...prev,
-              height: initialVitals.height ?? null,
-              weight: initialVitals.weight ?? null,
-              temperature: initialVitals.temperature ?? null,
-              heart_rate: initialVitals.heart_rate ?? null,
-              systolic_pressure: initialVitals.systolic_pressure ?? null,
-              diastolic_pressure: initialVitals.diastolic_pressure ?? null,
-            }));
-          }
+          // For new encounters, initialize with patient data
+          setFormData(prev => ({
+            ...prev,
+            allergies: patientRecord.allergies || '',
+            height: location.state?.initialVitals?.height ?? null,
+            weight: location.state?.initialVitals?.weight ?? null,
+            temperature: location.state?.initialVitals?.temperature ?? null,
+            heart_rate: location.state?.initialVitals?.heart_rate ?? null,
+            systolic_pressure: location.state?.initialVitals?.systolic_pressure ?? null,
+            diastolic_pressure: location.state?.initialVitals?.diastolic_pressure ?? null,
+          }));
         }
         setLoading(false);
       } catch (error: any) {
@@ -595,6 +597,13 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         other_chief_complaint: formData.other_chief_complaint || '',
         past_medical_history: formData.past_medical_history || '',
         subjective_notes: formData.subjective_notes || '',
+        allergies: formData.allergies || '',
+        urinalysis: formData.urinalysis || false,
+        urinalysis_result: formData.urinalysis_result || '',
+        blood_sugar: formData.blood_sugar || false,
+        blood_sugar_result: formData.blood_sugar_result || '',
+        pregnancy_test: formData.pregnancy_test || false,
+        pregnancy_test_result: formData.pregnancy_test_result || '',
       };
 
       console.log('DEBUG: Prepared encounter data:', encounterData);
@@ -847,7 +856,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         const [existingDisbursementsResult, medicationsResult] = await Promise.all([
           pb.collection('disbursements').getList<ExistingDisbursement>(1, 50, {
             filter: `encounter = "${encounterId}"`,
-            expand: 'medication'
+            expand: 'medication',
+            fields: 'id,medication,quantity,notes,processed'
           }),
           Promise.all(validDisbursements.map(d => 
             pb.collection('inventory').getOne<MedicationRecord>(d.medication)
@@ -962,62 +972,63 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             if (existing) {
               existingMap.delete(disbursement.id);
 
-            // In pharmacy mode, we might be changing the medication
-            const medicationChanged = existing.medication !== disbursement.medication;
-            
-            if (medicationChanged || existing.quantity !== quantity) {
-              // If medication changed, we need to handle stock for both old and new medication
-              if (medicationChanged) {
-                // Restore stock for old medication
-                const oldMedication = await pb.collection('inventory').getOne<MedicationRecord>(existing.medication);
-                await pb.collection('inventory').update(existing.medication, {
-                  stock: oldMedication.stock + existing.quantity
-                });
-                
-                // Reduce stock for new medication
-                await pb.collection('inventory').update(disbursement.medication, {
-                  stock: medication.stock - quantity
-                });
-              } else if (existing.quantity !== quantity) {
-                // Only update stock if quantity changed
-                const stockChange = quantity - existing.quantity;
-                if (stockChange !== 0) {
-                  // Get fresh medication record to ensure accurate stock
-                  const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
-                  const newStock = updatedMedication.stock - stockChange;
+              // In pharmacy mode, we might be changing the medication
+              const medicationChanged = existing.medication !== disbursement.medication;
+              const notesChanged = existing.notes !== disbursement.notes;
+              
+              if (medicationChanged || existing.quantity !== quantity || notesChanged) {
+                // If medication changed, we need to handle stock for both old and new medication
+                if (medicationChanged) {
+                  // Restore stock for old medication
+                  const oldMedication = await pb.collection('inventory').getOne<MedicationRecord>(existing.medication);
+                  await pb.collection('inventory').update(existing.medication, {
+                    stock: oldMedication.stock + existing.quantity
+                  });
                   
-                  if (newStock < 0) {
-                    throw new Error(`Not enough stock for ${updatedMedication.drug_name}. Available: ${updatedMedication.stock}, Needed: ${quantity}`);
-                  }
-
-                  // Update stock first
-                  try {
+                  // Reduce stock for new medication
                   await pb.collection('inventory').update(disbursement.medication, {
-                      stock: newStock,
-                      disbursement_multiplier: 1 // Ensure this is set to prevent validation errors
-                    });
-                  } catch (error: any) {
-                    console.error('DEBUG: Error updating inventory:', {
-                      error,
-                      medication: updatedMedication.drug_name,
-                      currentStock: updatedMedication.stock,
-                      requestedQuantity: quantity,
-                      calculatedNewStock: newStock
-                    });
-                    throw error;
+                    stock: medication.stock - quantity
+                  });
+                } else {
+                  // Only update stock if quantity changed
+                  const stockChange = quantity - existing.quantity;
+                  if (stockChange !== 0) {
+                    // Get fresh medication record to ensure accurate stock
+                    const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
+                    const newStock = updatedMedication.stock - stockChange;
+                    
+                    if (newStock < 0) {
+                      throw new Error(`Not enough stock for ${updatedMedication.drug_name}. Available: ${updatedMedication.stock}, Needed: ${quantity}`);
+                    }
+
+                    // Update stock first
+                    try {
+                      await pb.collection('inventory').update(disbursement.medication, {
+                        stock: newStock,
+                        disbursement_multiplier: 1 // Ensure this is set to prevent validation errors
+                      });
+                    } catch (error: any) {
+                      console.error('DEBUG: Error updating inventory:', {
+                        error,
+                        medication: updatedMedication.drug_name,
+                        currentStock: updatedMedication.stock,
+                        requestedQuantity: quantity,
+                        calculatedNewStock: newStock
+                      });
+                      throw error;
+                    }
                   }
                 }
-              }
-              
-              // Update the disbursement record
-              const updated = await pb.collection('disbursements').update(disbursement.id, {
-                medication: disbursement.medication,
+
+                // Update the disbursement record
+                const updated = await pb.collection('disbursements').update(disbursement.id, {
+                  medication: disbursement.medication,
                   quantity: quantity,
                   notes: disbursement.notes || ''
                 });
-              processedDisbursements.push(updated);
-            } else {
-              processedDisbursements.push(existing);
+                processedDisbursements.push(updated);
+              } else {
+                processedDisbursements.push(existing);
               }
             }
           } else {
@@ -1468,40 +1479,79 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
                 {/* Health Screening Checkboxes */}
                 <Grid item xs={12} sm={4}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={formData.urinalysis}
-                        onChange={(e) => setFormData(prev => ({ ...prev, urinalysis: e.target.checked }))}
+                  <Box>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={formData.urinalysis}
+                          onChange={(e) => setFormData(prev => ({ ...prev, urinalysis: e.target.checked }))}
+                          disabled={isFieldDisabled('vitals')}
+                        />
+                      }
+                      label="Urinalysis"
+                    />
+                    {formData.urinalysis && (
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label="Urinalysis Result"
+                        value={formData.urinalysis_result || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, urinalysis_result: e.target.value }))}
                         disabled={isFieldDisabled('vitals')}
+                        sx={{ mt: 1 }}
                       />
-                    }
-                    label="Urinalysis"
-                  />
+                    )}
+                  </Box>
                 </Grid>
                 <Grid item xs={12} sm={4}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={formData.blood_sugar}
-                        onChange={(e) => setFormData(prev => ({ ...prev, blood_sugar: e.target.checked }))}
+                  <Box>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={formData.blood_sugar}
+                          onChange={(e) => setFormData(prev => ({ ...prev, blood_sugar: e.target.checked }))}
+                          disabled={isFieldDisabled('vitals')}
+                        />
+                      }
+                      label="Blood Sugar"
+                    />
+                    {formData.blood_sugar && (
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label="Blood Sugar Result"
+                        value={formData.blood_sugar_result || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, blood_sugar_result: e.target.value }))}
                         disabled={isFieldDisabled('vitals')}
+                        sx={{ mt: 1 }}
                       />
-                    }
-                    label="Blood Sugar"
-                  />
+                    )}
+                  </Box>
                 </Grid>
                 <Grid item xs={12} sm={4}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={formData.pregnancy_test}
-                        onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
+                  <Box>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={formData.pregnancy_test}
+                          onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
+                          disabled={isFieldDisabled('vitals')}
+                        />
+                      }
+                      label="Pregnancy Test"
+                    />
+                    {formData.pregnancy_test && (
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label="Pregnancy Test Result"
+                        value={formData.pregnancy_test_result || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test_result: e.target.value }))}
                         disabled={isFieldDisabled('vitals')}
+                        sx={{ mt: 1 }}
                       />
-                    }
-                    label="Pregnancy Test"
-                  />
+                    )}
+                  </Box>
                 </Grid>
               </Grid>
             </Grid>
