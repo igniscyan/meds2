@@ -26,6 +26,7 @@ import {
   Visibility as VisibilityIcon,
   Delete as DeleteIcon,
   FormatListBulleted as ListIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { Record } from 'pocketbase';
@@ -94,6 +95,7 @@ export const Patients = () => {
   const [bulkDistributionOpen, setBulkDistributionOpen] = useState(false);
   const [tabValue, setTabValue] = useState(0);
   const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Add debug logging for current time and date filtering
   console.log('Current Time:', new Date().toISOString());
@@ -251,6 +253,17 @@ export const Patients = () => {
     });
   };
 
+  // Filter patients based on search query
+  const filterPatientsBySearch = (patientList: Patient[]) => {
+    if (!searchQuery) return patientList;
+    
+    const query = searchQuery.toLowerCase();
+    return patientList.filter(patient => 
+      patient.first_name.toLowerCase().includes(query) ||
+      patient.last_name.toLowerCase().includes(query)
+    );
+  };
+
   if (patientsLoading || queueLoading) {
     return <Typography>Loading...</Typography>;
   }
@@ -316,8 +329,8 @@ export const Patients = () => {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Patients</Typography>
-        <RoleBasedAccess requiredRole="provider">
-          <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <RoleBasedAccess requiredRole="provider">
             <Button
               variant="contained"
               color="primary"
@@ -326,49 +339,46 @@ export const Patients = () => {
             >
               Add Patient
             </Button>
-            <Button
-              variant="contained"
-              sx={{ 
-                backgroundColor: '#9c27b0',
-                '&:hover': {
-                  backgroundColor: '#7b1fa2',
-                },
-                textTransform: 'uppercase'
-              }}
-              startIcon={<ListIcon />}
-              onClick={() => setBulkDistributionOpen(true)}
-            >
-              Fast Track Patient
-            </Button>
-          </Box>
-        </RoleBasedAccess>
+          </RoleBasedAccess>
+        </Box>
       </Box>
 
-      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={tabValue} onChange={handleTabChange} aria-label="patient tabs">
-          <Tab label="All Patients" />
-          <Tab label="Today's Patients" />
-          <Tab label="Date Filter" />
-        </Tabs>
-      </Box>
+      {/* Search Field */}
+      <TextField
+        fullWidth
+        variant="outlined"
+        placeholder="Search patients by name..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        sx={{ mb: 3 }}
+        InputProps={{
+          startAdornment: <SearchIcon color="action" sx={{ mr: 1 }} />,
+        }}
+      />
+
+      <Tabs value={tabValue} onChange={handleTabChange} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tab label="All Patients" />
+        <Tab label="Today's Patients" />
+        <Tab label="Historical" />
+      </Tabs>
 
       <TabPanel value={tabValue} index={0}>
-        {renderPatientTable(patients)}
+        {renderPatientTable(filterPatientsBySearch(patients))}
       </TabPanel>
 
       <TabPanel value={tabValue} index={1}>
         <Box sx={{ mb: 4 }}>
           <Typography variant="h5" gutterBottom>
-            Active Patients ({activePatients.length})
+            Active Patients ({filterPatientsBySearch(activePatients).length})
           </Typography>
-          {renderPatientTable(activePatients)}
+          {renderPatientTable(filterPatientsBySearch(activePatients))}
         </Box>
 
         <Box>
           <Typography variant="h5" gutterBottom>
-            Completed Today ({completedPatients.length})
+            Completed Today ({filterPatientsBySearch(completedPatients).length})
           </Typography>
-          {renderPatientTable(completedPatients)}
+          {renderPatientTable(filterPatientsBySearch(completedPatients))}
         </Box>
       </TabPanel>
 
@@ -389,7 +399,7 @@ export const Patients = () => {
             <Typography variant="h5" gutterBottom>
               Patients for {selectedDate.toLocaleDateString()}
             </Typography>
-            {renderPatientTable(getFilteredPatients(selectedDate))}
+            {renderPatientTable(filterPatientsBySearch(getFilteredPatients(selectedDate)))}
           </>
         )}
       </TabPanel>

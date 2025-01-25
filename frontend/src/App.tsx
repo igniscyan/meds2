@@ -19,6 +19,8 @@ import Dashboard from './pages/Dashboard';
 import AuthGuard from './components/AuthGuard';
 import { authModelAtom, isLoadingAtom, useAuthChangeEffect } from './atoms/auth';
 import Settings from './pages/Settings';
+import Reports from './pages/Reports';
+import Formulary from './pages/Formulary';
 
 const App: React.FC = () => {
   const user = useAtomValue(authModelAtom);
@@ -93,6 +95,14 @@ const App: React.FC = () => {
                 } 
               />
               <Route 
+                path="/formulary" 
+                element={
+                  <AuthGuard>
+                    <Formulary />
+                  </AuthGuard>
+                } 
+              />
+              <Route 
                 path="/inventory" 
                 element={
                   <AuthGuard>
@@ -113,6 +123,14 @@ const App: React.FC = () => {
                 element={
                   <AuthGuard>
                     <Settings />
+                  </AuthGuard>
+                } 
+              />
+              <Route 
+                path="/reports" 
+                element={
+                  <AuthGuard>
+                    <Reports />
                   </AuthGuard>
                 } 
               />

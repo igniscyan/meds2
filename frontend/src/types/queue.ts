@@ -1,5 +1,19 @@
 import { Record } from 'pocketbase';
 
+export interface ChiefComplaint extends Record {
+  name: string;
+}
+
+export interface Encounter extends Record {
+  chief_complaint?: ChiefComplaint;
+  disbursements?: Array<{
+    medication: {
+      drug_name: string;
+    };
+    quantity: number;
+  }>;
+}
+
 export type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'at_checkout' | 'completed';
 
 export interface QueueItem extends Record {
@@ -27,8 +41,6 @@ export interface QueueItem extends Record {
       username: string;
       name: string;
     };
-    encounter?: {
-      id: string;
-    };
+    encounter?: Encounter;
   };
 }

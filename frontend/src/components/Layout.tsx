@@ -58,8 +58,10 @@ export const Layout: React.FC = () => {
 
   const navItems = [
     { text: 'Dashboard', path: '/dashboard' },
-    { text: 'Patients', path: '/patients' },
+    { text: 'Formulary', path: '/formulary', role: 'provider' as const },
     { text: 'Inventory', path: '/inventory', role: 'pharmacy' as const },
+    { text: 'Patients', path: '/patients' },
+    { text: 'Reports', path: '/reports', role: 'admin' as const },
   ];
 
   const drawer = (
