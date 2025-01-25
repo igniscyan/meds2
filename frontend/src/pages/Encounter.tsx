@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -194,6 +194,39 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [isNewEncounter, setIsNewEncounter] = useState(true);
   const [currentQueueItem, setCurrentQueueItem] = useState<QueueItem | null>(null);
   const { unitDisplay } = useSettings();
+
+  // Add refs for each section
+  const vitalsRef = useRef<HTMLDivElement>(null);
+  const subjectiveRef = useRef<HTMLDivElement>(null);
+  const disbursementRef = useRef<HTMLDivElement>(null);
+  const questionsRef = useRef<HTMLDivElement>(null);
+
+  type SectionName = 'vitals' | 'subjective' | 'disbursement' | 'questions';
+
+  const sectionRefs = {
+    vitals: vitalsRef,
+    subjective: subjectiveRef,
+    disbursement: disbursementRef,
+    questions: questionsRef
+  };
+
+  // Add effect for scrolling
+  useEffect(() => {
+    const section = location.state?.scrollTo as SectionName;
+    if (section && sectionRefs[section]?.current) {
+      // Wait for content to be rendered
+      setTimeout(() => {
+        const headerOffset = 80; // Approximate height of the fixed header
+        const elementPosition = sectionRefs[section].current?.getBoundingClientRect().top ?? 0;
+        const offsetPosition = elementPosition + window.scrollY - headerOffset;
+        
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        });
+      }, 300); // Increased timeout to ensure content is fully rendered
+    }
+  }, [location.state?.scrollTo, loading]); // Added loading dependency to ensure scroll happens after content loads
 
   // Memoize the mode determination to prevent unnecessary re-renders
   const currentMode = React.useMemo(() => {
@@ -1314,11 +1347,14 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="subtitle1" color="text.secondary">
-                {patient?.age} years • {patient?.gender.charAt(0).toUpperCase() + patient?.gender.slice(1)}
+                Age: {patient?.age} years • Gender: {patient?.gender.charAt(0).toUpperCase() + patient?.gender.slice(1)}
               </Typography>
               {(patient?.gender === 'female' || patient?.gender === 'other') && (
                 <>
                   <Typography variant="subtitle1" color="text.secondary">•</Typography>
+                  <Typography variant="subtitle1" color="text.secondary">
+                    Pregnant:
+                  </Typography>
                   <FormControl size="small" sx={{ minWidth: 150 }}>
                     <Select
                       value={patient?.pregnancy_status || ''}
@@ -1372,7 +1408,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         <Box component="form" onSubmit={handleSubmit}>
           <Grid container spacing={3}>
             {/* Vitals Section */}
-            <Grid item xs={12}>
+            <Grid item xs={12} ref={vitalsRef}>
               <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
                 Vitals
               </Typography>
@@ -1549,7 +1585,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             </Grid>
 
             {/* Subjective Section */}
-            <Grid item xs={12}>
+            <Grid item xs={12} ref={subjectiveRef}>
               <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
                 Subjective
               </Typography>
@@ -1639,7 +1675,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             </Grid>
 
             {/* Disbursement Section */}
-            <Grid item xs={12}>
+            <Grid item xs={12} ref={disbursementRef}>
               <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
                 Disbursements
               </Typography>
@@ -1655,7 +1691,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             </Grid>
 
             {/* Questions Section */}
-            <Grid item xs={12}>
+            <Grid item xs={12} ref={questionsRef}>
               <Typography variant="h6" color="primary" sx={{ mb: 2 }}>
                 Additional Questions
                 {currentMode !== 'view' && currentMode !== 'pharmacy' && (

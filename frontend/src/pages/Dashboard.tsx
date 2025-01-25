@@ -296,10 +296,13 @@ const Dashboard: React.FC = () => {
         assigned_to: pb.authStore.model?.id
       });
 
-      // Navigate to encounter in pharmacy mode
+      // Navigate to encounter in pharmacy mode with scroll to disbursement section
       if (queueItem.expand?.encounter?.id) {
         navigate(`/encounter/${queueItem.patient}/${queueItem.expand.encounter.id}`, {
-          state: { mode: 'pharmacy' }
+          state: { 
+            mode: 'pharmacy',
+            scrollTo: 'disbursement'
+          }
         });
       }
     } catch (error) {
@@ -539,7 +542,10 @@ const Dashboard: React.FC = () => {
               onClick={() => {
                 if (queueItem.expand?.encounter?.id) {
                   navigate(`/encounter/${queueItem.patient}/${queueItem.expand.encounter.id}`, {
-                    state: { mode: 'pharmacy' }
+                    state: { 
+                      mode: 'pharmacy',
+                      scrollTo: 'disbursement'
+                    }
                   });
                 }
               }}
@@ -558,7 +564,10 @@ const Dashboard: React.FC = () => {
               onClick={() => {
                 if (queueItem.expand?.encounter?.id) {
                   navigate(`/encounter/${queueItem.patient}/${queueItem.expand.encounter.id}`, {
-                    state: { mode: 'checkout' }
+                    state: { 
+                      mode: 'checkout',
+                      scrollTo: 'questions'
+                    }
                   });
                 }
               }}
