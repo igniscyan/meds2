@@ -36,11 +36,31 @@ isLoadingAtom.debugLabel = 'isLoadingAtom';
 
 export const logoutAtom = atom(
   null,
-  (get, set) => {
-    set(authModelAtom, null);
-    pb.authStore.clear();
-    // Instead of using window.location.href, dispatch an event that AuthGuard will handle
-    window.dispatchEvent(new Event('pocketbase-auth-change'));
+  async (get, set) => {
+    // 1. Set loading state to prevent race conditions
+    set(isLoadingAtom, true);
+    
+    try {
+      // 2. Clear auth model first
+      set(authModelAtom, null);
+      
+      // 3. Clear PocketBase auth store
+      pb.authStore.clear();
+      
+      // 4. Wait for a small delay to ensure state updates are processed
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // 5. Dispatch auth change event
+      window.dispatchEvent(new Event('pocketbase-auth-change'));
+      
+      // 6. Return success to handle navigation in the component
+      return true;
+    } catch (error) {
+      console.error('Logout error:', error);
+      return false;
+    } finally {
+      set(isLoadingAtom, false);
+    }
   }
 );
 logoutAtom.debugLabel = 'logoutAtom';

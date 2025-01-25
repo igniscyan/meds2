@@ -619,16 +619,6 @@ const Dashboard: React.FC = () => {
               </Typography>
             </Box>
 
-            {queueItem.expand?.assigned_to && (
-              <Chip
-                size="small"
-                label={queueItem.expand.assigned_to.name || 'Unnamed Provider'}
-                variant="outlined"
-                color="primary"
-                sx={{ height: 24 }}
-              />
-            )}
-            
             {queueItem.status === 'ready_pharmacy' && (
               <Typography 
                 variant="body2" 

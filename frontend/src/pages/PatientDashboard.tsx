@@ -170,6 +170,36 @@ const PatientDashboard: React.FC = () => {
     setDeleteDialogOpen(true);
   };
 
+  const handleAddToQueue = async (patientId: string, encounterId: string) => {
+    try {
+      // Find the existing queue record for this encounter
+      const result = await pb.collection('queue').getList(1, 1, {
+        filter: `encounter = "${encounterId}"`,
+        sort: '-created'
+      });
+
+      if (result.items.length === 0) {
+        console.error('No queue record found for encounter');
+        alert('Failed to find queue record for this encounter');
+        return;
+      }
+
+      const queueRecord = result.items[0];
+      
+      // Update the existing queue record
+      await pb.collection('queue').update(queueRecord.id, {
+        status: 'at_checkout',
+        end_time: null
+      });
+
+      alert('Patient returned to checkout status');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Error updating queue status:', error);
+      alert('Failed to update queue status: ' + (error as Error).message);
+    }
+  };
+
   // Don't show loading if we have patient data
   if (!patient) {
     return <Typography>Loading...</Typography>;
@@ -270,20 +300,14 @@ const PatientDashboard: React.FC = () => {
                       color="secondary"
                       onClick={async () => {
                         try {
-                          // Create new queue entry
-                          const queueData = {
-                            patient: patientId,
-                            status: 'at_checkout',
-                            priority: 3,
-                            check_in_time: new Date().toISOString(),
-                            encounter: encounter.id
-                          };
-                          await pb.collection('queue').create(queueData);
-                          alert('Patient added back to queue in checkout status');
-                          navigate('/dashboard');
+                          if (!encounter.id || !patientId) {
+                            alert('Missing encounter ID or patient ID');
+                            return;
+                          }
+                          await handleAddToQueue(patientId, encounter.id);
                         } catch (error) {
                           console.error('Error adding to queue:', error);
-                          alert('Failed to add patient to queue: ' + (error as Error).message);
+                          alert('Error adding to queue: ' + (error as Error).message);
                         }
                       }}
                       sx={{ ml: 1 }}

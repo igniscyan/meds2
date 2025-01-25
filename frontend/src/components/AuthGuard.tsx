@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAtom } from 'jotai';
-import { authModelAtom, pb } from '../atoms/auth';
+import { authModelAtom, isLoadingAtom, pb } from '../atoms/auth';
+import { Box, CircularProgress } from '@mui/material';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -9,6 +10,7 @@ interface AuthGuardProps {
 
 const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   const [authModel] = useAtom(authModelAtom);
+  const [isLoading] = useAtom(isLoadingAtom);
   const location = useLocation();
 
   useEffect(() => {
@@ -28,9 +30,26 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     checkAuth();
   }, [location.pathname]);
 
-  if (!authModel) {
-    // Save the location they were trying to go to for after login
-    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname)}`} replace />;
+  // Don't redirect while loading
+  if (isLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  // Check for valid auth state
+  if (!authModel || !pb.authStore.isValid) {
+    // Prevent redirect loops by checking location state
+    if (location.state?.loggedOut) {
+      return <Navigate to="/login" replace />;
+    }
+    
+    return <Navigate 
+      to={`/login?redirect=${encodeURIComponent(location.pathname)}`} 
+      replace 
+    />;
   }
 
   return <>{children}</>;

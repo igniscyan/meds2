@@ -43,7 +43,11 @@ const App: React.FC = () => {
         <LocalizationProvider dateAdapter={AdapterDateFns}>
           {process.env.NODE_ENV === 'development' && <DevTools />}
           <Routes>
-            <Route path="/" element={<Navigate to="/patients" replace />} />
+            <Route path="/" element={
+              process.env.NODE_ENV === 'development' ? 
+                <Navigate to="/login" replace /> : 
+                <Navigate to="/patients" replace />
+            } />
             <Route path="/login" element={!user ? <Login /> : <Navigate to="/patients" replace />} />
             
             {/* Protected Routes */}

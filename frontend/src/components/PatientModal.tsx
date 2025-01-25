@@ -41,6 +41,7 @@ interface PatientModalProps {
     age: number;
     smoker: string;
     allergies?: string;
+    pregnancy_status?: string;
     urinalysis?: boolean;
     blood_sugar?: boolean;
     pregnancy_test?: boolean;
@@ -79,6 +80,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     systolic_pressure: null as number | null,
     diastolic_pressure: null as number | null,
     allergies: '' as string,
+    pregnancy_status: '',
     urinalysis: false,
     blood_sugar: false,
     pregnancy_test: false,
@@ -119,6 +121,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         systolic_pressure: initialData.systolic_pressure ?? null,
         diastolic_pressure: initialData.diastolic_pressure ?? null,
         allergies: initialData.allergies ?? '',
+        pregnancy_status: initialData.pregnancy_status ?? '',
         urinalysis: initialData.urinalysis ?? false,
         blood_sugar: initialData.blood_sugar ?? false,
         pregnancy_test: initialData.pregnancy_test ?? false,
@@ -140,6 +143,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         systolic_pressure: null,
         diastolic_pressure: null,
         allergies: '',
+        pregnancy_status: '',
         urinalysis: false,
         blood_sugar: false,
         pregnancy_test: false,
@@ -167,6 +171,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           systolic_pressure: null,
           diastolic_pressure: null,
           allergies: '',
+          pregnancy_status: '',
           urinalysis: false,
           blood_sugar: false,
           pregnancy_test: false,
@@ -376,7 +381,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         }
       }
 
-      // Prepare patient data (excluding test fields)
+      // Prepare patient data
       const patientData = {
         first_name: formData.first_name,
         last_name: formData.last_name,
@@ -385,6 +390,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         age: ageValue,
         smoker: formData.smoker,
         allergies: formData.allergies,
+        pregnancy_status: formData.gender === 'male' ? '' : formData.pregnancy_status,
       };
 
       let patientId: string;
@@ -591,6 +597,23 @@ export const PatientModal: React.FC<PatientModalProps> = ({
             </FormControl>
           </Grid>
 
+          {(formData.gender === 'female' || formData.gender === 'other') && (
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth>
+                <InputLabel>Pregnancy Status</InputLabel>
+                <Select
+                  value={formData.pregnancy_status}
+                  label="Pregnancy Status"
+                  onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_status: e.target.value }))}
+                >
+                  <MenuItem value="yes">Yes</MenuItem>
+                  <MenuItem value="no">No</MenuItem>
+                  <MenuItem value="potentially">Potentially</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          )}
+
           <Grid item xs={12}>
             <FormControlLabel
               control={
@@ -682,17 +705,19 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                   label="Blood Sugar"
                 />
               </Grid>
-              <Grid item xs={12} sm={4}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={formData.pregnancy_test}
-                      onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
-                    />
-                  }
-                  label="Pregnancy Test"
-                />
-              </Grid>
+              {(formData.gender === 'female' || formData.gender === 'other') && (
+                <Grid item xs={12} sm={4}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={formData.pregnancy_test}
+                        onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
+                      />
+                    }
+                    label="Pregnancy Test"
+                  />
+                </Grid>
+              )}
             </Grid>
           </Grid>
 

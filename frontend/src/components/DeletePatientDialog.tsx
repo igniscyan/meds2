@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -7,6 +7,7 @@ import {
   Button,
   Typography,
   Box,
+  Alert,
 } from '@mui/material';
 import { pb } from '../atoms/auth';
 import { useNavigate } from 'react-router-dom';
@@ -29,6 +30,40 @@ export const DeletePatientDialog: React.FC<DeletePatientDialogProps> = ({
   redirectToList = false,
 }) => {
   const navigate = useNavigate();
+  const [hasDisbursements, setHasDisbursements] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const checkDisbursements = async () => {
+      if (!open || !patientId) return;
+      
+      try {
+        setLoading(true);
+        // First, get all encounters for this patient
+        const encounters = await pb.collection('encounters').getList(1, 100, {
+          filter: `patient = "${patientId}"`,
+        });
+
+        // Check for disbursements in each encounter
+        for (const encounter of encounters.items) {
+          const disbursements = await pb.collection('disbursements').getList(1, 1, {
+            filter: `encounter = "${encounter.id}"`,
+          });
+
+          if (disbursements.totalItems > 0) {
+            setHasDisbursements(true);
+            break;
+          }
+        }
+      } catch (error) {
+        console.error('Error checking disbursements:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkDisbursements();
+  }, [open, patientId]);
 
   const handleDelete = async () => {
     try {
@@ -103,6 +138,23 @@ export const DeletePatientDialog: React.FC<DeletePatientDialogProps> = ({
             {patientName}
           </Typography>
         </Box>
+        
+        {hasDisbursements && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2" gutterBottom>
+              This patient has medication disbursements. To properly manage inventory:
+            </Typography>
+            <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
+              <li>Open the patient's encounter</li>
+              <li>Delete individual disbursements (this will automatically restore inventory)</li>
+              <li>Return here to delete the patient record</li>
+            </ol>
+            <Typography variant="body2">
+              This ensures accurate inventory management and proper tracking of medication returns.
+            </Typography>
+          </Alert>
+        )}
+
         <Typography variant="body2" color="error">
           Warning: This action cannot be undone. This will permanently delete:
         </Typography>
@@ -126,6 +178,6 @@ export const DeletePatientDialog: React.FC<DeletePatientDialogProps> = ({
       </DialogActions>
     </Dialog>
   );
-};
+}
 
 export default DeletePatientDialog; 

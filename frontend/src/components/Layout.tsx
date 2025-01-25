@@ -38,8 +38,22 @@ export const Layout: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await logoutSet();
-    navigate('/login', { replace: true });
+    try {
+      const success = await logoutSet();
+      if (success) {
+        // Only navigate after successful logout
+        navigate('/login', { 
+          replace: true,
+          state: { loggedOut: true } // Flag to prevent redirect loops
+        });
+      } else {
+        console.error('Logout failed');
+        // Could add a user-facing error message here if needed
+      }
+    } catch (error) {
+      console.error('Logout failed:', error);
+      // Could add a user-facing error message here if needed
+    }
   };
 
   const navItems = [

@@ -64,6 +64,7 @@ interface Patient extends BaseModel {
   age: number;
   smoker: string;
   allergies: string;
+  pregnancy_status?: string;
 }
 
 interface ChiefComplaint extends BaseModel {
@@ -282,8 +283,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           index === self.findIndex(t => t.name === c.name)
         ));
 
-        // Load encounter data if viewing, editing, or in pharmacy mode
-        if (encounterId && (currentMode === 'view' || currentMode === 'edit' || currentMode === 'pharmacy')) {
+        // Load encounter data if viewing, editing, in pharmacy mode, or in checkout mode
+        if (encounterId && (currentMode === 'view' || currentMode === 'edit' || currentMode === 'pharmacy' || currentMode === 'checkout')) {
           const [encounterRecord, disbursements] = await Promise.all([
             pb.collection('encounters').getOne<EncounterRecord>(encounterId, { 
               expand: 'chief_complaint',
@@ -321,23 +322,28 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             setOtherComplaintValue(encounterRecord.other_chief_complaint || '');
           }
 
-          setFormData({
+          // Preserve existing form data and only update with new encounter data
+          setFormData(prev => ({
+            ...prev,
             ...encounterRecord,
-            height: encounterRecord.height,
-            weight: encounterRecord.weight,
-            temperature: encounterRecord.temperature,
-            heart_rate: encounterRecord.heart_rate,
-            systolic_pressure: encounterRecord.systolic_pressure,
-            diastolic_pressure: encounterRecord.diastolic_pressure,
-            allergies: encounterRecord.allergies || patientRecord.allergies || '',
+            height: encounterRecord.height ?? prev.height,
+            weight: encounterRecord.weight ?? prev.weight,
+            temperature: encounterRecord.temperature ?? prev.temperature,
+            heart_rate: encounterRecord.heart_rate ?? prev.heart_rate,
+            systolic_pressure: encounterRecord.systolic_pressure ?? prev.systolic_pressure,
+            diastolic_pressure: encounterRecord.diastolic_pressure ?? prev.diastolic_pressure,
+            allergies: encounterRecord.allergies || patientRecord.allergies || prev.allergies || '',
             chief_complaint: hasOtherComplaint ? 'OTHER (Custom Text Input)' : chiefComplaintName,
-            disbursements: disbursementItems.length > 0 ? disbursementItems : [{
+            disbursements: disbursementItems.length > 0 ? disbursementItems : prev.disbursements || [{
               medication: '',
               quantity: 1,
               disbursement_multiplier: 1,
               notes: '',
             }]
-          });
+          }));
+          
+          // Store the saved encounter data for reference
+          setSavedEncounter(encounterRecord);
         } else {
           // For new encounters, initialize with patient data
           setFormData(prev => ({
@@ -543,54 +549,21 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         currentQueueItem
       });
 
-      // Validate vital signs if this is a provider encounter
-      if (currentMode !== 'pharmacy' && currentMode !== 'checkout') {
-        console.log('DEBUG: Running provider validation');
-        
-        // Validate chief complaint first as it's always required
-        if (!formData.chief_complaint && !formData.other_chief_complaint) {
-          const message = 'Please select a chief complaint or enter a custom one';
-          console.error('Validation failed:', message);
-          alert(message);
-          return;
-        }
-        console.log('DEBUG: Chief complaint validation passed');
-
-        const requiredVitals = [
-          { field: 'height', label: 'Height' },
-          { field: 'weight', label: 'Weight' },
-          { field: 'temperature', label: 'Temperature' },
-          { field: 'heart_rate', label: 'Heart Rate' },
-          { field: 'systolic_pressure', label: 'Systolic Pressure' },
-          { field: 'diastolic_pressure', label: 'Diastolic Pressure' },
-        ];
-
-        const missingVitals = requiredVitals.filter(
-          vital => {
-            const value = formData[vital.field as keyof typeof formData];
-            console.log('DEBUG: Checking vital:', vital.field, 'Value:', value);
-            return value === undefined || value === null || value === '';
-          }
-        );
-
-        if (missingVitals.length > 0) {
-          const message = `Please fill in all required vital signs:\n\n${missingVitals.map(v => v.label).join('\n')}`;
-          console.error('Validation failed:', message);
-          alert(message);
-          return;
-        }
-        console.log('DEBUG: Vitals validation passed');
+      // If in checkout mode, fetch the existing encounter data first
+      let existingEncounter: EncounterRecord | null = null;
+      if (currentMode === 'checkout' && encounterId) {
+        existingEncounter = await pb.collection('encounters').getOne<EncounterRecord>(encounterId);
       }
 
       // Prepare encounter data
       const encounterData = {
         patient: patientId,
-        height: formData.height ? Number(formData.height) : null,
-        weight: formData.weight ? Number(formData.weight) : null,
-        temperature: formData.temperature ? Number(formData.temperature) : null,
-        heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
-        systolic_pressure: formData.systolic_pressure ? Number(formData.systolic_pressure) : null,
-        diastolic_pressure: formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null,
+        height: currentMode === 'checkout' ? existingEncounter?.height : (formData.height ? Number(formData.height) : null),
+        weight: currentMode === 'checkout' ? existingEncounter?.weight : (formData.weight ? Number(formData.weight) : null),
+        temperature: currentMode === 'checkout' ? existingEncounter?.temperature : (formData.temperature ? Number(formData.temperature) : null),
+        heart_rate: currentMode === 'checkout' ? existingEncounter?.heart_rate : (formData.heart_rate ? Number(formData.heart_rate) : null),
+        systolic_pressure: currentMode === 'checkout' ? existingEncounter?.systolic_pressure : (formData.systolic_pressure ? Number(formData.systolic_pressure) : null),
+        diastolic_pressure: currentMode === 'checkout' ? existingEncounter?.diastolic_pressure : (formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null),
         chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? 
           chiefComplaints.find(c => c.name === 'OTHER (Custom Text Input)')?.id || null : 
           chiefComplaints.find(c => c.name === formData.chief_complaint)?.id || null,
@@ -1321,32 +1294,6 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     location: location.state
   });
 
-  // Add function to handle re-adding to queue
-  const handleAddToQueue = async () => {
-    try {
-      if (!patientId || !encounterId) {
-        console.error('Missing patient or encounter ID');
-        return;
-      }
-
-      // Create new queue entry
-      const queueData = {
-        patient: patientId,
-        status: 'at_checkout',
-        priority: 3, // Default priority
-        check_in_time: new Date().toISOString(),
-        encounter: encounterId
-      };
-
-      await pb.collection('queue').create(queueData);
-      alert('Patient added back to queue in checkout status');
-      navigate('/dashboard');
-    } catch (error) {
-      console.error('Error adding to queue:', error);
-      alert('Failed to add patient to queue: ' + (error as Error).message);
-    }
-  };
-
   if (loading || !patient) {
     return <Typography>Loading...</Typography>;
   }
@@ -1355,9 +1302,47 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h4">
-            {currentMode === 'create' ? 'New' : currentMode === 'edit' ? 'Edit' : ''} Encounter for {patient?.first_name} {patient?.last_name}
-          </Typography>
+          <Box>
+            <Typography variant="h4" sx={{ mb: 0.5 }}>
+              {currentMode === 'create' ? 'New' : currentMode === 'edit' ? 'Edit' : ''} Encounter for {patient?.first_name} {patient?.last_name}
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="subtitle1" color="text.secondary">
+                {patient?.age} years • {patient?.gender.charAt(0).toUpperCase() + patient?.gender.slice(1)}
+              </Typography>
+              {(patient?.gender === 'female' || patient?.gender === 'other') && (
+                <>
+                  <Typography variant="subtitle1" color="text.secondary">•</Typography>
+                  <FormControl size="small" sx={{ minWidth: 150 }}>
+                    <Select
+                      value={patient?.pregnancy_status || ''}
+                      onChange={async (e) => {
+                        if (!patient?.id) return;
+                        await pb.collection('patients').update(patient.id, {
+                          pregnancy_status: e.target.value
+                        });
+                        setPatient(prev => prev ? { ...prev, pregnancy_status: e.target.value } : null);
+                      }}
+                      variant="standard"
+                      disabled={isFieldDisabled('vitals')}
+                      sx={{ 
+                        '& .MuiSelect-select': { 
+                          py: 0,
+                          color: 'text.secondary',
+                          fontSize: 'subtitle1.fontSize'
+                        }
+                      }}
+                    >
+                      <MenuItem value="">Not Specified</MenuItem>
+                      <MenuItem value="yes">Yes</MenuItem>
+                      <MenuItem value="no">No</MenuItem>
+                      <MenuItem value="potentially">Potentially</MenuItem>
+                    </Select>
+                  </FormControl>
+                </>
+              )}
+            </Box>
+          </Box>
           {currentMode === 'view' && (
             <Box sx={{ display: 'flex', gap: 2 }}>
               <Button
@@ -1374,15 +1359,6 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               >
                 Edit Encounter
               </Button>
-              {!currentQueueItem && (
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  onClick={handleAddToQueue}
-                >
-                  Add to Queue
-                </Button>
-              )}
             </Box>
           )}
         </Box>
@@ -1400,9 +1376,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     fullWidth
                     label={`Height (${unitDisplay.height})`}
                     type="number"
-                    value={formData.height}
+                    value={formData.height ?? ''}
                     onChange={handleInputChange('height')}
                     disabled={isFieldDisabled('vitals')}
+                    InputLabelProps={{ shrink: true }}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1410,9 +1387,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     fullWidth
                     label={`Weight (${unitDisplay.weight})`}
                     type="number"
-                    value={formData.weight}
+                    value={formData.weight ?? ''}
                     onChange={handleInputChange('weight')}
                     disabled={isFieldDisabled('vitals')}
+                    InputLabelProps={{ shrink: true }}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1421,9 +1399,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     label={`Temperature (°${unitDisplay.temperature})`}
                     type="number"
                     inputProps={{ step: "0.1" }}
-                    value={formData.temperature}
+                    value={formData.temperature ?? ''}
                     onChange={handleInputChange('temperature')}
                     disabled={isFieldDisabled('vitals')}
+                    InputLabelProps={{ shrink: true }}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1431,9 +1410,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     fullWidth
                     label="Heart Rate (bpm)"
                     type="number"
-                    value={formData.heart_rate}
+                    value={formData.heart_rate ?? ''}
                     onChange={handleInputChange('heart_rate')}
                     disabled={isFieldDisabled('vitals')}
+                    InputLabelProps={{ shrink: true }}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1441,9 +1421,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     fullWidth
                     label="Systolic Pressure"
                     type="number"
-                    value={formData.systolic_pressure}
+                    value={formData.systolic_pressure ?? ''}
                     onChange={handleInputChange('systolic_pressure')}
                     disabled={isFieldDisabled('vitals')}
+                    InputLabelProps={{ shrink: true }}
                   />
                 </Grid>
                 <Grid item xs={12} sm={6}>
@@ -1451,9 +1432,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     fullWidth
                     label="Diastolic Pressure"
                     type="number"
-                    value={formData.diastolic_pressure}
+                    value={formData.diastolic_pressure ?? ''}
                     onChange={handleInputChange('diastolic_pressure')}
                     disabled={isFieldDisabled('vitals')}
+                    InputLabelProps={{ shrink: true }}
                   />
                 </Grid>
 
