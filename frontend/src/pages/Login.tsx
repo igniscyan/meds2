@@ -38,7 +38,12 @@ const Login: React.FC = () => {
       justifyContent="center"
       alignItems="center"
       minHeight="100vh"
-      bgcolor="#f5f5f5"
+      sx={{
+        background: `linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('/background.webp'), url('/background.png')`,
+        backgroundSize: 'cover, cover',
+        backgroundPosition: 'center, center',
+        backgroundRepeat: 'no-repeat, no-repeat'
+      }}
     >
       <Paper
         elevation={3}
@@ -47,6 +52,8 @@ const Login: React.FC = () => {
           width: '100%',
           maxWidth: 400,
           textAlign: 'center',
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(10px)'
         }}
       >
         <Typography variant="h4" component="h1" gutterBottom>

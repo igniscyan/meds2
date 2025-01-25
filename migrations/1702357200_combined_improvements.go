@@ -337,49 +337,17 @@ func init() {
 					Required: false,
 				},
 				&schema.SchemaField{
-					Name:     "height",
-					Type:     "number",
+					Name:     "pregnancy_status",
+					Type:     "select",
 					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "weight",
-					Type:     "number",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "temperature",
-					Type:     "number",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "heart_rate",
-					Type:     "number",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "systolic_pressure",
-					Type:     "number",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "diastolic_pressure",
-					Type:     "number",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "urinalysis",
-					Type:     "bool",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "blood_sugar",
-					Type:     "bool",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "pregnancy_test",
-					Type:     "bool",
-					Required: false,
+					Options: &schema.SelectOptions{
+						MaxSelect: 1,
+						Values: []string{
+							"yes",
+							"no",
+							"potentially",
+						},
+					},
 				},
 			),
 		}
@@ -468,6 +436,36 @@ func init() {
 				},
 				&schema.SchemaField{
 					Name:     "subjective_notes",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "urinalysis",
+					Type:     "bool",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "blood_sugar",
+					Type:     "bool",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "pregnancy_test",
+					Type:     "bool",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "urinalysis_result",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "blood_sugar_result",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "pregnancy_test_result",
 					Type:     "text",
 					Required: false,
 				},

@@ -32,6 +32,7 @@ interface PatientModalProps {
   open: boolean;
   onClose: () => void;
   onSave: () => void;
+  mode?: 'create' | 'edit' | 'new_encounter';
   initialData?: {
     id?: string;
     first_name: string;
@@ -39,6 +40,7 @@ interface PatientModalProps {
     dob: string;
     gender: string;
     age: number;
+    currentAge?: number;
     smoker: string;
     allergies?: string;
     pregnancy_status?: string;
@@ -52,15 +54,14 @@ interface PatientModalProps {
     systolic_pressure?: number | null;
     diastolic_pressure?: number | null;
   };
-  mode?: 'create' | 'edit';
 }
 
 export const PatientModal: React.FC<PatientModalProps> = ({
   open,
   onClose,
   onSave,
-  initialData,
-  mode = 'create'
+  mode = 'create',
+  initialData
 }) => {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
@@ -338,7 +339,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
       // Validate required fields
       const newValidationErrors = {
         gender: !formData.gender,
-        lineNumber: mode === 'create' && addToQueue && !lineNumber
+        lineNumber: (mode === 'create' || mode === 'new_encounter') && addToQueue && !lineNumber
       };
       
       setValidationErrors(newValidationErrors);
@@ -357,64 +358,18 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         return;
       }
 
-      console.log('DATE DEBUG: Submitting with formData:', formData);
-      console.log('DATE DEBUG: Current dateValue:', dateValue);
-      
-      // Convert age to number if it's a string
-      const ageValue = typeof formData.age === 'string' ? 
-        (formData.age ? parseSmartAge(formData.age) : 0) : 
-        (typeof formData.age === 'number' ? formData.age : 0);
-
-      // Calculate DOB based on age
-      let defaultDob = '';
-      if (useManualAge && !formData.dob) {
-        const now = new Date();
-        if (ageValue >= 1) {
-          // For ages 1 and above, use year calculation
-          defaultDob = `${now.getFullYear() - Math.floor(ageValue)}-01-01`;
-        } else {
-          // For ages less than 1, calculate months/weeks back from current date
-          const msInYear = 365.25 * 24 * 60 * 60 * 1000;
-          const ageInMs = ageValue * msInYear;
-          const dobDate = new Date(now.getTime() - ageInMs);
-          defaultDob = dobDate.toISOString().split('T')[0];
-        }
-      }
-
-      // Prepare patient data
-      const patientData = {
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        dob: useManualAge && !formData.dob ? defaultDob : formData.dob,
-        gender: formData.gender,
-        age: ageValue,
-        smoker: formData.smoker,
-        allergies: formData.allergies,
-        pregnancy_status: formData.gender === 'male' ? '' : formData.pregnancy_status,
-      };
-
-      let patientId: string;
-      if (mode === 'edit' && initialData?.id) {
-        await pb.collection('patients').update(initialData.id, patientData);
-        patientId = initialData.id;
-      } else {
-        try {
-          const newPatient = await pb.collection('patients').create(patientData);
-          console.log('SUBMIT DEBUG: Patient created successfully:', newPatient);
-          patientId = newPatient.id;
-        } catch (createError: any) {
-          console.error('SUBMIT DEBUG: Detailed create error:', {
-            error: createError,
-            response: createError.response,
-            data: createError.data,
-            message: createError.message
+      // If this is a new encounter for an existing patient
+      if (mode === 'new_encounter' && initialData?.id) {
+        // Update pregnancy status if changed
+        if (formData.pregnancy_status !== initialData.pregnancy_status) {
+          await pb.collection('patients').update(initialData.id, {
+            pregnancy_status: formData.pregnancy_status
           });
-          throw new Error(`Failed to create patient: ${createError.message}`);
         }
 
-        // Create an initial encounter with the vitals and test fields
+        // Create new encounter for existing patient
         const encounterData = {
-          patient: patientId,
+          patient: initialData.id,
           height: formData.height ? Number(formData.height) : null,
           weight: formData.weight ? Number(formData.weight) : null,
           temperature: formData.temperature ? Number(formData.temperature) : null,
@@ -436,48 +391,155 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           disbursements: []
         };
 
-        console.log('SUBMIT DEBUG: Creating encounter with data:', encounterData);
+        // Create the encounter
+        const newEncounter = await pb.collection('encounters').create(encounterData);
 
-        try {
-          const newEncounter = await pb.collection('encounters').create(encounterData);
-          console.log('SUBMIT DEBUG: Encounter created successfully:', newEncounter);
+        // Add to queue
+        if (addToQueue) {
+          const queueData = {
+            patient: initialData.id,
+            status: 'checked_in',
+            check_in_time: new Date().toISOString(),
+            line_number: lineNumber ? parseInt(String(lineNumber)) : 1,
+            priority: 3,
+            assigned_to: null,
+            start_time: null,
+            end_time: null,
+            encounter: newEncounter.id,
+          };
 
-          // Add to queue if requested and line number is provided
-          if (addToQueue && lineNumber !== '') {
-            console.log('SUBMIT DEBUG: Adding to queue with line number:', lineNumber);
-            const queueData = {
-              patient: patientId,
-              status: 'checked_in',
-              check_in_time: new Date().toISOString(),
-              line_number: parseInt(String(lineNumber)),
-              priority: 3,
-              assigned_to: null,
-              start_time: null,
-              end_time: null,
-              encounter: newEncounter.id,
-            };
-
-            console.log('SUBMIT DEBUG: Queue data:', queueData);
-            await pb.collection('queue').create(queueData);
-          }
-        } catch (error: any) {
-          console.error('SUBMIT DEBUG: Error in post-patient creation:', error);
-          // Try to clean up the patient if encounter creation fails
-          try {
-            await pb.collection('patients').delete(patientId);
-          } catch (cleanupError) {
-            console.error('SUBMIT DEBUG: Failed to clean up patient after error:', cleanupError);
-          }
-          throw error;
+          await pb.collection('queue').create(queueData);
         }
+
+        onSave();
+        onClose();
+        return;
       }
 
-      onSave();
-      onClose();
+      // Original create/edit patient logic
+      if (mode === 'create' || mode === 'edit') {
+        console.log('DATE DEBUG: Submitting with formData:', formData);
+        console.log('DATE DEBUG: Current dateValue:', dateValue);
+        
+        // Convert age to number if it's a string
+        const ageValue = typeof formData.age === 'string' ? 
+          (formData.age ? parseSmartAge(formData.age) : 0) : 
+          (typeof formData.age === 'number' ? formData.age : 0);
+
+        // Calculate DOB based on age
+        let defaultDob = '';
+        if (useManualAge && !formData.dob) {
+          const now = new Date();
+          if (ageValue >= 1) {
+            // For ages 1 and above, use year calculation
+            defaultDob = `${now.getFullYear() - Math.floor(ageValue)}-01-01`;
+          } else {
+            // For ages less than 1, calculate months/weeks back from current date
+            const msInYear = 365.25 * 24 * 60 * 60 * 1000;
+            const ageInMs = ageValue * msInYear;
+            const dobDate = new Date(now.getTime() - ageInMs);
+            defaultDob = dobDate.toISOString().split('T')[0];
+          }
+        }
+
+        // Prepare patient data
+        const patientData = {
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          dob: useManualAge && !formData.dob ? defaultDob : formData.dob,
+          gender: formData.gender,
+          age: ageValue,
+          smoker: formData.smoker,
+          allergies: formData.allergies,
+          pregnancy_status: formData.gender === 'male' ? '' : formData.pregnancy_status,
+        };
+
+        let patientId: string;
+        if (mode === 'edit' && initialData?.id) {
+          await pb.collection('patients').update(initialData.id, patientData);
+          patientId = initialData.id;
+        } else {
+          try {
+            const newPatient = await pb.collection('patients').create(patientData);
+            console.log('SUBMIT DEBUG: Patient created successfully:', newPatient);
+            patientId = newPatient.id;
+          } catch (createError: any) {
+            console.error('SUBMIT DEBUG: Detailed create error:', {
+              error: createError,
+              response: createError.response,
+              data: createError.data,
+              message: createError.message
+            });
+            throw new Error(`Failed to create patient: ${createError.message}`);
+          }
+
+          // Create an initial encounter with the vitals and test fields
+          const encounterData = {
+            patient: patientId,
+            height: formData.height ? Number(formData.height) : null,
+            weight: formData.weight ? Number(formData.weight) : null,
+            temperature: formData.temperature ? Number(formData.temperature) : null,
+            heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
+            systolic_pressure: formData.systolic_pressure ? Number(formData.systolic_pressure) : null,
+            diastolic_pressure: formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null,
+            urinalysis: formData.urinalysis,
+            urinalysis_result: '',
+            blood_sugar: formData.blood_sugar,
+            blood_sugar_result: '',
+            pregnancy_test: formData.pregnancy_test,
+            pregnancy_test_result: '',
+            chief_complaint: null,
+            other_chief_complaint: '',
+            history_of_present_illness: '',
+            past_medical_history: '',
+            assessment: '',
+            plan: '',
+            disbursements: []
+          };
+
+          console.log('SUBMIT DEBUG: Creating encounter with data:', encounterData);
+
+          try {
+            const newEncounter = await pb.collection('encounters').create(encounterData);
+            console.log('SUBMIT DEBUG: Encounter created successfully:', newEncounter);
+
+            // Add to queue if requested and line number is provided
+            if (addToQueue && lineNumber !== '') {
+              console.log('SUBMIT DEBUG: Adding to queue with line number:', lineNumber);
+              const queueData = {
+                patient: patientId,
+                status: 'checked_in',
+                check_in_time: new Date().toISOString(),
+                line_number: parseInt(String(lineNumber)),
+                priority: 3,
+                assigned_to: null,
+                start_time: null,
+                end_time: null,
+                encounter: newEncounter.id,
+              };
+
+              console.log('SUBMIT DEBUG: Queue data:', queueData);
+              await pb.collection('queue').create(queueData);
+            }
+          } catch (error: any) {
+            console.error('SUBMIT DEBUG: Error in post-patient creation:', error);
+            // Try to clean up the patient if encounter creation fails
+            try {
+              await pb.collection('patients').delete(patientId);
+            } catch (cleanupError) {
+              console.error('SUBMIT DEBUG: Failed to clean up patient after error:', cleanupError);
+            }
+            throw error;
+          }
+        }
+
+        onSave();
+        onClose();
+      }
+
     } catch (error: any) {
       console.error('Error saving patient:', error);
-      // Show more detailed error message to the user
-      alert(`Failed to save patient: ${error.message || 'Unknown error occurred'}`);
+      alert(`Failed to save: ${error.message || 'Unknown error occurred'}`);
     }
   };
 
@@ -503,6 +565,24 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     }));
   };
 
+  // Add shouldShowSection function
+  const shouldShowSection = (section: 'tests' | 'vitals' | 'queue'): boolean => {
+    if (mode === 'edit') {
+      return false; // Don't show tests, vitals, or queue sections in edit mode
+    }
+    return true; // Show all sections in create and new_encounter modes
+  };
+
+  // Update isFieldDisabled function
+  const isFieldDisabled = (fieldName: string): boolean => {
+    if (mode === 'new_encounter') {
+      // In new_encounter mode, only disable patient identification fields
+      const nonEditableFields = ['first_name', 'last_name', 'dob', 'age', 'gender'];
+      return nonEditableFields.includes(fieldName);
+    }
+    return false;
+  };
+
   return (
     <Dialog 
       open={open} 
@@ -525,7 +605,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         alignItems: 'center'
       }}>
         <Typography variant="h6">
-          {mode === 'create' ? 'Add New Patient' : 'Edit Patient'}
+          {mode === 'new_encounter' ? 'New Encounter' : mode === 'create' ? 'Add New Patient' : 'Edit Patient'}
         </Typography>
         <IconButton
           aria-label="close"
@@ -548,9 +628,10 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               fullWidth
               label="First Name"
               value={formData.first_name}
-              onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
+              onChange={(e) => handleInputChange('first_name', e.target.value)}
               autoFocus
               sx={{ mb: { xs: 2, sm: 0 } }}
+              disabled={isFieldDisabled('first_name')}
             />
           </Grid>
           <Grid item xs={12} sm={6}>
@@ -558,8 +639,9 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               fullWidth
               label="Last Name"
               value={formData.last_name}
-              onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
+              onChange={(e) => handleInputChange('last_name', e.target.value)}
               sx={{ mb: { xs: 2, sm: 0 } }}
+              disabled={isFieldDisabled('last_name')}
             />
           </Grid>
           
@@ -584,8 +666,9 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               <Select
                 value={formData.gender}
                 label="Gender"
-                onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+                onChange={(e) => handleInputChange('gender', e.target.value)}
                 onBlur={() => handleFieldBlur('gender')}
+                disabled={isFieldDisabled('gender')}
               >
                 <MenuItem value="male">Male</MenuItem>
                 <MenuItem value="female">Female</MenuItem>
@@ -604,7 +687,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                 <Select
                   value={formData.pregnancy_status}
                   label="Pregnancy Status"
-                  onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_status: e.target.value }))}
+                  onChange={(e) => handleInputChange('pregnancy_status', e.target.value)}
+                  disabled={isFieldDisabled('pregnancy_status')}
                 >
                   <MenuItem value="yes">Yes</MenuItem>
                   <MenuItem value="no">No</MenuItem>
@@ -646,6 +730,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                     pattern: '^\\d*\\.?\\d*[mw]?$'
                   }
                 }}
+                disabled={isFieldDisabled('age')}
               />
             </Grid>
           )}
@@ -656,7 +741,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               <Select
                 value={formData.smoker}
                 label="Smoker"
-                onChange={(e) => setFormData(prev => ({ ...prev, smoker: e.target.value }))}
+                onChange={(e) => handleInputChange('smoker', e.target.value)}
+                disabled={isFieldDisabled('smoker')}
               >
                 <MenuItem value="yes">Yes</MenuItem>
                 <MenuItem value="no">No</MenuItem>
@@ -675,137 +761,132 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               value={formData.allergies}
               onChange={(e) => handleInputChange('allergies', e.target.value)}
               placeholder="Enter any known allergies"
+              disabled={isFieldDisabled('allergies')}
             />
           </Grid>
 
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom>
-              Initial Tests
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={formData.urinalysis}
-                      onChange={(e) => setFormData(prev => ({ ...prev, urinalysis: e.target.checked }))}
-                    />
-                  }
-                  label="Urinalysis"
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={formData.blood_sugar}
-                      onChange={(e) => setFormData(prev => ({ ...prev, blood_sugar: e.target.checked }))}
-                    />
-                  }
-                  label="Blood Sugar"
-                />
-              </Grid>
-              {(formData.gender === 'female' || formData.gender === 'other') && (
+          {shouldShowSection('tests') && (
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>
+                Initial Tests
+              </Typography>
+              <Grid container spacing={2}>
                 <Grid item xs={12} sm={4}>
                   <FormControlLabel
                     control={
                       <Checkbox
-                        checked={formData.pregnancy_test}
-                        onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
+                        checked={formData.urinalysis}
+                        onChange={(e) => handleInputChange('urinalysis', e.target.checked)}
                       />
                     }
-                    label="Pregnancy Test"
+                    label="Urinalysis"
                   />
                 </Grid>
-              )}
+                <Grid item xs={12} sm={4}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={formData.blood_sugar}
+                        onChange={(e) => handleInputChange('blood_sugar', e.target.checked)}
+                      />
+                    }
+                    label="Blood Sugar"
+                  />
+                </Grid>
+                {(formData.gender === 'female' || formData.gender === 'other') && (
+                  <Grid item xs={12} sm={4}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={formData.pregnancy_test}
+                          onChange={(e) => handleInputChange('pregnancy_test', e.target.checked)}
+                        />
+                      }
+                      label="Pregnancy Test"
+                    />
+                  </Grid>
+                )}
+              </Grid>
             </Grid>
-          </Grid>
+          )}
 
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom>
-              Vitals (Optional)
-            </Typography>
-          </Grid>
+          {shouldShowSection('vitals') && (
+            <>
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom>
+                  Vitals (Optional)
+                </Typography>
+              </Grid>
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              type="number"
-              label={`Height (${unitDisplay.height})`}
-              value={formData.height ?? ''}
-              onChange={(e) => setFormData(prev => ({ 
-                ...prev, 
-                height: e.target.value ? Number(e.target.value) : null 
-              }))}
-            />
-          </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label={`Height (${unitDisplay.height})`}
+                  value={formData.height ?? ''}
+                  onChange={(e) => handleInputChange('height', e.target.value ? Number(e.target.value) : null)}
+                  disabled={isFieldDisabled('height')}
+                />
+              </Grid>
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              type="number"
-              label={`Weight (${unitDisplay.weight})`}
-              value={formData.weight ?? ''}
-              onChange={(e) => setFormData(prev => ({ 
-                ...prev, 
-                weight: e.target.value ? Number(e.target.value) : null 
-              }))}
-            />
-          </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label={`Weight (${unitDisplay.weight})`}
+                  value={formData.weight ?? ''}
+                  onChange={(e) => handleInputChange('weight', e.target.value ? Number(e.target.value) : null)}
+                  disabled={isFieldDisabled('weight')}
+                />
+              </Grid>
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              type="number"
-              label={`Temperature (°${unitDisplay.temperature})`}
-              value={formData.temperature ?? ''}
-              onChange={(e) => setFormData(prev => ({ 
-                ...prev, 
-                temperature: e.target.value ? Number(e.target.value) : null 
-              }))}
-            />
-          </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label={`Temperature (°${unitDisplay.temperature})`}
+                  value={formData.temperature ?? ''}
+                  onChange={(e) => handleInputChange('temperature', e.target.value ? Number(e.target.value) : null)}
+                  disabled={isFieldDisabled('temperature')}
+                />
+              </Grid>
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              type="number"
-              label="Heart Rate (bpm)"
-              value={formData.heart_rate ?? ''}
-              onChange={(e) => setFormData(prev => ({ 
-                ...prev, 
-                heart_rate: e.target.value ? Number(e.target.value) : null 
-              }))}
-            />
-          </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Heart Rate (bpm)"
+                  value={formData.heart_rate ?? ''}
+                  onChange={(e) => handleInputChange('heart_rate', e.target.value ? Number(e.target.value) : null)}
+                  disabled={isFieldDisabled('heart_rate')}
+                />
+              </Grid>
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              type="number"
-              label="Systolic Blood Pressure"
-              value={formData.systolic_pressure ?? ''}
-              onChange={(e) => setFormData(prev => ({ 
-                ...prev, 
-                systolic_pressure: e.target.value ? Number(e.target.value) : null 
-              }))}
-            />
-          </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Systolic Blood Pressure"
+                  value={formData.systolic_pressure ?? ''}
+                  onChange={(e) => handleInputChange('systolic_pressure', e.target.value ? Number(e.target.value) : null)}
+                  disabled={isFieldDisabled('systolic_pressure')}
+                />
+              </Grid>
 
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              type="number"
-              label="Diastolic Blood Pressure"
-              value={formData.diastolic_pressure ?? ''}
-              onChange={(e) => setFormData(prev => ({ 
-                ...prev, 
-                diastolic_pressure: e.target.value ? Number(e.target.value) : null 
-              }))}
-            />
-          </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Diastolic Blood Pressure"
+                  value={formData.diastolic_pressure ?? ''}
+                  onChange={(e) => handleInputChange('diastolic_pressure', e.target.value ? Number(e.target.value) : null)}
+                  disabled={isFieldDisabled('diastolic_pressure')}
+                />
+              </Grid>
+            </>
+          )}
 
-          {mode === 'create' && (
+          {shouldShowSection('queue') && (mode === 'create' || mode === 'new_encounter') && (
             <>
               <Grid item xs={12}>
                 <FormControlLabel
@@ -830,6 +911,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                     required
                     error={touched.lineNumber && validationErrors.lineNumber}
                     helperText={touched.lineNumber && validationErrors.lineNumber ? 'Line Number is required' : ''}
+                    disabled={isFieldDisabled('lineNumber')}
                   />
                 </Grid>
               )}

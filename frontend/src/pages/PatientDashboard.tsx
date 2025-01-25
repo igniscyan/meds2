@@ -20,6 +20,7 @@ import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
 import DeletePatientDialog from '../components/DeletePatientDialog';
+import { PatientModal } from '../components/PatientModal';
 
 interface Patient extends Record {
   first_name: string;
@@ -75,6 +76,9 @@ const PatientDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'create' | 'new_encounter'>('create');
+  const [modalInitialData, setModalInitialData] = useState<any>(null);
   const { records: encounters, loading, error } = useRealtimeSubscription<Encounter>('encounters', {
     filter: `patient = "${patientId}"`,
     sort: '-created',
@@ -105,64 +109,74 @@ const PatientDashboard: React.FC = () => {
     if (!patient) return;
 
     try {
-      const debugMessage = `🔍 ENCOUNTER CHECK: Starting for patient: ${patient.first_name} ${patient.last_name} (ID: ${patientId})`;
-      console.warn(debugMessage);
-      alert(debugMessage);
-
-      // Check if patient has an existing encounter
+      // Check for encounters from today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
       const result = await pb.collection('encounters').getList(1, 1, {
-        filter: `patient = "${patientId}"`,
+        filter: `patient = "${patientId}" && created >= "${today.toISOString().split('T')[0]}"`,
         sort: '-created',
         expand: 'chief_complaint'
       });
 
-      const resultMessage = `🔍 ENCOUNTER CHECK: Found ${result.totalItems} encounters. Items length: ${result.items.length}`;
-      console.warn(resultMessage);
-      console.warn('🔍 ENCOUNTER CHECK: Full result:', result);
-      alert(resultMessage);
-
       if (result.items.length > 0) {
-        // Use the most recent encounter
-        const latestEncounter = result.items[0] as Encounter;
-        const encounterMessage = `🔍 ENCOUNTER CHECK: Using existing encounter ID: ${latestEncounter.id}\nCreated: ${latestEncounter.created}`;
-        console.warn(encounterMessage);
-        console.warn('🔍 ENCOUNTER CHECK: Full encounter:', latestEncounter);
-        alert(encounterMessage);
+        const existingEncounter = result.items[0];
+        const confirmResponse = window.confirm(
+          `An encounter already exists from today (${new Date(existingEncounter.created).toLocaleTimeString()}). \n\n` +
+          `Would you like to view the existing encounter? \n` +
+          `Click 'OK' to view existing encounter \n` +
+          `Click 'Cancel' to create a new encounter anyway`
+        );
         
-        navigate(`/encounter/${patientId}/${latestEncounter.id}`, { 
-          state: { mode: 'edit' }
-        });
-      } else {
-        const newMessage = '🔍 ENCOUNTER CHECK: No existing encounters found, creating new encounter';
-        console.warn(newMessage);
-        console.warn('🔍 ENCOUNTER CHECK: Patient vitals:', {
-          height: patient.height,
-          weight: patient.weight,
-          temp: patient.temperature,
-          hr: patient.heart_rate,
-          bp: `${patient.systolic_pressure}/${patient.diastolic_pressure}`
-        });
-        alert(newMessage);
-
-        // Create a new encounter only if none exists
-        navigate(`/encounter/${patientId}`, { 
-          state: { 
-            mode: 'edit',
-            initialVitals: {
-              height: patient.height ?? null,
-              weight: patient.weight ?? null,
-              temperature: patient.temperature ?? null,
-              heart_rate: patient.heart_rate ?? null,
-              systolic_pressure: patient.systolic_pressure ?? null,
-              diastolic_pressure: patient.diastolic_pressure ?? null,
-            }
-          } 
-        });
+        if (confirmResponse) {
+          // Navigate to existing encounter in view mode
+          navigate(`/encounter/${patientId}/${existingEncounter.id}`, { 
+            state: { mode: 'view' }
+          });
+          return;
+        }
       }
+
+      // Calculate current age from DOB
+      const currentAge = calculateAge(patient.dob);
+
+      // Open PatientModal in new_encounter mode
+      setModalMode('new_encounter');
+      setModalInitialData({
+        ...patient,
+        currentAge,
+      });
+      setModalOpen(true);
     } catch (error) {
-      const errorMsg = `🔍 ENCOUNTER CHECK ERROR: ${error}`;
-      console.warn(errorMsg);
-      alert(errorMsg);
+      console.error('Error in handleStartEncounter:', error);
+      alert('Failed to start new encounter: ' + (error as Error).message);
+    }
+  };
+
+  // Add the calculateAge function
+  const calculateAge = (dob: string): number => {
+    try {
+      if (!dob) return 0;
+      // Handle both timestamp and date-only formats
+      const datePart = dob.includes(' ') ? dob.split(' ')[0] : dob;
+      const [year, month, day] = datePart.split('-').map(Number);
+      
+      // Create date in local timezone for age calculation
+      const birthDate = new Date(year, month - 1, day);
+      if (isNaN(birthDate.getTime())) return 0;
+
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      
+      return age >= 0 ? age : 0;
+    } catch (error) {
+      console.error('Error calculating age:', error);
+      return 0;
     }
   };
 
@@ -197,6 +211,15 @@ const PatientDashboard: React.FC = () => {
     } catch (error) {
       console.error('Error updating queue status:', error);
       alert('Failed to update queue status: ' + (error as Error).message);
+    }
+  };
+
+  const handleSave = () => {
+    // After saving, refresh the patient data
+    if (patientId) {
+      pb.collection('patients').getOne(patientId)
+        .then(record => setPatient(record as Patient))
+        .catch(error => console.error('Error refreshing patient data:', error));
     }
   };
 
@@ -328,6 +351,14 @@ const PatientDashboard: React.FC = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <PatientModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSave={handleSave}
+        mode={modalMode}
+        initialData={modalInitialData}
+      />
 
       <DeletePatientDialog
         open={deleteDialogOpen}

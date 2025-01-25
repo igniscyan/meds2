@@ -278,7 +278,13 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           })
         ]);
         
-        setPatient(patientRecord);
+        // Use the calculated age from state if available, otherwise use the patient's stored age
+        const patientWithAge = {
+          ...patientRecord,
+          age: location.state?.currentAge ?? patientRecord.age
+        };
+        
+        setPatient(patientWithAge);
         setChiefComplaints(complaintsResult.items.filter((c, index, self) => 
           index === self.findIndex(t => t.name === c.name)
         ));

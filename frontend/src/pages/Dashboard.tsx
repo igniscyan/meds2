@@ -650,7 +650,7 @@ const Dashboard: React.FC = () => {
             gap: 1,
             width: { xs: '100%', sm: 'auto' }
           }}>
-            {queueItem.status === 'checked_in' && displayPreferences.show_care_team_assignment && (
+            {displayPreferences.show_care_team_assignment && (
               <Select
                 value={queueItem.intended_provider || ''}
                 onChange={(e) => handleCareTeamChange(queueItem.id, e.target.value || null)}
