@@ -339,6 +339,14 @@ export const Patients = () => {
             >
               Add Patient
             </Button>
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<ListIcon />}
+              onClick={() => setBulkDistributionOpen(true)}
+            >
+              Fast Track Patient
+            </Button>
           </RoleBasedAccess>
         </Box>
       </Box>
