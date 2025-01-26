@@ -86,10 +86,23 @@ echo 3. Look for "IPv4 Address" under your active network adapter
 echo 4. Use this IP address in place of [YOUR-IP] above
 echo.
 echo Default User Accounts:
-echo - Admin Interface user: user@example.com
+echo - Admin Pocketbase Interface user: user@example.com
 echo - Provider accounts: provider@example.com through provider6@example.com
 echo - Pharmacy accounts: pharmacyuser@example.com through pharmacyuser4@example.com
+echo - Admin frontend user: admin@example.com
 echo - All accounts use password: password123
+echo.
+echo Admin Account Capabilities:
+echo - The admin@example.com account has full access to all functionality
+echo - Can access provider and pharmacy views
+echo - Can view all reports and analytics
+echo.
+echo Settings and Reports:
+echo - Settings: Manage the priority dropdown, care team dropdown, and imperial or metric units
+echo - Reports: Access analytics including:
+echo   * Patient visit statistics
+echo   * Medication dispensing trends
+echo   * Inventory usage and stock levels
 echo.
 echo To uninstall:
 echo 1. Run uninstall.bat from the installation directory

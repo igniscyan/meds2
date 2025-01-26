@@ -29,6 +29,7 @@ const App: React.FC = () => {
   // Initialize auth change listener
   useAuthChangeEffect();
 
+  // Show loading state while validating auth
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
@@ -45,95 +46,30 @@ const App: React.FC = () => {
         <LocalizationProvider dateAdapter={AdapterDateFns}>
           {process.env.NODE_ENV === 'development' && <DevTools />}
           <Routes>
-            <Route path="/" element={
-              process.env.NODE_ENV === 'development' ? 
-                <Navigate to="/login" replace /> : 
-                <Navigate to="/patients" replace />
-            } />
-            <Route path="/login" element={!user ? <Login /> : <Navigate to="/patients" replace />} />
+            <Route path="/" element={<Navigate to={user ? "/patients" : "/login"} replace />} />
+            <Route 
+              path="/login" 
+              element={
+                !user ? (
+                  <Login />
+                ) : (
+                  <Navigate to="/patients" replace state={{ from: 'login' }} />
+                )
+              } 
+            />
             
             {/* Protected Routes */}
-            <Route element={<Layout />}>
-              <Route 
-                path="/patients" 
-                element={
-                  <AuthGuard>
-                    <Patients />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/patient/:patientId" 
-                element={
-                  <AuthGuard>
-                    <PatientDashboard />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/encounter/:patientId" 
-                element={
-                  <AuthGuard>
-                    <Encounter />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/encounter/:patientId/:encounterId" 
-                element={
-                  <AuthGuard>
-                    <Encounter mode="view" />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/encounter/:patientId/:encounterId/edit" 
-                element={
-                  <AuthGuard>
-                    <Encounter mode="edit" />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/formulary" 
-                element={
-                  <AuthGuard>
-                    <Formulary />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/inventory" 
-                element={
-                  <AuthGuard>
-                    <Inventory />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/dashboard" 
-                element={
-                  <AuthGuard>
-                    <Dashboard />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/settings" 
-                element={
-                  <AuthGuard>
-                    <Settings />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/reports" 
-                element={
-                  <AuthGuard>
-                    <Reports />
-                  </AuthGuard>
-                } 
-              />
+            <Route element={<AuthGuard><Layout /></AuthGuard>}>
+              <Route path="/patients" element={<Patients />} />
+              <Route path="/patient/:patientId" element={<PatientDashboard />} />
+              <Route path="/encounter/:patientId" element={<Encounter />} />
+              <Route path="/encounter/:patientId/:encounterId" element={<Encounter mode="view" />} />
+              <Route path="/encounter/:patientId/:encounterId/edit" element={<Encounter mode="edit" />} />
+              <Route path="/formulary" element={<Formulary />} />
+              <Route path="/inventory" element={<Inventory />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/reports" element={<Reports />} />
             </Route>
           </Routes>
         </LocalizationProvider>

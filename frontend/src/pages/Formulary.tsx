@@ -26,7 +26,7 @@ interface InventoryItem extends Record {
 
 const Formulary: React.FC = () => {
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Subscribe to inventory updates

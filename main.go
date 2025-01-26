@@ -22,6 +22,7 @@ func main() {
 	fmt.Println("Default credentials for PocketBase - username: user@example.com, password: password123")
 	fmt.Println("Default credentials for MEDS Provider users - provider@example.com through provider6@example.com, password: password123")
 	fmt.Println("Default credentials for MEDS Pharmacy users - pharmacyuser@example.com through pharmacyuser4@example.com, password: password123")
+	fmt.Println("Default credentials for MEDS Admin users - admin@example.com, password: password123")
 	fmt.Println("Admin UI: http://127.0.0.1:8090/_/")
 	fmt.Println("Main application: http://127.0.0.1:8090")
 

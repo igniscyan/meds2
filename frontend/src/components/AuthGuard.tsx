@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAtom } from 'jotai';
-import { authModelAtom, isLoadingAtom, pb } from '../atoms/auth';
+import { useAtomValue } from 'jotai';
+import { authModelAtom, isLoadingAtom } from '../atoms/auth';
 import { Box, CircularProgress } from '@mui/material';
 
 interface AuthGuardProps {
@@ -9,29 +9,12 @@ interface AuthGuardProps {
 }
 
 const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
-  const [authModel] = useAtom(authModelAtom);
-  const [isLoading] = useAtom(isLoadingAtom);
+  const user = useAtomValue(authModelAtom);
+  const loading = useAtomValue(isLoadingAtom);
   const location = useLocation();
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      if (pb.authStore.isValid && pb.authStore.model) {
-        const email = pb.authStore.model.email;
-        const token = pb.authStore.token;
-        
-        if (!email || !token) {
-          console.error('Auth data missing');
-          pb.authStore.clear();
-          window.location.href = `/login?redirect=${encodeURIComponent(location.pathname)}`;
-        }
-      }
-    };
-
-    checkAuth();
-  }, [location.pathname]);
-
-  // Don't redirect while loading
-  if (isLoading) {
+  // Show loading state while checking auth
+  if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
         <CircularProgress />
@@ -39,17 +22,10 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     );
   }
 
-  // Check for valid auth state
-  if (!authModel || !pb.authStore.isValid) {
-    // Prevent redirect loops by checking location state
-    if (location.state?.loggedOut) {
-      return <Navigate to="/login" replace />;
-    }
-    
-    return <Navigate 
-      to={`/login?redirect=${encodeURIComponent(location.pathname)}`} 
-      replace 
-    />;
+  // Redirect to login if not authenticated
+  if (!user) {
+    console.log('AuthGuard: No authenticated user, redirecting to login');
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   return <>{children}</>;
