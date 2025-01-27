@@ -35,6 +35,8 @@ export interface QueueItem extends Record {
     patient: {
       first_name: string;
       last_name: string;
+      gender: string;
+      age: number;
     };
     assigned_to?: {
       id: string;

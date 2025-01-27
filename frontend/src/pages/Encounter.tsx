@@ -1340,49 +1340,60 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   return (
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
           <Box>
             <Typography variant="h4" sx={{ mb: 0.5 }}>
               {currentMode === 'create' ? 'New' : currentMode === 'edit' ? 'Edit' : ''} Encounter for {patient?.first_name} {patient?.last_name}
+              {currentQueueItem && (
+                <Box component="span" sx={{ ml: 2, display: 'inline-flex', alignItems: 'center' }}>
+                  <Typography variant="h5" color="text.secondary" sx={{ fontWeight: 'normal' }}>
+                    Line: <Typography component="span" sx={{ fontWeight: 'bold' }}>
+                      #{currentQueueItem.line_number}
+                    </Typography>
+                  </Typography>
+                </Box>
+              )}
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="subtitle1" color="text.secondary">
                 Age: {patient?.age} years • Gender: {patient?.gender.charAt(0).toUpperCase() + patient?.gender.slice(1)}
+                {currentQueueItem && (
+                  <>
+                    {' • '}
+                    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                      <Typography variant="subtitle1" color="text.secondary">
+                        Pregnant:
+                      </Typography>
+                      <FormControl size="small" sx={{ minWidth: 150 }}>
+                        <Select
+                          value={patient?.pregnancy_status || ''}
+                          onChange={async (e) => {
+                            if (!patient?.id) return;
+                            await pb.collection('patients').update(patient.id, {
+                              pregnancy_status: e.target.value
+                            });
+                            setPatient(prev => prev ? { ...prev, pregnancy_status: e.target.value } : null);
+                          }}
+                          variant="standard"
+                          disabled={isFieldDisabled('vitals')}
+                          sx={{ 
+                            '& .MuiSelect-select': { 
+                              py: 0,
+                              color: 'text.secondary',
+                              fontSize: 'subtitle1.fontSize'
+                            }
+                          }}
+                        >
+                          <MenuItem value="">Not Specified</MenuItem>
+                          <MenuItem value="yes">Yes</MenuItem>
+                          <MenuItem value="no">No</MenuItem>
+                          <MenuItem value="potentially">Potentially</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Box>
+                  </>
+                )}
               </Typography>
-              {(patient?.gender === 'female' || patient?.gender === 'other') && (
-                <>
-                  <Typography variant="subtitle1" color="text.secondary">•</Typography>
-                  <Typography variant="subtitle1" color="text.secondary">
-                    Pregnant:
-                  </Typography>
-                  <FormControl size="small" sx={{ minWidth: 150 }}>
-                    <Select
-                      value={patient?.pregnancy_status || ''}
-                      onChange={async (e) => {
-                        if (!patient?.id) return;
-                        await pb.collection('patients').update(patient.id, {
-                          pregnancy_status: e.target.value
-                        });
-                        setPatient(prev => prev ? { ...prev, pregnancy_status: e.target.value } : null);
-                      }}
-                      variant="standard"
-                      disabled={isFieldDisabled('vitals')}
-                      sx={{ 
-                        '& .MuiSelect-select': { 
-                          py: 0,
-                          color: 'text.secondary',
-                          fontSize: 'subtitle1.fontSize'
-                        }
-                      }}
-                    >
-                      <MenuItem value="">Not Specified</MenuItem>
-                      <MenuItem value="yes">Yes</MenuItem>
-                      <MenuItem value="no">No</MenuItem>
-                      <MenuItem value="potentially">Potentially</MenuItem>
-                    </Select>
-                  </FormControl>
-                </>
-              )}
             </Box>
           </Box>
           {currentMode === 'view' && (

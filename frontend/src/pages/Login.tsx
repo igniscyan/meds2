@@ -95,14 +95,15 @@ const Login: React.FC = () => {
         </form>
       </Paper>
       <Typography 
-        variant="caption" 
+        variant="body1" 
         color="text.secondary" 
         align="center" 
         sx={{ 
           mt: 4,
           position: 'absolute',
           bottom: 16,
-          width: '100%'
+          width: '100%',
+          fontSize: '1.1rem'
         }}
       >
         Created By: David Clark & Brandon Clark

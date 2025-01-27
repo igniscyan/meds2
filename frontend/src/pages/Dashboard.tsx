@@ -19,6 +19,11 @@ import {
   CircularProgress,
   useTheme,
   useMediaQuery,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  TextField,
+  DialogActions,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { pb } from '../atoms/auth';
@@ -85,6 +90,21 @@ interface Patient extends Record {
   systolic_pressure?: number | null;
   diastolic_pressure?: number | null;
 }
+
+// Add helper function to format age display
+const formatAgeDisplay = (ageInYears: number): string => {
+  if (ageInYears >= 1) {
+    return `${Math.floor(ageInYears)}y`;
+  } else {
+    const months = Math.floor(ageInYears * 12);
+    if (months >= 1) {
+      return `${months}m`;
+    } else {
+      const weeks = Math.floor(ageInYears * 52);
+      return `${weeks}w`;
+    }
+  }
+};
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -449,8 +469,22 @@ const Dashboard: React.FC = () => {
   const QueueItemComponent: React.FC<{ item: QueueItem }> = ({ item }) => {
     const [queueItem, setQueueItem] = React.useState<QueueItem>(item);
     const [loading, setLoading] = React.useState(!item.expand?.patient);
+    const [lineNumberDialogOpen, setLineNumberDialogOpen] = React.useState(false);
+    const [newLineNumber, setNewLineNumber] = React.useState(item.line_number);
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+    const handleLineNumberUpdate = async () => {
+      try {
+        await pb.collection('queue').update(queueItem.id, {
+          line_number: newLineNumber
+        });
+        setLineNumberDialogOpen(false);
+      } catch (error) {
+        console.error('Error updating line number:', error);
+        alert('Failed to update line number');
+      }
+    };
 
     React.useEffect(() => {
       const loadPatientData = async () => {
@@ -609,11 +643,61 @@ const Dashboard: React.FC = () => {
             <Chip 
               label={`#${queueItem.line_number}`} 
               size="small"
-              sx={{ minWidth: 45 }}
+              sx={{ 
+                minWidth: 45,
+                cursor: 'pointer',
+                '&:hover': {
+                  backgroundColor: queueItem.priority > 3 
+                    ? theme.palette.error.light
+                    : queueItem.priority > 1 
+                      ? theme.palette.warning.light
+                      : theme.palette.grey[200]
+                }
+              }}
               color={queueItem.priority > 3 ? 'error' : queueItem.priority > 1 ? 'warning' : 'default'}
+              onClick={() => setLineNumberDialogOpen(true)}
             />
+            
+            {/* Line Number Edit Dialog */}
+            <Dialog 
+              open={lineNumberDialogOpen} 
+              onClose={() => setLineNumberDialogOpen(false)}
+              maxWidth="xs"
+              fullWidth
+            >
+              <DialogTitle>Edit Line Number</DialogTitle>
+              <DialogContent>
+                <TextField
+                  autoFocus
+                  margin="dense"
+                  label="Line Number"
+                  type="number"
+                  fullWidth
+                  value={newLineNumber}
+                  onChange={(e) => setNewLineNumber(parseInt(e.target.value))}
+                  variant="standard"
+                  inputProps={{ min: 1 }}
+                />
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setLineNumberDialogOpen(false)}>Cancel</Button>
+                <Button onClick={handleLineNumberUpdate} variant="contained">Update</Button>
+              </DialogActions>
+            </Dialog>
+
             <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
               {queueItem.expand?.patient?.first_name} {queueItem.expand?.patient?.last_name}
+              <Typography 
+                component="span" 
+                sx={{ 
+                  ml: 1,
+                  fontSize: '0.7rem',
+                  color: 'text.secondary',
+                  fontWeight: 'normal'
+                }}
+              >
+                ({queueItem.expand?.patient?.gender === 'male' ? 'M' : queueItem.expand?.patient?.gender === 'female' ? 'F' : 'O'}, {queueItem.expand?.patient?.age !== undefined ? formatAgeDisplay(queueItem.expand.patient.age) : '?'})
+              </Typography>
             </Typography>
             
             <Box sx={{ 
