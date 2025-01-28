@@ -16,6 +16,7 @@ interface DisplayPreferences {
   show_optometry_team: boolean;
   unified_roles: boolean;
   override_field_restrictions: boolean;
+  override_field_restrictions_all_roles: boolean;
 }
 
 interface Settings extends Record {
@@ -49,7 +50,8 @@ const defaultDisplayPreferences: DisplayPreferences = {
   show_gyn_team: false,
   show_optometry_team: false,
   unified_roles: false,
-  override_field_restrictions: false
+  override_field_restrictions: false,
+  override_field_restrictions_all_roles: false
 };
 
 export const useSettings = (): UseSettingsReturn => {

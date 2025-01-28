@@ -239,13 +239,14 @@ func init() {
 			"temperature": "F",
 		})
 		defaultSettings.Set("display_preferences", map[string]interface{}{
-			"show_priority_dropdown":      false,
-			"show_care_team_assignment":   false,
-			"care_team_count":             6,
-			"show_gyn_team":               false,
-			"show_optometry_team":         false,
-			"unified_roles":               false, // When true, providers and pharmacy share all permissions
-			"override_field_restrictions": false, // When true, admin users can edit all fields regardless of mode
+			"show_priority_dropdown":                false,
+			"show_care_team_assignment":             false,
+			"care_team_count":                       6,
+			"show_gyn_team":                         false,
+			"show_optometry_team":                   false,
+			"unified_roles":                         false, // When true, providers and pharmacy share all permissions
+			"override_field_restrictions":           false, // When true, admin users can edit all fields regardless of mode
+			"override_field_restrictions_all_roles": false, // When true, all roles can edit all fields regardless of mode
 		})
 		defaultSettings.Set("last_updated", time.Now().Format("2006-01-02 15:04:05.000Z"))
 

@@ -32,6 +32,7 @@ interface DisplayPreferences {
   show_optometry_team: boolean;
   unified_roles: boolean;
   override_field_restrictions: boolean;
+  override_field_restrictions_all_roles: boolean;
 }
 
 interface Settings extends Record {
@@ -217,6 +218,22 @@ const Settings: React.FC = () => {
             />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               Enable to allow admin users to edit all fields in encounters regardless of the current mode or section. This setting only affects admin users.
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 3, ml: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.display_preferences.override_field_restrictions_all_roles || false}
+                  onChange={handleDisplayPreferenceChange('override_field_restrictions_all_roles')}
+                  disabled={!settings?.display_preferences.override_field_restrictions}
+                />
+              }
+              label="Extend Override to All Roles"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              When enabled, providers and pharmacy staff can also edit all fields regardless of mode. This setting only works when Override Field Restrictions is enabled.
             </Typography>
           </Box>
 

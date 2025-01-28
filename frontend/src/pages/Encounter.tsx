@@ -248,8 +248,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
   // Helper function to determine if a field should be disabled
   const isFieldDisabled = (section: 'vitals' | 'subjective' | 'disbursement' | 'questions') => {
-    // If field restrictions are overridden and user is admin, enable all fields
-    if (displayPreferences?.override_field_restrictions && (pb.authStore.model as any)?.role === 'admin') {
+    // If field restrictions are overridden for admin or all roles, enable all fields
+    if (displayPreferences?.override_field_restrictions && (
+      (pb.authStore.model as any)?.role === 'admin' || 
+      displayPreferences?.override_field_restrictions_all_roles
+    )) {
       return false;
     }
     
