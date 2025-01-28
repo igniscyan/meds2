@@ -123,6 +123,7 @@ const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
   const { displayPreferences, loading: settingsLoading } = useSettings();
+  const [selectedTeamFilter, setSelectedTeamFilter] = useState<string>('');
 
   // Subscribe to queue changes
   const { records: queueItems, loading: queueLoading } = useRealtimeSubscription<QueueItem>('queue', {
@@ -339,37 +340,42 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // Update queueSections to handle synchronous filtering
+  // Update queueSections to handle team filtering
   const queueSections = [
     {
       status: 'checked_in',
       title: 'Waiting Room',
       description: 'Patients waiting to be seen',
-      items: queueItems.filter(item => item.status === 'checked_in')
+      items: queueItems.filter(item => item.status === 'checked_in' && 
+        (!selectedTeamFilter || item.intended_provider === selectedTeamFilter))
     },
     {
       status: 'with_care_team',
       title: 'With Care Team',
       description: 'Currently being seen by providers',
-      items: queueItems.filter(item => item.status === 'with_care_team')
+      items: queueItems.filter(item => item.status === 'with_care_team' && 
+        (!selectedTeamFilter || item.intended_provider === selectedTeamFilter))
     },
     {
       status: 'ready_pharmacy',
       title: 'Ready for Pharmacy',
       description: 'Waiting for medication disbursement',
-      items: queueItems.filter(item => item.status === 'ready_pharmacy')
+      items: queueItems.filter(item => item.status === 'ready_pharmacy' && 
+        (!selectedTeamFilter || item.intended_provider === selectedTeamFilter))
     },
     {
       status: 'with_pharmacy',
       title: 'With Pharmacy',
       description: 'Medications being disbursed',
-      items: queueItems.filter(item => item.status === 'with_pharmacy')
+      items: queueItems.filter(item => item.status === 'with_pharmacy' && 
+        (!selectedTeamFilter || item.intended_provider === selectedTeamFilter))
     },
     {
       status: 'at_checkout',
       title: 'At Checkout',
       description: 'Receiving standard items and completing survey',
-      items: queueItems.filter(item => item.status === 'at_checkout')
+      items: queueItems.filter(item => item.status === 'at_checkout' && 
+        (!selectedTeamFilter || item.intended_provider === selectedTeamFilter))
     }
   ];
 
@@ -877,6 +883,36 @@ const Dashboard: React.FC = () => {
               >
                 <RefreshIcon />
               </IconButton>
+              {displayPreferences.show_care_team_assignment && (
+                <Select
+                  value={selectedTeamFilter}
+                  onChange={(e) => setSelectedTeamFilter(e.target.value)}
+                  size="small"
+                  displayEmpty
+                  sx={{ 
+                    minWidth: 150,
+                    ml: 2,
+                    '& .MuiSelect-select': {
+                      py: 0.5
+                    }
+                  }}
+                >
+                  <MenuItem value="">
+                    <em>All Teams</em>
+                  </MenuItem>
+                  {Array.from({ length: displayPreferences.care_team_count }, (_, i) => i + 1).map(num => (
+                    <MenuItem key={num} value={`team${num}`}>
+                      Care Team {num}
+                    </MenuItem>
+                  ))}
+                  {displayPreferences.show_gyn_team && (
+                    <MenuItem value="gyn_team">Gyn Team</MenuItem>
+                  )}
+                  {displayPreferences.show_optometry_team && (
+                    <MenuItem value="optometry_team">Optometry Team</MenuItem>
+                  )}
+                </Select>
+              )}
             </Box>
 
             <Box sx={{ 
