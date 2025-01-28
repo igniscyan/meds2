@@ -13,10 +13,17 @@ import {
   Switch,
   Divider,
   TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Snackbar
 } from '@mui/material';
 import { pb } from '../atoms/auth';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
 import { Record, Admin } from 'pocketbase';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 
 interface UnitDisplay {
   height: string;
@@ -47,6 +54,8 @@ const Settings: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [wipeDialogOpen, setWipeDialogOpen] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -115,6 +124,32 @@ const Settings: React.FC = () => {
         [field]: event.target.checked
       }
     });
+  };
+
+  const handleWipePatientNames = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setWipeDialogOpen(false);
+
+      // Get all patients
+      const patients = await pb.collection('patients').getList(1, 1000000);
+
+      // Update each patient to remove names
+      for (const patient of patients.items) {
+        await pb.collection('patients').update(patient.id, {
+          first_name: '[REDACTED]',
+          last_name: '[REDACTED]'
+        });
+      }
+
+      setSuccess('Patient names have been successfully wiped from the database');
+    } catch (err) {
+      console.error('Name wipe failed:', err);
+      setError('Failed to wipe patient names. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading) {
@@ -347,6 +382,75 @@ const Settings: React.FC = () => {
             </Button>
           </Box>
         </Paper>
+
+        <Divider sx={{ my: 4 }} />
+        
+        <Typography variant="h6" gutterBottom color="error">
+          Danger Zone
+        </Typography>
+
+        <Paper sx={{ p: 3, bgcolor: 'error.light' }}>
+          <Typography variant="body2" color="error.contrastText" sx={{ mb: 2 }}>
+            Warning: The following actions are irreversible and should be used with extreme caution.
+          </Typography>
+
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => setWipeDialogOpen(true)}
+            disabled={loading}
+            startIcon={<DeleteForeverIcon />}
+          >
+            Deidentify Patient Names
+          </Button>
+        </Paper>
+
+        {/* Confirmation Dialog */}
+        <Dialog
+          open={wipeDialogOpen}
+          onClose={() => setWipeDialogOpen(false)}
+        >
+          <DialogTitle>
+            Warning: Irreversible Action
+          </DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              This action will permanently remove all patient first and last names from the database,
+              replacing them with [REDACTED]. This action cannot be undone.
+              <br /><br />
+              Please ensure you have created a backup before proceeding.
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setWipeDialogOpen(false)} color="primary">
+              Cancel
+            </Button>
+            <Button onClick={handleWipePatientNames} color="error" variant="contained">
+              Proceed with Wipe
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Success/Error Messages */}
+        <Snackbar
+          open={!!success}
+          autoHideDuration={6000}
+          onClose={() => setSuccess(null)}
+        >
+          <Alert onClose={() => setSuccess(null)} severity="success" sx={{ width: '100%' }}>
+            {success}
+          </Alert>
+        </Snackbar>
+
+        <Snackbar
+          open={!!error}
+          autoHideDuration={6000}
+          onClose={() => setError(null)}
+        >
+          <Alert onClose={() => setError(null)} severity="error" sx={{ width: '100%' }}>
+            {error}
+          </Alert>
+        </Snackbar>
       </Box>
     </RoleBasedAccess>
   );
