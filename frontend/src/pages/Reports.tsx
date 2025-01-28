@@ -33,13 +33,59 @@ import { Encounter } from '../types/encounter';
 import { Disbursement } from '../types/disbursement';
 
 type ReportType = 'daily' | 'weekly' | 'custom';
-type ReportCategory = 'patient-analysis' | 'chief-complaint-analysis' | 'disbursement-analysis' | 'survey-responses';
+type ReportCategory = 'patient-analysis' | 'chief-complaint-analysis' | 'diagnosis-analysis' | 'disbursement-analysis' | 'survey-responses';
 
 interface ReportConfig {
   type: ReportType;
   category: ReportCategory;
   startDate: Date;
   endDate: Date;
+}
+
+interface ChiefComplaint {
+  id: string;
+  name: string;
+}
+
+interface Diagnosis {
+  id: string;
+  name: string;
+}
+
+interface BaseRecord {
+  id: string;
+  created: string;
+  updated: string;
+  collectionId: string;
+  collectionName: string;
+}
+
+interface EncounterRecord extends BaseRecord {
+  chief_complaint: string[];
+  diagnosis: string[];
+  other_chief_complaint?: string;
+  other_diagnosis?: string;
+  expand?: {
+    chief_complaint?: ChiefComplaint[];
+    diagnosis?: Diagnosis[];
+  };
+}
+
+interface DisbursementRecord extends BaseRecord {
+  encounter: string;
+  medication: string;
+  quantity: number;
+  notes: string;
+  associated_diagnosis?: string;
+  expand?: {
+    medication?: {
+      drug_name: string;
+    };
+    associated_diagnosis?: {
+      id: string;
+      name: string;
+    };
+  };
 }
 
 const Reports: React.FC = () => {
@@ -58,11 +104,11 @@ const Reports: React.FC = () => {
   const { records: queueItems } = useRealtimeSubscription<QueueItem>('queue', {
     expand: 'patient,encounter',
   });
-  const { records: encounters } = useRealtimeSubscription<Encounter>('encounters', {
-    expand: 'chief_complaint',
+  const { records: encounters, loading, error: encountersError } = useRealtimeSubscription<EncounterRecord>('encounters', {
+    expand: 'chief_complaint,diagnosis',
   });
-  const { records: disbursements } = useRealtimeSubscription<Disbursement>('disbursements', {
-    expand: 'medication,encounter',
+  const { records: disbursements } = useRealtimeSubscription<DisbursementRecord>('disbursements', {
+    expand: 'medication,encounter,associated_diagnosis',
   });
 
   const handleGenerateReport = async () => {
@@ -135,22 +181,23 @@ const Reports: React.FC = () => {
         let totalOtherCount = 0;
 
         timeFilteredEncounters.forEach(encounter => {
-          const complaintName = encounter.expand?.chief_complaint?.name;
-          console.log('Processing encounter:', {
-            complaintName,
-            otherComplaint: encounter.other_chief_complaint,
-            fullEncounter: encounter
-          });
+          // Handle array of chief complaints
+          const complaintNames = encounter.expand?.chief_complaint?.map(c => c.name) || [];
           
-          if (complaintName === 'OTHER (Custom Text Input)') {
-            totalOtherCount++;
-            if (encounter.other_chief_complaint) {
-              const otherText = encounter.other_chief_complaint.trim();
-              otherComplaints[otherText] = (otherComplaints[otherText] || 0) + 1;
+          complaintNames.forEach(complaintName => {
+            if (complaintName === 'OTHER (Custom Text Input)') {
+              totalOtherCount++;
+              if (encounter.other_chief_complaint) {
+                // Parse comma-separated values
+                const otherTexts = parseCommaList(encounter.other_chief_complaint);
+                otherTexts.forEach(otherText => {
+                  otherComplaints[otherText] = (otherComplaints[otherText] || 0) + 1;
+                });
+              }
+            } else if (complaintName) {
+              standardComplaints[complaintName] = (standardComplaints[complaintName] || 0) + 1;
             }
-          } else if (complaintName) {
-            standardComplaints[complaintName] = (standardComplaints[complaintName] || 0) + 1;
-          }
+          });
         });
 
         console.log('Standard Complaints:', standardComplaints);
@@ -193,6 +240,89 @@ const Reports: React.FC = () => {
           ];
         }
       }
+      else if (reportConfig.category === 'diagnosis-analysis') {
+        // Diagnosis Analysis
+        const timeFilteredEncounters = encounters.filter(encounter => {
+          const itemDate = new Date(encounter.created);
+          const startDate = reportConfig.startDate;
+          if (reportConfig.type === 'daily') {
+            return itemDate.toDateString() === startDate.toDateString();
+          } else if (reportConfig.type === 'weekly') {
+            const weekStart = new Date(startDate);
+            const weekEnd = new Date(startDate);
+            weekEnd.setDate(weekEnd.getDate() + 7);
+            return itemDate >= weekStart && itemDate <= weekEnd;
+          }
+          return true;
+        });
+
+        console.log('Filtered Encounters:', timeFilteredEncounters);
+        
+        // Track standard diagnoses and other diagnoses separately
+        const standardDiagnoses: { [key: string]: number } = {};
+        const otherDiagnoses: { [key: string]: number } = {};
+        let totalOtherCount = 0;
+
+        timeFilteredEncounters.forEach(encounter => {
+          // Handle array of diagnoses
+          const diagnosisNames = encounter.expand?.diagnosis?.map(d => d.name) || [];
+          
+          diagnosisNames.forEach(diagnosisName => {
+            if (diagnosisName === 'OTHER (Custom Text Input)') {
+              totalOtherCount++;
+              if (encounter.other_diagnosis) {
+                // Parse comma-separated values
+                const otherTexts = parseCommaList(encounter.other_diagnosis);
+                otherTexts.forEach(otherText => {
+                  otherDiagnoses[otherText] = (otherDiagnoses[otherText] || 0) + 1;
+                });
+              }
+            } else if (diagnosisName) {
+              standardDiagnoses[diagnosisName] = (standardDiagnoses[diagnosisName] || 0) + 1;
+            }
+          });
+        });
+
+        console.log('Standard Diagnoses:', standardDiagnoses);
+        console.log('Other Diagnoses:', otherDiagnoses);
+        console.log('Total Other Count:', totalOtherCount);
+
+        const totalDiagnoses = Object.values(standardDiagnoses).reduce((a, b) => a + b, 0) + totalOtherCount;
+
+        if (totalDiagnoses > 0) {
+          // Sort standard diagnoses by count
+          const sortedStandardDiagnoses = Object.entries(standardDiagnoses)
+            .sort((a, b) => b[1] - a[1])
+            .filter(([diagnosis]) => diagnosis !== 'OTHER (Custom Text Input)');
+
+          // Sort other diagnoses by count
+          const sortedOtherDiagnoses = Object.entries(otherDiagnoses)
+            .sort((a, b) => b[1] - a[1]);
+
+          reportData = [
+            ['Diagnosis', 'Count', 'Percentage'],
+            // Add standard diagnoses
+            ...sortedStandardDiagnoses.map(([diagnosis, count]) => 
+              [diagnosis, count, `${Math.round((count / totalDiagnoses) * 100)}%`]
+            ),
+            // Add Other category total if there are any
+            ...(totalOtherCount > 0 ? [
+              ['OTHER (Custom Text Input)', totalOtherCount, `${Math.round((totalOtherCount / totalDiagnoses) * 100)}%`],
+              ['Other Diagnoses Breakdown:', '', ''],
+              ...sortedOtherDiagnoses.map(([diagnosis, count]) => 
+                [`  • ${diagnosis}`, count, `${Math.round((count / totalOtherCount) * 100)}% of Other`]
+              )
+            ] : []),
+            ['', '', ''],
+            ['Total', totalDiagnoses, '100%']
+          ];
+        } else {
+          reportData = [
+            ['Diagnosis', 'Count', 'Percentage'],
+            ['No diagnoses found in the selected time period', 0, '0%']
+          ];
+        }
+      }
       else if (reportConfig.category === 'disbursement-analysis') {
         // Disbursement Analysis
         const timeFilteredDisbursements = disbursements.filter(disbursement => {
@@ -218,6 +348,9 @@ const Reports: React.FC = () => {
             totalQuantity: number;
             uniqueEncounters: Set<string>;
             quantities: number[];
+            diagnosisAssociations: {
+              [diagnosisName: string]: number;
+            };
           }
         }, disbursement) => {
           const medicationId = disbursement.medication;
@@ -228,13 +361,20 @@ const Reports: React.FC = () => {
               drugName,
               totalQuantity: 0,
               uniqueEncounters: new Set(),
-              quantities: []
+              quantities: [],
+              diagnosisAssociations: {}
             };
           }
           
           acc[medicationId].totalQuantity += (disbursement.quantity || 0);
           acc[medicationId].uniqueEncounters.add(disbursement.encounter);
           acc[medicationId].quantities.push(disbursement.quantity || 0);
+
+          // Track diagnosis associations
+          if (disbursement.associated_diagnosis) {
+            const diagnosisName = disbursement.expand?.associated_diagnosis?.name || 'Unknown Diagnosis';
+            acc[medicationId].diagnosisAssociations[diagnosisName] = (acc[medicationId].diagnosisAssociations[diagnosisName] || 0) + 1;
+          }
           
           return acc;
         }, {});
@@ -243,20 +383,37 @@ const Reports: React.FC = () => {
 
         if (Object.keys(medicationStats).length > 0) {
           reportData = [
-            ['Medication', 'Total Quantity Disbursed', 'Unique Patient Encounters', 'Most Common Quantity'],
+            ['Medication', 'Total Quantity Disbursed', 'Unique Patient Encounters', 'Most Common Quantity', 'Associated Diagnoses'],
             ...Object.values(medicationStats)
               .sort((a, b) => b.totalQuantity - a.totalQuantity)
-              .map(stats => [
-                stats.drugName,
-                stats.totalQuantity,
-                stats.uniqueEncounters.size,
-                calculateMode(stats.quantities)
-              ])
+              .flatMap(stats => {
+                // Create the main medication row
+                const mainRow = [
+                  stats.drugName,
+                  stats.totalQuantity,
+                  stats.uniqueEncounters.size,
+                  calculateMode(stats.quantities),
+                  ''
+                ];
+
+                // Create diagnosis association rows
+                const diagnosisRows = Object.entries(stats.diagnosisAssociations)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([diagnosis, count]) => [
+                    `  • ${diagnosis}`,
+                    '',
+                    count,
+                    '',
+                    `${Math.round((count / stats.uniqueEncounters.size) * 100)}%`
+                  ]);
+
+                return diagnosisRows.length > 0 ? [mainRow, ...diagnosisRows] : [mainRow];
+              })
           ];
         } else {
           reportData = [
-            ['Medication', 'Total Quantity Disbursed', 'Unique Patient Encounters', 'Most Common Quantity'],
-            ['No disbursements found in the selected time period', 0, 0, 0]
+            ['Medication', 'Total Quantity Disbursed', 'Unique Patient Encounters', 'Most Common Quantity', 'Associated Diagnoses'],
+            ['No disbursements found in the selected time period', 0, 0, 0, '']
           ];
         }
       }
@@ -406,6 +563,12 @@ const Reports: React.FC = () => {
     return mode;
   };
 
+  // Add helper function to parse comma-separated values
+  const parseCommaList = (text: string): string[] => {
+    if (!text) return [];
+    return text.split(',').map(item => item.trim()).filter(item => item.length > 0);
+  };
+
   return (
     <RoleBasedAccess requiredRole="admin">
       <Box sx={{ p: 3 }}>
@@ -449,6 +612,7 @@ const Reports: React.FC = () => {
                 >
                   <MenuItem value="patient-analysis">Patient Analysis</MenuItem>
                   <MenuItem value="chief-complaint-analysis">Chief Complaint Analysis</MenuItem>
+                  <MenuItem value="diagnosis-analysis">Diagnosis Analysis</MenuItem>
                   <MenuItem value="disbursement-analysis">Disbursement Analysis</MenuItem>
                   <MenuItem value="survey-responses">Survey Responses</MenuItem>
                 </Select>
