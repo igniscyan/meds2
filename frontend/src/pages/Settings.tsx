@@ -31,6 +31,7 @@ interface DisplayPreferences {
   show_gyn_team: boolean;
   show_optometry_team: boolean;
   unified_roles: boolean;
+  override_field_restrictions: boolean;
 }
 
 interface Settings extends Record {
@@ -53,7 +54,7 @@ const Settings: React.FC = () => {
   const loadSettings = async () => {
     try {
       const resultList = await pb.collection('settings').getList<Settings>(1, 1, {
-        sort: '-created',
+        sort: 'created',
       });
       if (resultList.items.length > 0) {
         setSettings(resultList.items[0]);
@@ -201,6 +202,21 @@ const Settings: React.FC = () => {
             />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               Enable to allow providers and pharmacy staff to share permissions and access each other's features (excluding admin-specific functions).
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.display_preferences.override_field_restrictions || false}
+                  onChange={handleDisplayPreferenceChange('override_field_restrictions')}
+                />
+              }
+              label="Override Field Restrictions (Admin Only)"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Enable to allow admin users to edit all fields in encounters regardless of the current mode or section. This setting only affects admin users.
             </Typography>
           </Box>
 

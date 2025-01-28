@@ -205,7 +205,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [patient, setPatient] = useState<Patient | null>(null);
   const [isNewEncounter, setIsNewEncounter] = useState(true);
   const [currentQueueItem, setCurrentQueueItem] = useState<QueueItem | null>(null);
-  const { unitDisplay } = useSettings();
+  const { unitDisplay, displayPreferences } = useSettings();
   const isAuthLoading = useAtomValue(isLoadingAtom);
   const authModel = useAtomValue(authModelAtom);
 
@@ -248,6 +248,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
   // Helper function to determine if a field should be disabled
   const isFieldDisabled = (section: 'vitals' | 'subjective' | 'disbursement' | 'questions') => {
+    // If field restrictions are overridden and user is admin, enable all fields
+    if (displayPreferences?.override_field_restrictions && (pb.authStore.model as any)?.role === 'admin') {
+      return false;
+    }
+    
     if (currentMode === 'view') return true;
     
     // In pharmacy mode, only disbursement section is editable

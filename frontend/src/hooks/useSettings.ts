@@ -15,6 +15,7 @@ interface DisplayPreferences {
   show_gyn_team: boolean;
   show_optometry_team: boolean;
   unified_roles: boolean;
+  override_field_restrictions: boolean;
 }
 
 interface Settings extends Record {
@@ -47,7 +48,8 @@ const defaultDisplayPreferences: DisplayPreferences = {
   care_team_count: 6,
   show_gyn_team: false,
   show_optometry_team: false,
-  unified_roles: false
+  unified_roles: false,
+  override_field_restrictions: false
 };
 
 export const useSettings = (): UseSettingsReturn => {
@@ -60,7 +62,7 @@ export const useSettings = (): UseSettingsReturn => {
   const loadSettings = async () => {
     try {
       const resultList = await pb.collection('settings').getList<Settings>(1, 1, {
-        sort: '-created',
+        sort: 'created',
         requestKey: 'settings'
       });
       if (resultList.items.length > 0) {
