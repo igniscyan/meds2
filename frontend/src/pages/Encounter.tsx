@@ -246,6 +246,21 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
   const userRole = (authModel as any)?.role;
 
+  // Add helper function to format age display
+  const formatAgeDisplay = (ageInYears: number): string => {
+    if (ageInYears >= 1) {
+      return `${Math.floor(ageInYears)} years`;
+    } else {
+      const months = Math.floor(ageInYears * 12);
+      if (months >= 1) {
+        return `${months} months`;
+      } else {
+        const weeks = Math.floor(ageInYears * 52);
+        return `${weeks} weeks`;
+      }
+    }
+  };
+
   // Helper function to determine if a field should be disabled
   const isFieldDisabled = (section: 'vitals' | 'subjective' | 'disbursement' | 'questions') => {
     // If field restrictions are overridden for admin or all roles, enable all fields
@@ -1528,7 +1543,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="subtitle1" color="text.secondary">
-                Age: {patient?.age} years • Gender: {patient?.gender.charAt(0).toUpperCase() + patient?.gender.slice(1)}
+                Age: {patient?.age ? formatAgeDisplay(patient.age) : 'Unknown'} • Gender: {patient?.gender.charAt(0).toUpperCase() + patient?.gender.slice(1)}
                 {currentQueueItem && (
                   <>
                     {' • '}

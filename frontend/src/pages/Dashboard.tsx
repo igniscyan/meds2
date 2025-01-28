@@ -73,6 +73,8 @@ interface QueueSection {
   status: QueueStatus;
   items: QueueItem[];
   description: string;
+  showAssignmentGroups: boolean;
+  renderItems: (items: QueueItem[]) => React.ReactNode;
 }
 
 // Add Patient interface
@@ -347,7 +349,77 @@ const Dashboard: React.FC = () => {
       title: 'Waiting Room',
       description: 'Patients waiting to be seen',
       items: queueItems.filter(item => item.status === 'checked_in' && 
-        (!selectedTeamFilter || item.intended_provider === selectedTeamFilter))
+        (!selectedTeamFilter || item.intended_provider === selectedTeamFilter)),
+      showAssignmentGroups: displayPreferences.show_care_team_assignment,
+      renderItems: (items: QueueItem[]) => {
+        if (!displayPreferences.show_care_team_assignment) {
+          return sortQueueItems(items).map((item, index) => (
+            <React.Fragment key={item.id}>
+              {index > 0 && <Divider sx={{ my: 1 }} />}
+              <QueueItemComponent item={item} />
+            </React.Fragment>
+          ));
+        }
+
+        // Split items into unassigned and assigned groups
+        const unassignedItems = items.filter(item => !item.intended_provider);
+        const assignedItems = items.filter(item => item.intended_provider);
+
+        return (
+          <>
+            {unassignedItems.length > 0 && (
+              <>
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ 
+                    mt: 1,
+                    mb: 2,
+                    color: 'text.secondary',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1
+                  }}
+                >
+                  Unassigned ({unassignedItems.length})
+                </Typography>
+                {sortQueueItems(unassignedItems).map((item, index) => (
+                  <React.Fragment key={item.id}>
+                    {index > 0 && <Divider sx={{ my: 1 }} />}
+                    <QueueItemComponent item={item} />
+                  </React.Fragment>
+                ))}
+              </>
+            )}
+            
+            {assignedItems.length > 0 && (
+              <>
+                <Divider sx={{ my: 3 }} />
+                <Typography 
+                  variant="subtitle2" 
+                  sx={{ 
+                    mt: 1,
+                    mb: 2,
+                    color: 'text.secondary',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1
+                  }}
+                >
+                  Assigned to Care Team ({assignedItems.length})
+                </Typography>
+                {sortQueueItems(assignedItems).map((item, index) => (
+                  <React.Fragment key={item.id}>
+                    {index > 0 && <Divider sx={{ my: 1 }} />}
+                    <QueueItemComponent item={item} />
+                  </React.Fragment>
+                ))}
+              </>
+            )}
+          </>
+        );
+      }
     },
     {
       status: 'with_care_team',
@@ -978,12 +1050,16 @@ const Dashboard: React.FC = () => {
                   </Box>
                 </Box>
                 <List sx={{ '& .MuiListItem-root': { py: 2 } }}>
-                  {sortQueueItems(section.items).map((item, index) => (
-                    <React.Fragment key={item.id}>
-                      {index > 0 && <Divider sx={{ my: 1 }} />}
-                      <QueueItemComponent item={item} />
-                    </React.Fragment>
-                  ))}
+                  {section.renderItems ? (
+                    section.renderItems(section.items)
+                  ) : (
+                    sortQueueItems(section.items).map((item, index) => (
+                      <React.Fragment key={item.id}>
+                        {index > 0 && <Divider sx={{ my: 1 }} />}
+                        <QueueItemComponent item={item} />
+                      </React.Fragment>
+                    ))
+                  )}
                   {section.items.length === 0 && (
                     <Typography 
                       color="textSecondary" 
