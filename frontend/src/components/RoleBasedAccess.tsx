@@ -1,6 +1,7 @@
 import { pb } from '../atoms/auth';
 import { Record } from 'pocketbase';
 import React from 'react';
+import { useSettings } from '../hooks/useSettings';
 
 interface UserRecord extends Record {
   role?: 'pharmacy' | 'provider' | 'admin';
@@ -22,51 +23,42 @@ export const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({
   requiredRole,
   children
 }) => {
-  React.useEffect(() => {
-    console.log('RoleBasedAccess mounted:', {
-      requiredRole,
-      currentRole: (pb.authStore.model as UserRecord)?.role,
-      authModel: pb.authStore.model,
-    });
-  }, [requiredRole]);
-
+  const { displayPreferences } = useSettings();
   const userRole = (pb.authStore.model as UserRecord)?.role;
-  
-  console.log('RoleBasedAccess Debug:', {
-    userRole,
-    requiredRole,
-    authModel: pb.authStore.model,
-    isValid: pb.authStore.isValid,
-    timestamp: new Date().toISOString()
-  });
   
   // If no user role, deny access
   if (!userRole) {
-    console.log('RoleBasedAccess: No user role found, denying access');
     return null;
   }
 
-  // Admin can access everything
+  // Admin can access everything, regardless of settings
   if (userRole === 'admin') {
-    console.log('RoleBasedAccess: Admin access granted for', requiredRole);
     return <>{children}</>;
   }
 
-  // Check if the required role is an array
+  // For provider/pharmacy roles, check unified roles setting if available
+  if (displayPreferences?.unified_roles && (userRole === 'provider' || userRole === 'pharmacy')) {
+    if (Array.isArray(requiredRole)) {
+      if (requiredRole.includes('provider') || requiredRole.includes('pharmacy')) {
+        return <>{children}</>;
+      }
+    } else {
+      if (requiredRole === 'provider' || requiredRole === 'pharmacy') {
+        return <>{children}</>;
+      }
+    }
+  }
+
+  // Standard role check
   if (Array.isArray(requiredRole)) {
-    // Check if user's role is in the array of required roles
     if (requiredRole.includes(userRole)) {
-      console.log(`RoleBasedAccess: Role match (${userRole} in [${requiredRole.join(', ')}]), access granted`);
       return <>{children}</>;
     }
   } else {
-    // Single role check
     if (userRole === requiredRole) {
-      console.log(`RoleBasedAccess: Role match (${userRole}), access granted`);
       return <>{children}</>;
     }
   }
   
-  console.log(`RoleBasedAccess: Role mismatch (${userRole} ≠ ${requiredRole}), denying access`);
   return null;
 }; 

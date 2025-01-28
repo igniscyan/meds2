@@ -14,6 +14,7 @@ interface DisplayPreferences {
   care_team_count: number;
   show_gyn_team: boolean;
   show_optometry_team: boolean;
+  unified_roles: boolean;
 }
 
 interface Settings extends Record {
@@ -45,7 +46,8 @@ const defaultDisplayPreferences: DisplayPreferences = {
   show_care_team_assignment: false,
   care_team_count: 6,
   show_gyn_team: false,
-  show_optometry_team: false
+  show_optometry_team: false,
+  unified_roles: false
 };
 
 export const useSettings = (): UseSettingsReturn => {
@@ -59,6 +61,7 @@ export const useSettings = (): UseSettingsReturn => {
     try {
       const resultList = await pb.collection('settings').getList<Settings>(1, 1, {
         sort: '-created',
+        requestKey: 'settings'
       });
       if (resultList.items.length > 0) {
         setSettings(resultList.items[0]);
@@ -75,15 +78,18 @@ export const useSettings = (): UseSettingsReturn => {
             });
             setSettings(defaultSettings as Settings);
           }
-        } catch (createError) {
-          console.error('Error creating default settings:', createError);
-          // Even if creation fails, we'll use default values
+        } catch (createError: any) {
+          if (createError?.name !== 'ClientResponseError' || createError?.status !== 0) {
+            console.error('Error creating default settings:', createError);
+          }
         }
       }
       setError(null);
-    } catch (err) {
-      console.error('Error loading settings:', err);
-      setError('Failed to load settings');
+    } catch (err: any) {
+      if (err?.name !== 'ClientResponseError' || err?.status !== 0) {
+        console.error('Error loading settings:', err);
+        setError('Failed to load settings');
+      }
     } finally {
       setLoading(false);
     }

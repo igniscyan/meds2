@@ -244,6 +244,7 @@ func init() {
 			"care_team_count":           6,
 			"show_gyn_team":             false,
 			"show_optometry_team":       false,
+			"unified_roles":             false, // When true, providers and pharmacy share all permissions
 		})
 		defaultSettings.Set("last_updated", time.Now().Format("2006-01-02 15:04:05.000Z"))
 

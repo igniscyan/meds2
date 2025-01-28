@@ -30,6 +30,7 @@ interface DisplayPreferences {
   care_team_count: number;
   show_gyn_team: boolean;
   show_optometry_team: boolean;
+  unified_roles: boolean;
 }
 
 interface Settings extends Record {
@@ -84,7 +85,7 @@ const Settings: React.FC = () => {
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Error saving settings:', err);
-      setError('Failed to save settings. Please try again.');
+        setError('Failed to save settings. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -187,6 +188,21 @@ const Settings: React.FC = () => {
           <Divider sx={{ my: 4 }} />
 
           <Typography variant="h6" gutterBottom>Dashboard Display Preferences</Typography>
+
+          <Box sx={{ mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.display_preferences.unified_roles || false}
+                  onChange={handleDisplayPreferenceChange('unified_roles')}
+                />
+              }
+              label="Unified Provider and Pharmacy Roles"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Enable to allow providers and pharmacy staff to share permissions and access each other's features (excluding admin-specific functions).
+            </Typography>
+          </Box>
 
           <Box sx={{ mb: 3 }}>
             <FormControlLabel
