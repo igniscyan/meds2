@@ -1,6 +1,5 @@
 import { atom, useSetAtom } from 'jotai';
-import PocketBase from 'pocketbase';
-import { BaseModel } from 'pocketbase';
+import PocketBase, { BaseModel } from 'pocketbase';
 import { useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../config';
 
@@ -8,15 +7,23 @@ import { API_URL } from '../config';
 export interface AuthModel extends BaseModel {
   email: string;
   emailVisibility: boolean;
+  name?: string;
+  role?: string;
+}
+
+// Define the PocketBase user record type
+interface UserRecord extends BaseModel {
+  email: string;
+  emailVisibility: boolean;
+  name?: string;
+  role: string;
   username: string;
   verified: boolean;
-  name?: string;
 }
 
 // Create a singleton PocketBase instance
 export const pb = new PocketBase(API_URL);
 
-// Flag to prevent re-validation during clear operations
 let isClearing = false;
 let currentValidation: Promise<AuthModel | null> | null = null;
 
@@ -33,82 +40,22 @@ const logAuthState = (context: string) => {
   });
 };
 
-// Helper function to validate auth token
-const validateAuthToken = async () => {
-  logAuthState('Starting token validation');
-
-  if (isClearing) {
-    console.log('[Auth Debug] Skipping validation - clearing in progress');
-    return null;
-  }
-
-  if (currentValidation) {
-    console.log('[Auth Debug] Returning existing validation promise');
-    return currentValidation;
-  }
-
-  currentValidation = (async () => {
-    try {
-      logAuthState('Validating token');
-
-      if (!pb.authStore.isValid) {
-        console.log('[Auth Debug] Auth token is invalid, clearing store');
-        isClearing = true;
-        pb.authStore.clear();
-        isClearing = false;
-        return null;
-      }
-
-      if (!pb.authStore.model?.id) {
-        console.log('[Auth Debug] No user model or ID present');
-        return null;
-      }
-
-      // Try to refresh the auth token by fetching the current user
-      console.log('[Auth Debug] Fetching current user:', pb.authStore.model.id);
-      const user = await pb.collection('users').getOne(pb.authStore.model.id);
-      console.log('[Auth Debug] Auth token validated successfully:', {
-        userId: user.id,
-        role: (user as any).role
-      });
-      return user as AuthModel;
-    } catch (error) {
-      console.error('[Auth Debug] Token validation failed:', {
-        error,
-        errorMessage: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      });
-      isClearing = true;
-      pb.authStore.clear();
-      isClearing = false;
-      return null;
-    } finally {
-      currentValidation = null;
-      logAuthState('Validation complete');
-    }
-  })();
-
-  return currentValidation;
-};
-
-// Create auth atoms with debug labels
+// Create atoms first
 export const authModelAtom = atom<AuthModel | null>(null);
 authModelAtom.debugLabel = 'authModelAtom';
 
-export const isLoadingAtom = atom(false);
+export const isLoadingAtom = atom<boolean>(false);
 isLoadingAtom.debugLabel = 'isLoadingAtom';
 
 export const logoutAtom = atom(
   null,
   async (get, set) => {
     set(isLoadingAtom, true);
-    
     try {
       set(authModelAtom, null);
       isClearing = true;
       pb.authStore.clear();
       isClearing = false;
-      
       window.dispatchEvent(new Event('pocketbase-auth-change'));
       return true;
     } catch (error) {
@@ -121,10 +68,72 @@ export const logoutAtom = atom(
 );
 logoutAtom.debugLabel = 'logoutAtom';
 
+// Initialize auth listener after atoms are created
 console.log('PocketBase initialized with URL:', API_URL);
 console.log('Initial auth state:', pb.authStore.model);
 
-// Enhanced auth state change handler
+// Initialize auth state if PocketBase has a valid session
+if (pb.authStore.isValid && pb.authStore.model) {
+  console.log('[Auth Debug] Setting initial auth state from PocketBase');
+  const setInitialAuth = (model: any) => {
+    const authStore = pb.authStore;
+    if (authStore.isValid && authStore.model) {
+      return model as AuthModel;
+    }
+    return null;
+  };
+  authModelAtom.init = setInitialAuth(pb.authStore.model);
+}
+
+const validateAuthToken = async (): Promise<AuthModel | null> => {
+  logAuthState('Starting token validation');
+
+  if (isClearing) {
+    console.log('[Auth Debug] Skipping validation - clearing in progress');
+    return null;
+  }
+
+  // If we already have a validation in progress, return it
+  if (currentValidation) {
+    console.log('[Auth Debug] Returning existing validation');
+    return currentValidation;
+  }
+
+  if (!pb.authStore.isValid) {
+    console.log('[Auth Debug] Auth store is not valid');
+    return null;
+  }
+
+  try {
+    // Start a new validation
+    currentValidation = (async () => {
+      logAuthState('Validating token');
+
+      if (!pb.authStore.model?.id) {
+        console.log('[Auth Debug] No user ID found');
+        return null;
+      }
+
+      console.log('[Auth Debug] Fetching current user:', pb.authStore.model.id);
+      const user = await pb.collection('users').getOne<UserRecord>(pb.authStore.model.id);
+      console.log('[Auth Debug] Auth token validated successfully:', {
+        userId: user.id,
+        role: user.role
+      });
+
+      logAuthState('Validation complete');
+      return user as AuthModel;
+    })();
+
+    return await currentValidation;
+  } catch (error) {
+    console.error('[Auth Debug] Validation error:', error);
+    return null;
+  } finally {
+    currentValidation = null;
+  }
+};
+
 pb.authStore.onChange(async () => {
   logAuthState('Auth store onChange triggered');
 
@@ -134,7 +143,6 @@ pb.authStore.onChange(async () => {
   }
 
   const validModel = await validateAuthToken();
-  
   logAuthState('After validation in onChange');
 
   window.dispatchEvent(new CustomEvent('pocketbase-auth-change', {
@@ -142,7 +150,7 @@ pb.authStore.onChange(async () => {
   }));
 });
 
-// Add an effect to the App component to handle auth changes
+// Hook for handling auth changes
 export const useAuthChangeEffect = () => {
   const setAuthModel = useSetAtom(authModelAtom);
   const setLoading = useSetAtom(isLoadingAtom);

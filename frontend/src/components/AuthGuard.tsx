@@ -51,8 +51,8 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
     );
   }
 
-  // Redirect to login if not authenticated
-  if (!user || !pb.authStore.isValid) {
+  // Only redirect if we're not loading and there's no valid auth
+  if (!loading && (!user || !pb.authStore.isValid)) {
     console.log('[AuthGuard Debug] No authenticated user, redirecting to login:', {
       from: location.pathname,
       search: location.search,
@@ -62,7 +62,7 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   }
 
   console.log('[AuthGuard Debug] Rendering protected content:', {
-    userId: user.id,
+    userId: user?.id,
     path: location.pathname,
     timestamp: new Date().toISOString()
   });

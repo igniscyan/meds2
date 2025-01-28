@@ -62,26 +62,26 @@ export function useRealtimeSubscription<T extends PBRecord>(
         role: authModel.role,
         collection: collection,
         queryParams: queryParams
-      });
-
+        });
+      
       try {
         // Cancel any ongoing requests
         if (abortControllerRef.current) {
           abortControllerRef.current.abort();
         }
         abortControllerRef.current = new AbortController();
-
+        
         if (!loadedRef.current) {
           console.log('[useRealtimeSubscription] Loading initial data for collection:', collection);
           
           const resultList = await pb.collection(collection).getList(1, 1000, {
             ...stableQueryParams.current,
-            $autoCancel: false,
+          $autoCancel: false,
             $cancelKey: collection,
             signal: abortControllerRef.current.signal
-          });
-
-          if (isMounted) {
+        });
+        
+        if (isMounted) {
             console.log('[useRealtimeSubscription] Data loaded successfully:', {
               collection,
               itemCount: resultList.items.length,
@@ -91,7 +91,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
             setLoading(false);
             setError(null);
             loadedRef.current = true;
-          }
+        }
         }
       } catch (err: any) {
         // Only log and set error if it's not an auto-cancellation
@@ -101,14 +101,14 @@ export function useRealtimeSubscription<T extends PBRecord>(
             error: err,
             authModel: pb.authStore.model
           });
-          if (isMounted) {
+        if (isMounted) {
             setError(err instanceof Error ? err : new Error('Failed to load data'));
             setLoading(false);
-          }
         }
       }
+    }
     };
-
+      
     const subscribe = async () => {
       const authModel = pb.authStore.model as ExtendedAuthModel;
       if (!authModel) {
@@ -121,7 +121,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
           collection,
           authRole: authModel.role
         });
-        
+
         unsubscribe = await pb.collection(collection).subscribe('*', (data) => {
           if (!isMounted) return;
           
@@ -164,13 +164,13 @@ export function useRealtimeSubscription<T extends PBRecord>(
                   if (!isAutoCancelError(err)) {
                     console.error('[useRealtimeSubscription] Error fetching updated record:', err);
                   }
-                });
+        });
                 return prev;
               } else if (data.action === 'delete') {
                 return prev.filter(item => item.id !== data.record.id);
               }
               return prev;
-            } catch (err) {
+      } catch (err) {
               if (!isAutoCancelError(err)) {
                 console.error('[useRealtimeSubscription] Error processing realtime update:', err);
               }
@@ -186,14 +186,14 @@ export function useRealtimeSubscription<T extends PBRecord>(
             error: err,
             authRole: authModel.role
           });
-          if (isMounted) {
+              if (isMounted) {
             setError(err instanceof Error ? err : new Error('Failed to subscribe'));
-          }
         }
       }
+    }
     };
 
-    loadInitialData();
+      loadInitialData();
     subscribe();
 
     // Listen for auth changes

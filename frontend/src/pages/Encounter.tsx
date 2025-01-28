@@ -29,6 +29,8 @@ import EncounterQuestions from '../components/EncounterQuestions';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { useSettings } from '../hooks/useSettings';
 import AddIcon from '@mui/icons-material/Add';
+import { useAtomValue } from 'jotai';
+import { isLoadingAtom, authModelAtom } from '../atoms/auth';
 
 type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'at_checkout' | 'completed';
 
@@ -68,10 +70,21 @@ interface Patient extends BaseModel {
 }
 
 interface ChiefComplaint extends BaseModel {
-  name: string;
   id: string;
+  name: string;
   created: string;
   updated: string;
+  collectionId: string;
+  collectionName: string;
+}
+
+interface Diagnosis extends BaseModel {
+  id: string;
+  name: string;
+  created: string;
+  updated: string;
+  collectionId: string;
+  collectionName: string;
 }
 
 interface Disbursement extends BaseModel {
@@ -112,7 +125,8 @@ interface EncounterRecord extends BaseModel {
   blood_sugar_result: string;
   pregnancy_test: boolean;
   pregnancy_test_result: string;
-  chief_complaint?: string;
+  chief_complaint: string[];
+  diagnosis: string[];
   other_chief_complaint?: string;
   history_of_present_illness?: string;
   past_medical_history?: string;
@@ -120,10 +134,8 @@ interface EncounterRecord extends BaseModel {
   plan?: string;
   disbursements: DisbursementWithId[];
   expand?: {
-    chief_complaint?: {
-      id: string;
-      name: string;
-    };
+    chief_complaint?: ChiefComplaint[];
+    diagnosis?: Diagnosis[];
   };
 }
 
@@ -195,6 +207,63 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [isNewEncounter, setIsNewEncounter] = useState(true);
   const [currentQueueItem, setCurrentQueueItem] = useState<QueueItem | null>(null);
   const { unitDisplay } = useSettings();
+  const isAuthLoading = useAtomValue(isLoadingAtom);
+  const authModel = useAtomValue(authModelAtom);
+
+  // Add state declarations
+  const [formData, setFormData] = useState<Partial<EncounterRecord>>({
+    patient: patientId,
+    height: location.state?.initialVitals?.height ?? null,
+    weight: location.state?.initialVitals?.weight ?? null,
+    temperature: location.state?.initialVitals?.temperature ?? null,
+    heart_rate: location.state?.initialVitals?.heart_rate ?? null,
+    systolic_pressure: location.state?.initialVitals?.systolic_pressure ?? null,
+    diastolic_pressure: location.state?.initialVitals?.diastolic_pressure ?? null,
+    pulse_ox: location.state?.initialVitals?.pulse_ox ?? null,
+    allergies: '',
+    urinalysis: false,
+    urinalysis_result: '',
+    blood_sugar: false,
+    blood_sugar_result: '',
+    pregnancy_test: false,
+    pregnancy_test_result: '',
+    chief_complaint: [],
+    diagnosis: [],
+    other_chief_complaint: '',
+    past_medical_history: '',
+    assessment: '',
+    plan: '',
+    disbursements: [],
+  });
+  const [chiefComplaints, setChiefComplaints] = useState<ChiefComplaint[]>([]);
+  const [diagnoses, setDiagnoses] = useState<Diagnosis[]>([]);
+  const [showOtherComplaint, setShowOtherComplaint] = useState(false);
+  const [otherComplaintValue, setOtherComplaintValue] = useState('');
+  const [questionResponses, setQuestionResponses] = useState<QuestionResponse[]>([]);
+  const [savedEncounter, setSavedEncounter] = useState<SavedEncounter | null>(null);
+  const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
+
+  const OTHER_COMPLAINT_VALUE = '__OTHER__';
+
+  const userRole = (authModel as any)?.role;
+
+  // Helper function to determine if a field should be disabled
+  const isFieldDisabled = (section: 'vitals' | 'subjective' | 'disbursement' | 'questions') => {
+    if (currentMode === 'view') return true;
+    
+    // In pharmacy mode, only disbursement section is editable
+    if (currentMode === 'pharmacy') {
+      return section !== 'disbursement';
+    }
+    
+    // In checkout mode, only questions section is editable
+    if (currentMode === 'checkout') {
+      return section !== 'questions';
+    }
+    
+    // In provider mode (edit/create), all sections are editable
+    return false;
+  };
 
   // Add refs for each section
   const vitalsRef = useRef<HTMLDivElement>(null);
@@ -217,7 +286,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     if (section && sectionRefs[section]?.current) {
       // Wait for content to be rendered
       setTimeout(() => {
-        const headerOffset = 80; // Approximate height of the fixed header
+        const headerOffset = 80;
         const elementPosition = sectionRefs[section].current?.getBoundingClientRect().top ?? 0;
         const offsetPosition = elementPosition + window.scrollY - headerOffset;
         
@@ -225,16 +294,15 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           top: offsetPosition,
           behavior: 'smooth'
         });
-      }, 300); // Increased timeout to ensure content is fully rendered
+      }, 300);
     }
-  }, [location.state?.scrollTo, loading]); // Added loading dependency to ensure scroll happens after content loads
+  }, [location.state?.scrollTo, loading]);
 
   // Memoize the mode determination to prevent unnecessary re-renders
   const currentMode = React.useMemo(() => {
     const locationMode = location.state?.mode;
     const computedMode = (locationMode || initialMode);
     
-    // If we're in checkout status, force checkout mode
     if (currentQueueItem?.status === 'at_checkout') {
       return 'checkout' as const;
     }
@@ -242,77 +310,55 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     return (computedMode === 'create' || (isNewEncounter && computedMode !== 'pharmacy')) ? 'edit' : computedMode;
   }, [location.state?.mode, initialMode, isNewEncounter, currentQueueItem?.status]);
 
-  console.log('Current mode:', currentMode, 'Initial mode:', initialMode, 'Is new encounter:', isNewEncounter, 'Queue status:', currentQueueItem?.status);
-
-  const [formData, setFormData] = useState<Partial<EncounterRecord>>({
-    patient: patientId,
-    height: location.state?.initialVitals?.height ?? null,
-    weight: location.state?.initialVitals?.weight ?? null,
-    temperature: location.state?.initialVitals?.temperature ?? null,
-    heart_rate: location.state?.initialVitals?.heart_rate ?? null,
-    systolic_pressure: location.state?.initialVitals?.systolic_pressure ?? null,
-    diastolic_pressure: location.state?.initialVitals?.diastolic_pressure ?? null,
-    pulse_ox: location.state?.initialVitals?.pulse_ox ?? null,
-    allergies: '',
-    urinalysis: false,
-    urinalysis_result: '',
-    blood_sugar: false,
-    blood_sugar_result: '',
-    pregnancy_test: false,
-    pregnancy_test_result: '',
-    chief_complaint: '',
-    past_medical_history: '',
-    assessment: '',
-    plan: '',
-    disbursements: [],
-  });
-  const [chiefComplaints, setChiefComplaints] = useState<ChiefComplaint[]>([]);
-  const [showOtherComplaint, setShowOtherComplaint] = useState(false);
-  const [otherComplaintValue, setOtherComplaintValue] = useState('');
-  const [questionResponses, setQuestionResponses] = useState<QuestionResponse[]>([]);
-  const [savedEncounter, setSavedEncounter] = useState<SavedEncounter | null>(null);
-  const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
-
-  const OTHER_COMPLAINT_VALUE = '__OTHER__';
-
-  const userRole = (pb.authStore.model as any)?.role;
-
-  // Helper function to determine if a field should be disabled
-  const isFieldDisabled = (section: 'vitals' | 'subjective' | 'disbursement' | 'questions') => {
-    if (currentMode === 'view') return true;
-    
-    // In pharmacy mode, only disbursement section is editable
-    if (currentMode === 'pharmacy') {
-      return section !== 'disbursement';
+  // Add auth validation effect
+  useEffect(() => {
+    if (isAuthLoading) {
+      console.log('Waiting for auth initialization...');
+      return;
     }
-    
-    // In checkout mode, only questions section is editable
-    if (currentMode === 'checkout') {
-      return section !== 'questions';
+
+    if (!authModel || !pb.authStore.isValid) {
+      console.log('No valid auth, redirecting to login');
+      navigate('/login', { state: { from: location } });
+      return;
     }
-    
-    // In provider mode (edit/create), all sections are editable
-    return false;
-  };
+  }, [isAuthLoading, authModel, navigate, location]);
 
   useEffect(() => {
     const loadData = async () => {
+      console.log('Loading data for encounter:', { patientId, encounterId, isAuthLoading, hasAuth: !!authModel });
+      
+      // Don't load data until auth is initialized and valid
+      if (isAuthLoading || !authModel || !pb.authStore.isValid) {
+        console.log('Waiting for auth initialization or validation...');
+        return;
+      }
+
       if (!patientId) {
+        console.warn('No patientId found, redirecting to /patients');
         navigate('/patients');
         return;
       }
+
       try {
-        // Load patient data and chief complaints
-        const [patientRecord, complaintsResult] = await Promise.all([
+        setLoading(true);
+        // Load patient data, chief complaints, and diagnoses
+        const [patientRecord, complaintsResult, diagnosesResult] = await Promise.all([
           pb.collection('patients').getOne<Patient>(patientId, {
             $autoCancel: false
           }),
           pb.collection('chief_complaints').getList<ChiefComplaint>(1, 50, {
             sort: 'name',
             $autoCancel: false
+          }),
+          pb.collection('diagnosis').getList<Diagnosis>(1, 50, {
+            sort: 'name',
+            $autoCancel: false
           })
         ]);
-        
+
+        console.log('Patient, complaints, and diagnoses loaded:', { patientRecord, complaintsResult, diagnosesResult });
+
         // Use the calculated age from state if available, otherwise use the patient's stored age
         const patientWithAge = {
           ...patientRecord,
@@ -323,71 +369,76 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         setChiefComplaints(complaintsResult.items.filter((c, index, self) => 
           index === self.findIndex(t => t.name === c.name)
         ));
+        setDiagnoses(diagnosesResult.items.filter((d, index, self) => 
+          index === self.findIndex(t => t.name === d.name)
+        ));
 
         // Load encounter data if viewing, editing, in pharmacy mode, or in checkout mode
         if (encounterId && (currentMode === 'view' || currentMode === 'edit' || currentMode === 'pharmacy' || currentMode === 'checkout')) {
-          const [encounterRecord, disbursements] = await Promise.all([
-            pb.collection('encounters').getOne<EncounterRecord>(encounterId, { 
-              expand: 'chief_complaint',
-              $autoCancel: false
-            }),
-            pb.collection('disbursements').getList(1, 50, {
-              filter: `encounter = "${encounterId}"`,
-              expand: 'medication',
-              $autoCancel: false
-            })
-          ]);
+            const [encounterRecord, disbursements] = await Promise.all([
+              pb.collection('encounters').getOne<EncounterRecord>(encounterId, { 
+                expand: 'chief_complaint,diagnosis',
+                $autoCancel: false
+              }),
+              pb.collection('disbursements').getList(1, 50, {
+                filter: `encounter = "${encounterId}"`,
+                expand: 'medication',
+                $autoCancel: false
+              })
+            ]);
 
-          // Convert disbursements to DisbursementItems
-          const disbursementItems = (disbursements.items as Disbursement[]).map(d => {
-            const medication = d.expand?.medication as MedicationRecord;
-            const multiplier = medication ? d.quantity / medication.fixed_quantity : 1;
-            
-            return {
-              id: d.id,
-              medication: d.medication,
-              quantity: medication?.fixed_quantity || d.quantity,
-              disbursement_multiplier: multiplier,
-              notes: d.notes || '',
-              medicationDetails: medication,
-              isProcessed: d.processed || false,
-              frequency: d.frequency || 'QD',
-              frequency_hours: d.frequency_hours
-            };
-          });
+            console.log('Encounter and disbursements loaded:', { encounterRecord, disbursements });
 
-          const chiefComplaintName = encounterRecord.expand?.chief_complaint?.name || '';
-          const hasOtherComplaint = encounterRecord.other_chief_complaint && encounterRecord.other_chief_complaint.length > 0;
-          
-          // Show other complaint if either the chief complaint is "OTHER" or we have an other_chief_complaint value
-          if (chiefComplaintName === 'OTHER (Custom Text Input)' || hasOtherComplaint) {
-            setShowOtherComplaint(true);
-            setOtherComplaintValue(encounterRecord.other_chief_complaint || '');
-          }
+            // Convert disbursements to DisbursementItems
+            const disbursementItems = (disbursements.items as Disbursement[]).map(d => {
+              const medication = d.expand?.medication as MedicationRecord;
+              const multiplier = medication ? d.quantity / medication.fixed_quantity : 1;
+              
+              return {
+                id: d.id,
+                medication: d.medication,
+                quantity: medication?.fixed_quantity || d.quantity,
+                disbursement_multiplier: multiplier,
+                notes: d.notes || '',
+                medicationDetails: medication,
+                isProcessed: d.processed || false,
+                frequency: d.frequency || 'QD',
+                frequency_hours: d.frequency_hours
+              };
+            });
+
+            const chiefComplaint = encounterRecord.expand?.chief_complaint;
+            const hasOtherComplaint = encounterRecord.other_chief_complaint && encounterRecord.other_chief_complaint.length > 0;
+
+            if (chiefComplaint?.some(c => c.name === 'OTHER (Custom Text Input)') || hasOtherComplaint) {
+              setShowOtherComplaint(true);
+              setOtherComplaintValue(encounterRecord.other_chief_complaint || '');
+            }
 
           // Preserve existing form data and only update with new encounter data
-          setFormData(prev => ({
-            ...prev,
-            ...encounterRecord,
-            height: encounterRecord.height ?? prev.height,
-            weight: encounterRecord.weight ?? prev.weight,
-            temperature: encounterRecord.temperature ?? prev.temperature,
-            heart_rate: encounterRecord.heart_rate ?? prev.heart_rate,
-            systolic_pressure: encounterRecord.systolic_pressure ?? prev.systolic_pressure,
-            diastolic_pressure: encounterRecord.diastolic_pressure ?? prev.diastolic_pressure,
-            pulse_ox: encounterRecord.pulse_ox ?? prev.pulse_ox,
-            allergies: encounterRecord.allergies || patientRecord.allergies || prev.allergies || '',
-            chief_complaint: hasOtherComplaint ? 'OTHER (Custom Text Input)' : chiefComplaintName,
-            disbursements: disbursementItems.length > 0 ? disbursementItems : prev.disbursements || [{
-              medication: '',
-              quantity: 1,
-              disbursement_multiplier: 1,
-              notes: '',
-            }]
-          }));
-          
-          // Store the saved encounter data for reference
-          setSavedEncounter(encounterRecord);
+            setFormData(prev => ({
+                ...prev,
+                ...encounterRecord,
+                height: encounterRecord.height ?? prev.height,
+                weight: encounterRecord.weight ?? prev.weight,
+                temperature: encounterRecord.temperature ?? prev.temperature,
+                heart_rate: encounterRecord.heart_rate ?? prev.heart_rate,
+                systolic_pressure: encounterRecord.systolic_pressure ?? prev.systolic_pressure,
+                diastolic_pressure: encounterRecord.diastolic_pressure ?? prev.diastolic_pressure,
+                pulse_ox: encounterRecord.pulse_ox ?? prev.pulse_ox,
+              allergies: encounterRecord.allergies || patientRecord.allergies || prev.allergies || '',
+                chief_complaint: encounterRecord.chief_complaint || [],
+                other_chief_complaint: encounterRecord.other_chief_complaint || '',
+                disbursements: disbursementItems.length > 0 ? disbursementItems : prev.disbursements || [{
+                  medication: '',
+                  quantity: 1,
+                  disbursement_multiplier: 1,
+                  notes: '',
+                }]
+            }));
+            
+            // Store the saved encounter data for reference
+            setSavedEncounter(encounterRecord);
         } else {
           // For new encounters, initialize with patient data
           setFormData(prev => ({
@@ -408,13 +459,14 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         if (!error?.message?.includes('autocancelled') && 
             !error?.message?.includes('aborted') && 
             !error?.isAbort) {
-          alert('Error loading encounter data. Please try again.');
+          setError('Error loading encounter data. Please try again.');
           navigate('/patients');
         }
       }
     };
+
     loadData();
-  }, [patientId, encounterId, currentMode, navigate, location.state?.initialVitals]);
+  }, [patientId, encounterId, isAuthLoading, authModel, navigate]);
 
   // Subscribe to queue changes with auto-cancellation disabled
   const { records: queueRecords } = useRealtimeSubscription<QueueItem>(
@@ -491,7 +543,33 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         return;
       }
 
-      // First save any disbursement changes
+      // Validate chief complaints first
+      if (!formData.chief_complaint || formData.chief_complaint.length === 0) {
+        alert('At least one chief complaint is required.');
+        return;
+      }
+
+      // Validate "OTHER" chief complaint if selected
+      const hasOtherComplaint = chiefComplaints
+        .filter(c => formData.chief_complaint?.includes(c.id))
+        .some(c => c.name === 'OTHER (Custom Text Input)');
+      
+      if (hasOtherComplaint && (!formData.other_chief_complaint || formData.other_chief_complaint.trim() === '')) {
+        alert('Please specify the other chief complaint.');
+        return;
+      }
+
+      // Save encounter data first
+      const encounterData = {
+        chief_complaint: formData.chief_complaint || [],
+        other_chief_complaint: formData.other_chief_complaint || ''
+      };
+
+      if (encounterId) {
+        await pb.collection('encounters').update(encounterId, encounterData);
+      }
+
+      // Then save disbursement changes
       console.log('Saving disbursement changes');
       await saveDisbursementChanges();
 
@@ -552,22 +630,31 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     }));
   };
 
-  const handleComplaintChange = (_event: any, value: string | null) => {
-    if (value === 'OTHER (Custom Text Input)') {
-      setShowOtherComplaint(true);
+  const handleComplaintChange = (_event: React.SyntheticEvent, values: ChiefComplaint[]) => {
+    console.log('DEBUG: Complaint change:', {
+      values,
+      ids: values.map(v => v.id)
+    });
+    
+    const hasOther = values.some(v => v.name === 'OTHER (Custom Text Input)');
+    setShowOtherComplaint(hasOther);
+    
+    // Always update the chief_complaints array with the IDs
+    const complaintIds = values.map(v => v.id);
+    
+    if (!hasOther) {
       setOtherComplaintValue('');
       setFormData(prev => ({
         ...prev,
-        chief_complaint: value,
+        chief_complaint: complaintIds,
         other_chief_complaint: '',
       }));
     } else {
-      setShowOtherComplaint(false);
-      setOtherComplaintValue('');
       setFormData(prev => ({
         ...prev,
-        chief_complaint: value || '',
-        other_chief_complaint: '',
+        chief_complaint: complaintIds,
+        // Keep existing other_chief_complaint if it exists
+        other_chief_complaint: prev.other_chief_complaint || ''
       }));
     }
   };
@@ -580,11 +667,46 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       other_chief_complaint: value,
     }));
   };
+
+  const handleDiagnosisChange = (_event: React.SyntheticEvent, values: Diagnosis[]) => {
+    console.log('DEBUG: Diagnosis change:', {
+      values,
+      ids: values.map(v => v.id)
+    });
+    
+    const diagnosisIds = values.map(v => v.id);
+    setFormData(prev => ({
+      ...prev,
+      diagnosis: diagnosisIds
+    }));
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     console.log('Form submission started');
+    console.log('DEBUG: Chief complaints validation:', {
+      complaints: formData.chief_complaint,
+      length: formData.chief_complaint?.length,
+      formData
+    });
     
     try {
+      // Validate chief complaints
+      if (!formData.chief_complaint || formData.chief_complaint.length === 0) {
+        alert('At least one chief complaint is required.');
+        return;
+      }
+
+      // Validate "OTHER" chief complaint if selected
+      const hasOtherComplaint = chiefComplaints
+        .filter(c => formData.chief_complaint?.includes(c.id))
+        .some(c => c.name === 'OTHER (Custom Text Input)');
+      
+      if (hasOtherComplaint && (!formData.other_chief_complaint || formData.other_chief_complaint.trim() === '')) {
+        alert('Please specify the other chief complaint.');
+        return;
+      }
+
       // Log the current state for debugging
       console.log('DEBUG Form Data:', {
         formData,
@@ -610,9 +732,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         systolic_pressure: currentMode === 'checkout' ? existingEncounter?.systolic_pressure : (formData.systolic_pressure ? Number(formData.systolic_pressure) : null),
         diastolic_pressure: currentMode === 'checkout' ? existingEncounter?.diastolic_pressure : (formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null),
         pulse_ox: currentMode === 'checkout' ? existingEncounter?.pulse_ox : (formData.pulse_ox ? Number(formData.pulse_ox) : null),
-        chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? 
-          chiefComplaints.find(c => c.name === 'OTHER (Custom Text Input)')?.id || null : 
-          chiefComplaints.find(c => c.name === formData.chief_complaint)?.id || null,
+        chief_complaint: formData.chief_complaint || [],
+        diagnosis: formData.diagnosis || [],
         other_chief_complaint: formData.other_chief_complaint || '',
         past_medical_history: formData.past_medical_history || '',
         subjective_notes: formData.subjective_notes || '',
@@ -775,8 +896,18 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     try {
       // Check for chief complaint when moving to pharmacy or checkout
       if (newStatus === 'ready_pharmacy' || newStatus === 'at_checkout') {
-        if (!formData.chief_complaint) {
-          alert('A chief complaint is required before progressing the encounter.');
+        if (!formData.chief_complaint || formData.chief_complaint.length === 0) {
+          alert('At least one chief complaint is required before progressing the encounter.');
+          return;
+        }
+
+        // If "OTHER" is selected but no text is provided, show error
+        const hasOtherComplaint = chiefComplaints
+          .filter(c => formData.chief_complaint?.includes(c.id))
+          .some(c => c.name === 'OTHER (Custom Text Input)');
+        
+        if (hasOtherComplaint && (!formData.other_chief_complaint || formData.other_chief_complaint.trim() === '')) {
+          alert('Please specify the other chief complaint before progressing.');
           return;
         }
 
@@ -1344,8 +1475,16 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     location: location.state
   });
 
+  if (isAuthLoading) {
+    return <Typography>Initializing...</Typography>;
+  }
+
   if (loading || !patient) {
     return <Typography>Loading...</Typography>;
+  }
+
+  if (error) {
+    return <Typography color="error">{error}</Typography>;
   }
 
   return (
@@ -1632,23 +1771,32 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               <Grid container spacing={2}>
                 <Grid item xs={12}>
                   <FormControl fullWidth>
-                    <Autocomplete
-                      value={formData.chief_complaint || null}
+                    <Autocomplete<ChiefComplaint, true, false, false>
+                      multiple
+                      value={chiefComplaints.filter(c => formData.chief_complaint?.includes(c.id)) || []}
                       onChange={handleComplaintChange}
-                      options={chiefComplaints.map(c => c.name)}
+                      options={chiefComplaints}
+                      getOptionLabel={(option: ChiefComplaint) => option.name}
                       disabled={isFieldDisabled('subjective')}
                       renderInput={(params) => (
                         <TextField
                           {...params}
-                          label="Chief Complaint"
+                          label="Chief Complaints"
                           placeholder="Search complaints..."
+                          helperText="At least one chief complaint is required"
+                          error={formData.chief_complaint?.length === 0}
                         />
                       )}
-                      ListboxProps={{
-                        style: {
-                          maxHeight: '200px'
-                        }
-                      }}
+                      renderTags={(tagValue, getTagProps) =>
+                        tagValue.map((option, index) => (
+                          <Chip
+                            label={option.name}
+                            {...getTagProps({ index })}
+                            key={option.id}
+                          />
+                        ))
+                      }
+                      ListboxProps={{ sx: { maxHeight: '200px' } }}
                     />
                   </FormControl>
                 </Grid>
@@ -1665,6 +1813,35 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     />
                   </Grid>
                 )}
+                <Grid item xs={12}>
+                  <FormControl fullWidth>
+                    <Autocomplete<Diagnosis, true, false, false>
+                      multiple
+                      value={diagnoses.filter(d => formData.diagnosis?.includes(d.id)) || []}
+                      onChange={handleDiagnosisChange}
+                      options={diagnoses}
+                      getOptionLabel={(option: Diagnosis) => option.name}
+                      disabled={isFieldDisabled('subjective')}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Diagnosis"
+                          placeholder="Search diagnoses..."
+                        />
+                      )}
+                      renderTags={(tagValue, getTagProps) =>
+                        tagValue.map((option, index) => (
+                          <Chip
+                            label={option.name}
+                            {...getTagProps({ index })}
+                            key={option.id}
+                          />
+                        ))
+                      }
+                      ListboxProps={{ sx: { maxHeight: '200px' } }}
+                    />
+                  </FormControl>
+                </Grid>
                 {/* Add Additional Details Button */}
                 {!showAdditionalDetails && currentMode !== 'view' && (
                   <Grid item xs={12}>
