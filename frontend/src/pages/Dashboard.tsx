@@ -91,6 +91,14 @@ interface Patient extends Record {
   diastolic_pressure?: number | null;
 }
 
+interface DisplayPreferences {
+  show_priority_dropdown: boolean;
+  show_care_team_assignment: boolean;
+  care_team_count: number;
+  show_gyn_team: boolean;
+  show_optometry_team: boolean;
+}
+
 // Add helper function to format age display
 const formatAgeDisplay = (ageInYears: number): string => {
   if (ageInYears >= 1) {
@@ -764,6 +772,12 @@ const Dashboard: React.FC = () => {
                     Care Team {num}
                   </MenuItem>
                 ))}
+                {displayPreferences.show_gyn_team && (
+                  <MenuItem value="gyn_team">Gyn Team</MenuItem>
+                )}
+                {displayPreferences.show_optometry_team && (
+                  <MenuItem value="optometry_team">Optometry Team</MenuItem>
+                )}
               </Select>
             )}
             <Select

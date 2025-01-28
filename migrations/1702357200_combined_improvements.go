@@ -239,8 +239,11 @@ func init() {
 			"temperature": "F",
 		})
 		defaultSettings.Set("display_preferences", map[string]interface{}{
-			"show_priority_dropdown":   false,
-			"show_provider_assignment": false,
+			"show_priority_dropdown":    false,
+			"show_care_team_assignment": false,
+			"care_team_count":           6,
+			"show_gyn_team":             false,
+			"show_optometry_team":       false,
 		})
 		defaultSettings.Set("last_updated", time.Now().Format("2006-01-02 15:04:05.000Z"))
 
@@ -349,6 +352,69 @@ func init() {
 						},
 					},
 				},
+				&schema.SchemaField{
+					Name:     "past_medical_history",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "chief_complaint",
+					Type:     "relation",
+					Required: false,
+					Options: &schema.RelationOptions{
+						CollectionId: "chief_complaints",
+						MaxSelect:    nil, // Changed to nil to allow multiple selections
+					},
+				},
+				&schema.SchemaField{
+					Name:     "diagnosis",
+					Type:     "relation",
+					Required: false,
+					Options: &schema.RelationOptions{
+						CollectionId: "diagnosis",
+						MaxSelect:    nil, // Allow multiple selections
+					},
+				},
+				&schema.SchemaField{
+					Name:     "other_chief_complaint",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "subjective_notes",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "urinalysis",
+					Type:     "bool",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "blood_sugar",
+					Type:     "bool",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "pregnancy_test",
+					Type:     "bool",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "urinalysis_result",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "blood_sugar_result",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
+					Name:     "pregnancy_test_result",
+					Type:     "text",
+					Required: false,
+				},
 			),
 		}
 
@@ -416,6 +482,14 @@ func init() {
 					},
 				},
 				&schema.SchemaField{
+					Name:     "pulse_ox",
+					Type:     "number",
+					Required: false,
+					Options: &schema.NumberOptions{
+						NoDecimal: true,
+					},
+				},
+				&schema.SchemaField{
 					Name:     "past_medical_history",
 					Type:     "text",
 					Required: false,
@@ -426,7 +500,16 @@ func init() {
 					Required: false,
 					Options: &schema.RelationOptions{
 						CollectionId: "chief_complaints",
-						MaxSelect:    types.Pointer(1),
+						MaxSelect:    nil, // Changed to nil to allow multiple selections
+					},
+				},
+				&schema.SchemaField{
+					Name:     "diagnosis",
+					Type:     "relation",
+					Required: false,
+					Options: &schema.RelationOptions{
+						CollectionId: "diagnosis",
+						MaxSelect:    nil, // Allow multiple selections
 					},
 				},
 				&schema.SchemaField{
@@ -497,6 +580,44 @@ func init() {
 					Name:     "quantity",
 					Type:     "number",
 					Required: true,
+				},
+				&schema.SchemaField{
+					Name:     "frequency",
+					Type:     "select",
+					Required: true,
+					Options: &schema.SelectOptions{
+						MaxSelect: 1,
+						Values: []string{
+							"QD",
+							"BID",
+							"TID",
+							"QID",
+							"QHS",
+							"QAM",
+							"QPM",
+							"PRN",
+							"Q#H",
+							"STAT",
+						},
+					},
+				},
+				&schema.SchemaField{
+					Name:     "frequency_hours",
+					Type:     "number",
+					Required: false,
+					Options: &schema.NumberOptions{
+						Min: types.Pointer(1.0),
+						Max: types.Pointer(24.0),
+					},
+				},
+				&schema.SchemaField{
+					Name: "associated_diagnosis",
+					Type: "relation",
+					Options: &schema.RelationOptions{
+						CollectionId: "diagnosis",
+						MaxSelect:    types.Pointer(1),
+					},
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name:     "notes",
@@ -770,6 +891,8 @@ func init() {
 							"team8",
 							"team9",
 							"team10",
+							"gyn_team",
+							"optometry_team",
 						},
 					},
 				},
@@ -809,6 +932,19 @@ func init() {
 			),
 		}
 
+		// Create diagnosis collection
+		diagnosis := &models.Collection{
+			Name: "diagnosis",
+			Type: "base",
+			Schema: schema.NewSchema(
+				&schema.SchemaField{
+					Name:     "name",
+					Type:     "text",
+					Required: true,
+				},
+			),
+		}
+
 		// Save patients collection with its own rules
 		if err := dao.SaveCollection(patients); err != nil {
 			return err
@@ -827,7 +963,7 @@ func init() {
 
 		collections := []*models.Collection{
 			inventory, encounters, chiefComplaints, questionCategories, questions,
-			responses, bulkDistributions, bulkItems, queue,
+			responses, bulkDistributions, bulkItems, queue, diagnosis,
 		}
 
 		for _, c := range collections {
@@ -1880,6 +2016,49 @@ func init() {
 			},
 		}); err != nil {
 			return err
+		}
+
+		// Seed diagnosis data
+		diagnoses := []string{
+			"HYPERTENSION", "HYPERLIPIDEMIA", "TYPE 2 DIABETES MELLITUS", "OBESITY", "HYPOTHYROIDISM",
+			"ACUTE UPPER RESPIRATORY INFECTION", "URINARY TRACT INFECTION", "ACUTE SINUSITIS",
+			"SEASONAL ALLERGIES (ALLERGIC RHINITIS)", "VITAMIN D DEFICIENCY",
+			"MYOCARDIAL INFARCTION (STEMI/NSTEMI)", "CONGESTIVE HEART FAILURE", "ATRIAL FIBRILLATION",
+			"HYPERTENSIVE EMERGENCY", "STABLE ANGINA", "PERIPHERAL ARTERIAL DISEASE", "PERICARDITIS",
+			"ENDOCARDITIS", "MITRAL VALVE PROLAPSE", "CARDIOMYOPATHY", "ASTHMA",
+			"CHRONIC OBSTRUCTIVE PULMONARY DISEASE (COPD)", "PULMONARY EMBOLISM", "PNEUMONIA",
+			"BRONCHITIS", "OBSTRUCTIVE SLEEP APNEA", "ACUTE RESPIRATORY DISTRESS SYNDROME (ARDS)",
+			"TUBERCULOSIS", "LUNG CANCER", "CYSTIC FIBROSIS",
+			"GASTROESOPHAGEAL REFLUX DISEASE (GERD)", "PEPTIC ULCER DISEASE",
+			"IRRITABLE BOWEL SYNDROME (IBS)", "DIVERTICULITIS",
+			"INFLAMMATORY BOWEL DISEASE (CROHN'S/ULCERATIVE COLITIS)", "CHOLECYSTITIS", "HEPATITIS C",
+			"LIVER CIRRHOSIS", "PANCREATITIS", "APPENDICITIS", "INFLUENZA", "COVID-19", "SEPSIS",
+			"CELLULITIS", "OSTEOMYELITIS", "HIV/AIDS", "BACTERIAL MENINGITIS",
+			"HERPES ZOSTER (SHINGLES)", "SEXUALLY TRANSMITTED INFECTIONS (CHLAMYDIA/GONORRHEA)",
+			"MALARIA", "RHEUMATOID ARTHRITIS", "SYSTEMIC LUPUS ERYTHEMATOSUS", "GOUT",
+			"ANKYLOSING SPONDYLITIS", "SJÖGREN'S SYNDROME", "SCLERODERMA", "VASCULITIS",
+			"POLYMYALGIA RHEUMATICA", "FIBROMYALGIA", "PSORIATIC ARTHRITIS",
+			"STROKE (ISCHEMIC AND HEMORRHAGIC)", "TRANSIENT ISCHEMIC ATTACK", "MIGRAINE",
+			"TENSION HEADACHE", "PARKINSON'S DISEASE", "ALZHEIMER'S DISEASE", "MULTIPLE SCLEROSIS",
+			"SEIZURE DISORDER (EPILEPSY)", "BELL'S PALSY", "GUILLAIN-BARRÉ SYNDROME",
+			"MAJOR DEPRESSIVE DISORDER", "GENERALIZED ANXIETY DISORDER", "BIPOLAR DISORDER",
+			"POST-TRAUMATIC STRESS DISORDER (PTSD)", "SCHIZOPHRENIA", "OBSESSIVE-COMPULSIVE DISORDER",
+			"SUBSTANCE USE DISORDER (ALCOHOL/OPIOIDS)", "ADHD", "INSOMNIA", "ADJUSTMENT DISORDER",
+			"TYPE 1 DIABETES MELLITUS", "HYPERTHYROIDISM", "POLYCYSTIC OVARY SYNDROME (PCOS)",
+			"ADRENAL INSUFFICIENCY (ADDISON'S DISEASE)", "CUSHING'S SYNDROME", "HYPERPARATHYROIDISM",
+			"HYPOPARATHYROIDISM", "OSTEOPOROSIS", "PITUITARY TUMOR (PROLACTINOMA)",
+			"DIABETES INSIPIDUS", "IRON-DEFICIENCY ANEMIA", "SICKLE CELL DISEASE",
+			"DEEP VEIN THROMBOSIS (DVT)", "LEUKEMIA (E.G., ACUTE LYMPHOBLASTIC LEUKEMIA)",
+			"LYMPHOMA (HODGKIN'S/NON-HODGKIN'S)", "BREAST CANCER", "COLON CANCER", "PROSTATE CANCER",
+			"THROMBOCYTOPENIA", "HEMOPHILIA",
+		}
+
+		for _, diagnosisName := range diagnoses {
+			record := models.NewRecord(diagnosis)
+			record.Set("name", diagnosisName)
+			if err := dao.SaveRecord(record); err != nil {
+				return err
+			}
 		}
 
 		return nil

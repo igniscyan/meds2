@@ -53,6 +53,7 @@ interface PatientModalProps {
     heart_rate?: number | null;
     systolic_pressure?: number | null;
     diastolic_pressure?: number | null;
+    pulse_ox?: number | null;
   };
 }
 
@@ -85,6 +86,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     urinalysis: false,
     blood_sugar: false,
     pregnancy_test: false,
+    pulse_ox: null as number | null,
   });
 
   const [addToQueue, setAddToQueue] = useState(true);
@@ -126,6 +128,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         urinalysis: initialData.urinalysis ?? false,
         blood_sugar: initialData.blood_sugar ?? false,
         pregnancy_test: initialData.pregnancy_test ?? false,
+        pulse_ox: initialData.pulse_ox ?? null,
       });
       setDateValue(initialData.dob ? new Date(initialData.dob) : null);
     } else {
@@ -148,6 +151,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         urinalysis: false,
         blood_sugar: false,
         pregnancy_test: false,
+        pulse_ox: null,
       });
       setDateValue(null);
       setUseManualAge(false);
@@ -176,6 +180,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           urinalysis: false,
           blood_sugar: false,
           pregnancy_test: false,
+          pulse_ox: null,
         });
         setDateValue(null);
         setUseManualAge(false);
@@ -881,6 +886,24 @@ export const PatientModal: React.FC<PatientModalProps> = ({
                   value={formData.diastolic_pressure ?? ''}
                   onChange={(e) => handleInputChange('diastolic_pressure', e.target.value ? Number(e.target.value) : null)}
                   disabled={isFieldDisabled('diastolic_pressure')}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Pulse Oximetry (%)"
+                  value={formData.pulse_ox ?? ''}
+                  onChange={(e) => handleInputChange('pulse_ox', e.target.value ? Number(e.target.value) : null)}
+                  disabled={isFieldDisabled('pulse_ox')}
+                  InputProps={{
+                    inputProps: {
+                      min: 0,
+                      max: 100,
+                      step: 1
+                    }
+                  }}
                 />
               </Grid>
             </>

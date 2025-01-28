@@ -28,6 +28,8 @@ interface DisplayPreferences {
   show_priority_dropdown: boolean;
   show_care_team_assignment: boolean;
   care_team_count: number;
+  show_gyn_team: boolean;
+  show_optometry_team: boolean;
 }
 
 interface Settings extends Record {
@@ -41,6 +43,7 @@ const Settings: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -67,6 +70,7 @@ const Settings: React.FC = () => {
     if (!settings) return;
     
     setSaving(true);
+    setSaveSuccess(false);
     try {
       const updatedSettings = await pb.collection('settings').update<Settings>(settings.id, {
         unit_display: settings.unit_display,
@@ -75,6 +79,9 @@ const Settings: React.FC = () => {
       });
       setSettings(updatedSettings);
       setError(null);
+      setSaveSuccess(true);
+      // Auto-hide success message after 3 seconds
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Error saving settings:', err);
       setError('Failed to save settings. Please try again.');
@@ -123,6 +130,12 @@ const Settings: React.FC = () => {
         {error && (
           <Alert severity="error" sx={{ mb: 3 }}>
             {error}
+          </Alert>
+        )}
+
+        {saveSuccess && (
+          <Alert severity="success" sx={{ mb: 3 }}>
+            Settings saved successfully!
           </Alert>
         )}
 
@@ -240,6 +253,38 @@ const Settings: React.FC = () => {
             />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               Set the number of care teams to display in the assignment dropdown.
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.display_preferences.show_gyn_team || false}
+                  onChange={handleDisplayPreferenceChange('show_gyn_team')}
+                  disabled={!settings?.display_preferences.show_care_team_assignment}
+                />
+              }
+              label="Show Gyn Team Option"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Enable to show Gyn Team in the care team assignment dropdown. Only available when care team assignment is enabled.
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.display_preferences.show_optometry_team || false}
+                  onChange={handleDisplayPreferenceChange('show_optometry_team')}
+                  disabled={!settings?.display_preferences.show_care_team_assignment}
+                />
+              }
+              label="Show Optometry Team Option"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Enable to show Optometry Team in the care team assignment dropdown. Only available when care team assignment is enabled.
             </Typography>
           </Box>
 

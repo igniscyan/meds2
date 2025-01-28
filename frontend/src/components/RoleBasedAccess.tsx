@@ -6,8 +6,10 @@ interface UserRecord extends Record {
   role?: 'pharmacy' | 'provider' | 'admin';
 }
 
+type Role = 'pharmacy' | 'provider' | 'admin';
+
 interface RoleBasedAccessProps {
-  requiredRole: 'pharmacy' | 'provider' | 'admin';
+  requiredRole: Role | readonly Role[] | Role[];
   children: React.ReactNode;
 }
 
@@ -50,10 +52,19 @@ export const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({
     return <>{children}</>;
   }
 
-  // Other roles can only access their specific role content
-  if (userRole === requiredRole) {
-    console.log(`RoleBasedAccess: Role match (${userRole}), access granted`);
-    return <>{children}</>;
+  // Check if the required role is an array
+  if (Array.isArray(requiredRole)) {
+    // Check if user's role is in the array of required roles
+    if (requiredRole.includes(userRole)) {
+      console.log(`RoleBasedAccess: Role match (${userRole} in [${requiredRole.join(', ')}]), access granted`);
+      return <>{children}</>;
+    }
+  } else {
+    // Single role check
+    if (userRole === requiredRole) {
+      console.log(`RoleBasedAccess: Role match (${userRole}), access granted`);
+      return <>{children}</>;
+    }
   }
   
   console.log(`RoleBasedAccess: Role mismatch (${userRole} ≠ ${requiredRole}), denying access`);

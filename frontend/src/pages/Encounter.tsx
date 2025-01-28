@@ -104,6 +104,7 @@ interface EncounterRecord extends BaseModel {
   heart_rate: number | null;
   systolic_pressure: number | null;
   diastolic_pressure: number | null;
+  pulse_ox: number | null;
   allergies: string;
   urinalysis: boolean;
   urinalysis_result: string;
@@ -251,6 +252,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     heart_rate: location.state?.initialVitals?.heart_rate ?? null,
     systolic_pressure: location.state?.initialVitals?.systolic_pressure ?? null,
     diastolic_pressure: location.state?.initialVitals?.diastolic_pressure ?? null,
+    pulse_ox: location.state?.initialVitals?.pulse_ox ?? null,
     allergies: '',
     urinalysis: false,
     urinalysis_result: '',
@@ -348,7 +350,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               disbursement_multiplier: multiplier,
               notes: d.notes || '',
               medicationDetails: medication,
-              isProcessed: d.processed || false
+              isProcessed: d.processed || false,
+              frequency: d.frequency || 'QD',
+              frequency_hours: d.frequency_hours
             };
           });
 
@@ -371,6 +375,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             heart_rate: encounterRecord.heart_rate ?? prev.heart_rate,
             systolic_pressure: encounterRecord.systolic_pressure ?? prev.systolic_pressure,
             diastolic_pressure: encounterRecord.diastolic_pressure ?? prev.diastolic_pressure,
+            pulse_ox: encounterRecord.pulse_ox ?? prev.pulse_ox,
             allergies: encounterRecord.allergies || patientRecord.allergies || prev.allergies || '',
             chief_complaint: hasOtherComplaint ? 'OTHER (Custom Text Input)' : chiefComplaintName,
             disbursements: disbursementItems.length > 0 ? disbursementItems : prev.disbursements || [{
@@ -394,6 +399,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             heart_rate: location.state?.initialVitals?.heart_rate ?? null,
             systolic_pressure: location.state?.initialVitals?.systolic_pressure ?? null,
             diastolic_pressure: location.state?.initialVitals?.diastolic_pressure ?? null,
+            pulse_ox: location.state?.initialVitals?.pulse_ox ?? null,
           }));
         }
         setLoading(false);
@@ -603,6 +609,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         heart_rate: currentMode === 'checkout' ? existingEncounter?.heart_rate : (formData.heart_rate ? Number(formData.heart_rate) : null),
         systolic_pressure: currentMode === 'checkout' ? existingEncounter?.systolic_pressure : (formData.systolic_pressure ? Number(formData.systolic_pressure) : null),
         diastolic_pressure: currentMode === 'checkout' ? existingEncounter?.diastolic_pressure : (formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null),
+        pulse_ox: currentMode === 'checkout' ? existingEncounter?.pulse_ox : (formData.pulse_ox ? Number(formData.pulse_ox) : null),
         chief_complaint: formData.chief_complaint === 'OTHER (Custom Text Input)' ? 
           chiefComplaints.find(c => c.name === 'OTHER (Custom Text Input)')?.id || null : 
           chiefComplaints.find(c => c.name === formData.chief_complaint)?.id || null,
@@ -1036,7 +1043,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 const updated = await pb.collection('disbursements').update(disbursement.id, {
                   medication: disbursement.medication,
                   quantity: quantity,
-                  notes: disbursement.notes || ''
+                  notes: disbursement.notes || '',
+                  frequency: disbursement.frequency || 'QD',
+                  frequency_hours: disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null
                 });
                 processedDisbursements.push(updated);
               } else {
@@ -1076,7 +1085,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               medication: disbursement.medication,
               quantity: quantity,
               notes: disbursement.notes || '',
-              processed: false
+              processed: false,
+              frequency: disbursement.frequency || 'QD',
+              frequency_hours: disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null
             });
           processedDisbursements.push(created);
         }
@@ -1153,8 +1164,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         notes: d.notes || '',
         medicationDetails: medication,
         isProcessed: d.processed || false,
-        originalQuantity: medication?.fixed_quantity || d.quantity,
-        originalMultiplier: multiplier
+        frequency: d.frequency || 'QD',
+        frequency_hours: d.frequency_hours
       };
     });
 
@@ -1488,6 +1499,24 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     value={formData.diastolic_pressure ?? ''}
                     onChange={handleInputChange('diastolic_pressure')}
                     disabled={isFieldDisabled('vitals')}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    label="Pulse Oximetry (%)"
+                    value={formData.pulse_ox ?? ''}
+                    onChange={handleInputChange('pulse_ox')}
+                    disabled={isFieldDisabled('vitals')}
+                    InputProps={{
+                      inputProps: {
+                        min: 0,
+                        max: 100,
+                        step: 1
+                      }
+                    }}
                     InputLabelProps={{ shrink: true }}
                   />
                 </Grid>

@@ -20,24 +20,39 @@ export const pb = new PocketBase(API_URL);
 let isClearing = false;
 let currentValidation: Promise<AuthModel | null> | null = null;
 
+// Debug function to log auth state
+const logAuthState = (context: string) => {
+  console.log(`[Auth Debug] ${context}:`, {
+    isValid: pb.authStore.isValid,
+    hasModel: !!pb.authStore.model,
+    modelId: pb.authStore.model?.id,
+    token: pb.authStore.token ? '[PRESENT]' : '[NONE]',
+    isClearing,
+    hasCurrentValidation: !!currentValidation,
+    timestamp: new Date().toISOString()
+  });
+};
+
 // Helper function to validate auth token
 const validateAuthToken = async () => {
+  logAuthState('Starting token validation');
+
   if (isClearing) {
-    console.log('Skipping validation - clearing in progress');
+    console.log('[Auth Debug] Skipping validation - clearing in progress');
     return null;
   }
 
   if (currentValidation) {
-    console.log('Returning existing validation promise');
+    console.log('[Auth Debug] Returning existing validation promise');
     return currentValidation;
   }
 
-  console.log('Starting token validation');
-
   currentValidation = (async () => {
     try {
+      logAuthState('Validating token');
+
       if (!pb.authStore.isValid) {
-        console.log('Auth token is invalid');
+        console.log('[Auth Debug] Auth token is invalid, clearing store');
         isClearing = true;
         pb.authStore.clear();
         isClearing = false;
@@ -45,23 +60,31 @@ const validateAuthToken = async () => {
       }
 
       if (!pb.authStore.model?.id) {
-        console.log('No user model or ID present');
+        console.log('[Auth Debug] No user model or ID present');
         return null;
       }
 
       // Try to refresh the auth token by fetching the current user
+      console.log('[Auth Debug] Fetching current user:', pb.authStore.model.id);
       const user = await pb.collection('users').getOne(pb.authStore.model.id);
-      console.log('Auth token validated successfully');
+      console.log('[Auth Debug] Auth token validated successfully:', {
+        userId: user.id,
+        role: (user as any).role
+      });
       return user as AuthModel;
     } catch (error) {
-      console.error('Token validation failed:', error);
+      console.error('[Auth Debug] Token validation failed:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       isClearing = true;
       pb.authStore.clear();
       isClearing = false;
       return null;
     } finally {
       currentValidation = null;
-      console.log('Validation complete');
+      logAuthState('Validation complete');
     }
   })();
 
@@ -103,19 +126,17 @@ console.log('Initial auth state:', pb.authStore.model);
 
 // Enhanced auth state change handler
 pb.authStore.onChange(async () => {
+  logAuthState('Auth store onChange triggered');
+
   if (isClearing) {
-    console.log('Skipping auth change handler - clearing in progress');
+    console.log('[Auth Debug] Skipping auth change handler - clearing in progress');
     return;
   }
 
-  console.log('Auth state changed:', {
-    isValid: pb.authStore.isValid,
-    model: pb.authStore.model,
-    token: pb.authStore.token ? '[PRESENT]' : '[NONE]'
-  });
-
   const validModel = await validateAuthToken();
   
+  logAuthState('After validation in onChange');
+
   window.dispatchEvent(new CustomEvent('pocketbase-auth-change', {
     detail: { model: validModel }
   }));

@@ -115,7 +115,7 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
           await pb.collection('inventory').update(disbursement.medication, {
             stock: medication.stock - quantity
           });
-
+          
           // Create disbursement record
           await pb.collection('disbursements').create({
             encounter: encounterId,

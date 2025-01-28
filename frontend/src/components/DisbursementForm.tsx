@@ -7,6 +7,10 @@ import {
   Autocomplete,
   Button,
   Typography,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
@@ -34,6 +38,8 @@ export interface DisbursementItem {
   originalQuantity?: number;
   originalMultiplier?: number;
   markedForDeletion?: boolean;
+  frequency?: 'QD' | 'BID' | 'TID' | 'QID' | 'QHS' | 'QAM' | 'QPM' | 'PRN' | 'Q#H' | 'STAT';
+  frequency_hours?: number;
 }
 
 interface DisbursementFormProps {
@@ -155,6 +161,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
       quantity: 1,
       disbursement_multiplier: 1,
       notes: '',
+      frequency: 'QD' as const, // Set default frequency
     };
     
     console.log('STOCK DEBUG: [ADD] Adding new disbursement:', {
@@ -563,6 +570,45 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                           </Typography>
                         )}
                       </Box>
+                    )}
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <FormControl fullWidth>
+                      <InputLabel>Frequency</InputLabel>
+                      <Select
+                        value={disbursement.frequency || 'QD'}
+                        label="Frequency"
+                        onChange={(e) => handleDisbursementChange(index, 'frequency', e.target.value)}
+                        disabled={disabled}
+                      >
+                        <MenuItem value="QD">Once daily (QD)</MenuItem>
+                        <MenuItem value="BID">Twice daily (BID)</MenuItem>
+                        <MenuItem value="TID">Three times daily (TID)</MenuItem>
+                        <MenuItem value="QID">Four times daily (QID)</MenuItem>
+                        <MenuItem value="QHS">At bedtime (QHS)</MenuItem>
+                        <MenuItem value="QAM">Every morning (QAM)</MenuItem>
+                        <MenuItem value="QPM">Every evening (QPM)</MenuItem>
+                        <MenuItem value="PRN">As needed (PRN)</MenuItem>
+                        <MenuItem value="Q#H">Every # hours (Q#H)</MenuItem>
+                        <MenuItem value="STAT">Immediately (STAT)</MenuItem>
+                      </Select>
+                    </FormControl>
+                    {disbursement.frequency === 'Q#H' && (
+                      <TextField
+                        fullWidth
+                        label="Hours"
+                        type="number"
+                        value={disbursement.frequency_hours || ''}
+                        onChange={(e) => handleDisbursementChange(index, 'frequency_hours', e.target.value)}
+                        disabled={disabled}
+                        InputProps={{
+                          inputProps: {
+                            min: 1,
+                            max: 24
+                          }
+                        }}
+                        sx={{ mt: 2 }}
+                      />
                     )}
                   </Grid>
                   <Grid item xs={12} sm={2}>

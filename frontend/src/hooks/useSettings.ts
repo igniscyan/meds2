@@ -12,6 +12,8 @@ interface DisplayPreferences {
   show_priority_dropdown: boolean;
   show_care_team_assignment: boolean;
   care_team_count: number;
+  show_gyn_team: boolean;
+  show_optometry_team: boolean;
 }
 
 interface Settings extends Record {
@@ -41,7 +43,9 @@ const defaultUnitDisplay: UnitDisplay = {
 const defaultDisplayPreferences: DisplayPreferences = {
   show_priority_dropdown: false,
   show_care_team_assignment: false,
-  care_team_count: 6
+  care_team_count: 6,
+  show_gyn_team: false,
+  show_optometry_team: false
 };
 
 export const useSettings = (): UseSettingsReturn => {

@@ -16,7 +16,7 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
-import { pb } from '../atoms/auth';
+import { RoleBasedAccess } from '../components/RoleBasedAccess';
 import { Record } from 'pocketbase';
 
 interface InventoryItem extends Record {
@@ -63,80 +63,82 @@ const Inventory: React.FC = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>Inventory</Typography>
-      
-      {/* Search Bar */}
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <TextField
-          fullWidth
-          placeholder="Search by drug name or category..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          variant="outlined"
-          size="small"
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-        />
-      </Paper>
+    <RoleBasedAccess requiredRole={['provider', 'pharmacy'] as const}>
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h4" gutterBottom>Inventory</Typography>
+        
+        {/* Search Bar */}
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <TextField
+            fullWidth
+            placeholder="Search by drug name or category..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            variant="outlined"
+            size="small"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Paper>
 
-      {/* Inventory Table */}
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Drug Name</TableCell>
-              <TableCell>Dose</TableCell>
-              <TableCell align="right">Drug Category</TableCell>
-              <TableCell align="right">Stock</TableCell>
-              <TableCell align="right">Fixed Quantity</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading ? (
+        {/* Inventory Table */}
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={4} align="center">Loading...</TableCell>
+                <TableCell>Drug Name</TableCell>
+                <TableCell>Dose</TableCell>
+                <TableCell align="right">Drug Category</TableCell>
+                <TableCell align="right">Stock</TableCell>
+                <TableCell align="right">Fixed Quantity</TableCell>
               </TableRow>
-            ) : filteredInventory?.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} align="center">No inventory items found</TableCell>
-              </TableRow>
-            ) : (
-              filteredInventory
-                ?.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                .map((item: InventoryItem) => (
-                  <TableRow 
-                    key={item.id}
-                    sx={{ 
-                      backgroundColor: item.stock <= item.fixed_quantity ? '#fff4e5' : 'inherit'
-                    }}
-                  >
-                    <TableCell>{item.drug_name}</TableCell>
-                    <TableCell>{item.dose}</TableCell>
-                    <TableCell align="right">{item.drug_category}</TableCell>
-                    <TableCell align="right">{item.stock}</TableCell>
-                    <TableCell align="right">{item.fixed_quantity}</TableCell>
-                  </TableRow>
-                ))
-            )}
-          </TableBody>
-        </Table>
-        <TablePagination
-          rowsPerPageOptions={[5, 10, 25, 50, 100]}
-          component="div"
-          count={filteredInventory?.length || 0}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-        />
-      </TableContainer>
-    </Box>
+            </TableHead>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={4} align="center">Loading...</TableCell>
+                </TableRow>
+              ) : filteredInventory?.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} align="center">No inventory items found</TableCell>
+                </TableRow>
+              ) : (
+                filteredInventory
+                  ?.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                  .map((item: InventoryItem) => (
+                    <TableRow 
+                      key={item.id}
+                      sx={{ 
+                        backgroundColor: item.stock <= item.fixed_quantity ? '#fff4e5' : 'inherit'
+                      }}
+                    >
+                      <TableCell>{item.drug_name}</TableCell>
+                      <TableCell>{item.dose}</TableCell>
+                      <TableCell align="right">{item.drug_category}</TableCell>
+                      <TableCell align="right">{item.stock}</TableCell>
+                      <TableCell align="right">{item.fixed_quantity}</TableCell>
+                    </TableRow>
+                  ))
+              )}
+            </TableBody>
+          </Table>
+          <TablePagination
+            rowsPerPageOptions={[5, 10, 25, 50, 100]}
+            component="div"
+            count={filteredInventory?.length || 0}
+            rowsPerPage={rowsPerPage}
+            page={page}
+            onPageChange={handleChangePage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+          />
+        </TableContainer>
+      </Box>
+    </RoleBasedAccess>
   );
 };
 
