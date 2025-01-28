@@ -128,6 +128,7 @@ interface EncounterRecord extends BaseModel {
   chief_complaint: string[];
   diagnosis: string[];
   other_chief_complaint?: string;
+  other_diagnosis?: string;
   history_of_present_illness?: string;
   assessment?: string;
   plan?: string;
@@ -229,6 +230,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     chief_complaint: [],
     diagnosis: [],
     other_chief_complaint: '',
+    other_diagnosis: '',
     past_medical_history: '',
     assessment: '',
     plan: '',
@@ -238,6 +240,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [diagnoses, setDiagnoses] = useState<Diagnosis[]>([]);
   const [showOtherComplaint, setShowOtherComplaint] = useState(false);
   const [otherComplaintValue, setOtherComplaintValue] = useState('');
+  const [showOtherDiagnosis, setShowOtherDiagnosis] = useState(false);
+  const [otherDiagnosisValue, setOtherDiagnosisValue] = useState('');
   const [questionResponses, setQuestionResponses] = useState<QuestionResponse[]>([]);
   const [savedEncounter, setSavedEncounter] = useState<SavedEncounter | null>(null);
   const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
@@ -369,11 +373,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           pb.collection('patients').getOne<Patient>(patientId, {
             $autoCancel: false
           }),
-          pb.collection('chief_complaints').getList<ChiefComplaint>(1, 50, {
+          pb.collection('chief_complaints').getList<ChiefComplaint>(1, 1000, {
             sort: 'name',
             $autoCancel: false
           }),
-          pb.collection('diagnosis').getList<Diagnosis>(1, 50, {
+          pb.collection('diagnosis').getList<Diagnosis>(1, 1000, {
             sort: 'name',
             $autoCancel: false
           })
@@ -432,13 +436,20 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
             const chiefComplaint = encounterRecord.expand?.chief_complaint;
             const hasOtherComplaint = encounterRecord.other_chief_complaint && encounterRecord.other_chief_complaint.length > 0;
+            const diagnosis = encounterRecord.expand?.diagnosis;
+            const hasOtherDiagnosis = encounterRecord.other_diagnosis && encounterRecord.other_diagnosis.length > 0;
 
             if (chiefComplaint?.some(c => c.name === 'OTHER (Custom Text Input)') || hasOtherComplaint) {
               setShowOtherComplaint(true);
               setOtherComplaintValue(encounterRecord.other_chief_complaint || '');
             }
 
-          // Preserve existing form data and only update with new encounter data
+            if (diagnosis?.some(d => d.name === 'OTHER (Custom Text Input)') || hasOtherDiagnosis) {
+              setShowOtherDiagnosis(true);
+              setOtherDiagnosisValue(encounterRecord.other_diagnosis || '');
+            }
+
+            // Preserve existing form data and only update with new encounter data
             setFormData(prev => ({
                 ...prev,
                 ...encounterRecord,
@@ -449,9 +460,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 systolic_pressure: encounterRecord.systolic_pressure ?? prev.systolic_pressure,
                 diastolic_pressure: encounterRecord.diastolic_pressure ?? prev.diastolic_pressure,
                 pulse_ox: encounterRecord.pulse_ox ?? prev.pulse_ox,
-              allergies: encounterRecord.allergies || patientRecord.allergies || prev.allergies || '',
+                allergies: encounterRecord.allergies || patientRecord.allergies || prev.allergies || '',
                 chief_complaint: encounterRecord.chief_complaint || [],
                 other_chief_complaint: encounterRecord.other_chief_complaint || '',
+                diagnosis: encounterRecord.diagnosis || [],
+                other_diagnosis: encounterRecord.other_diagnosis || '',
                 disbursements: disbursementItems.length > 0 ? disbursementItems : prev.disbursements || [{
                   medication: '',
                   quantity: 1,
@@ -697,10 +710,35 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       ids: values.map(v => v.id)
     });
     
+    const hasOther = values.some(v => v.name === 'OTHER (Custom Text Input)');
+    setShowOtherDiagnosis(hasOther);
+    
+    // Always update the diagnosis array with the IDs
     const diagnosisIds = values.map(v => v.id);
+    
+    if (!hasOther) {
+      setOtherDiagnosisValue('');
+      setFormData(prev => ({
+        ...prev,
+        diagnosis: diagnosisIds,
+        other_diagnosis: '',
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        diagnosis: diagnosisIds,
+        // Keep existing other_diagnosis if it exists
+        other_diagnosis: prev.other_diagnosis || ''
+      }));
+    }
+  };
+
+  const handleOtherDiagnosisChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value.toUpperCase();
+    setOtherDiagnosisValue(value);
     setFormData(prev => ({
       ...prev,
-      diagnosis: diagnosisIds
+      other_diagnosis: value,
     }));
   };
 
@@ -1885,6 +1923,19 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     />
                   </FormControl>
                 </Grid>
+                {(showOtherDiagnosis || formData.other_diagnosis) && (
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Specify Other Diagnosis"
+                      value={currentMode === 'view' ? formData.other_diagnosis : otherDiagnosisValue}
+                      onChange={handleOtherDiagnosisChange}
+                      disabled={isFieldDisabled('subjective')}
+                      placeholder="Enter new diagnosis"
+                      helperText="Please use all caps for consistency"
+                    />
+                  </Grid>
+                )}
                 {/* Add Additional Details Button */}
                 {!showAdditionalDetails && currentMode !== 'view' && (
                   <Grid item xs={12}>
