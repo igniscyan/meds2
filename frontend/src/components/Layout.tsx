@@ -61,6 +61,7 @@ export const Layout: React.FC = () => {
     { text: 'Patients', path: '/patients' },
     { text: 'Inventory', path: '/inventory', role: ['pharmacy', 'provider'] as const },
     { text: 'Reports', path: '/reports', role: 'admin' as const },
+    { text: 'Data Management', path: '/data-management', role: 'admin' as const },
   ];
 
   const drawer = (

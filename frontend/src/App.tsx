@@ -20,6 +20,7 @@ import AuthGuard from './components/AuthGuard';
 import { authModelAtom, isLoadingAtom, useAuthChangeEffect } from './atoms/auth';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
+import DataManagement from './pages/DataManagement';
 
 const App: React.FC = () => {
   const user = useAtomValue(authModelAtom);
@@ -99,6 +100,8 @@ const App: React.FC = () => {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/data-management" element={<DataManagement />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Route>
           </Routes>
         </LocalizationProvider>
