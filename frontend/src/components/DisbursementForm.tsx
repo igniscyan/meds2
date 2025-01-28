@@ -38,8 +38,10 @@ export interface DisbursementItem {
   originalQuantity?: number;
   originalMultiplier?: number;
   markedForDeletion?: boolean;
+  isProcessed?: boolean;
   frequency?: 'QD' | 'BID' | 'TID' | 'QID' | 'QHS' | 'QAM' | 'QPM' | 'PRN' | 'Q#H' | 'STAT';
   frequency_hours?: number;
+  associated_diagnosis?: string;
 }
 
 interface DisbursementFormProps {
@@ -50,6 +52,7 @@ interface DisbursementFormProps {
   initialDisbursements?: any[];
   onDisbursementsChange: (disbursements: any[]) => void;
   onDisbursementComplete?: () => void;
+  currentDiagnoses?: { id: string; name: string; }[];
 }
 
 export const DisbursementForm: React.FC<DisbursementFormProps> = ({
@@ -60,6 +63,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   initialDisbursements = [],
   onDisbursementsChange,
   onDisbursementComplete,
+  currentDiagnoses = [],
 }) => {
   const { records: medications, loading, error } = useRealtimeSubscription<MedicationRecord>(
     'inventory',
@@ -74,6 +78,10 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     multiplier: number;
     id: string;
     medicationDetails?: MedicationRecord;
+    associated_diagnosis?: string;
+    notes?: string;
+    frequency?: 'QD' | 'BID' | 'TID' | 'QID' | 'QHS' | 'QAM' | 'QPM' | 'PRN' | 'Q#H' | 'STAT';
+    frequency_hours?: number;
   }>>(new Map());
 
   // Track medications that were deleted from their initial state
@@ -89,55 +97,68 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     quantity: number;
     disbursement_multiplier: number;
     medicationDetails?: MedicationRecord;
+    notes?: string;
+    frequency?: string;
+    frequency_hours?: number;
+    associated_diagnosis?: string;
   }[]>([]);
 
   // Initialize disbursements and their initial state
   useEffect(() => {
     if (initialDisbursements?.length) {
+      console.log('DEBUG: Initial disbursements received:', initialDisbursements.map(d => ({
+        id: d.id,
+        medication: d.medication,
+        associated_diagnosis: d.associated_diagnosis,
+        raw: d
+      })));
+
       const newInitialState = new Map();
       const processedDisbursements = initialDisbursements.map(d => {
         // Only track initial state for disbursements that have an ID (exist in database)
         if (d.medication && d.id) {
-          console.log('STOCK DEBUG: Tracking initial state for:', {
+          console.log('DEBUG: Processing disbursement for initial state:', {
             id: d.id,
             medication: d.medication,
-            quantity: d.quantity,
-            multiplier: d.disbursement_multiplier,
-            medicationDetails: d.medicationDetails
+            associated_diagnosis: d.associated_diagnosis,
+            raw: d
           });
           
           newInitialState.set(d.medication, {
             quantity: d.quantity,
             multiplier: d.disbursement_multiplier,
-            id: d.id,  // Track the original ID
-            medicationDetails: d.medicationDetails  // Track medication details
+            id: d.id,
+            medicationDetails: d.medicationDetails,
+            associated_diagnosis: d.associated_diagnosis,
+            notes: d.notes,
+            frequency: d.frequency as 'QD' | 'BID' | 'TID' | 'QID' | 'QHS' | 'QAM' | 'QPM' | 'PRN' | 'Q#H' | 'STAT',
+            frequency_hours: d.frequency_hours
           });
         }
         return { ...d };
       });
+
+      console.log('DEBUG: Processed disbursements:', processedDisbursements.map(d => ({
+        id: d.id,
+        medication: d.medication,
+        associated_diagnosis: d.associated_diagnosis,
+        raw: d
+      })));
       
       // Only set initial state if it hasn't been set before
       setInitialMedicationState(prev => {
-        if (prev.size === 0) {
-          console.log('STOCK DEBUG: Setting initial state for the first time');
-          return newInitialState;
-        }
-        console.log('STOCK DEBUG: Preserving existing initial state:', {
-          existing: Array.from(prev.entries()),
-          attempted: Array.from(newInitialState.entries())
+        const newState = prev.size === 0 ? newInitialState : prev;
+        console.log('DEBUG: Setting initial medication state:', {
+          hadPreviousState: prev.size > 0,
+          newStateEntries: Array.from(newState.entries()).map(([key, value]) => ({
+            medication: key,
+            associated_diagnosis: value.associated_diagnosis
+          }))
         });
-        return prev;
+        return newState;
       });
       
       setDisbursements(processedDisbursements);
-      // Clear any deleted medications when initializing
-      setDeletedMedications(new Map());
-      
-      console.log('STOCK DEBUG: Initialized with state:', {
-        disbursements: processedDisbursements,
-        initialState: Array.from(newInitialState.entries()),
-        trackedMedications: Array.from(newInitialState.keys())
-      });
     }
   }, [initialDisbursements]);
 
@@ -150,7 +171,11 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
         medication: d.medication,
         quantity: d.quantity,
         disbursement_multiplier: d.disbursement_multiplier,
-        medicationDetails: d.medicationDetails
+        medicationDetails: d.medicationDetails,
+        notes: d.notes,
+        frequency: d.frequency,
+        frequency_hours: d.frequency_hours,
+        associated_diagnosis: d.associated_diagnosis
       })));
     }
   }, [initialDisbursements]);
@@ -237,9 +262,39 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     field: keyof DisbursementItem,
     value: any
   ) => {
+    console.log('DEBUG: Disbursement change:', {
+      index,
+      field,
+      value,
+      currentDisbursement: disbursements[index]
+    });
+
     const newDisbursements = [...disbursements];
     const disbursement = {...newDisbursements[index]};
     const previousMedicationId = disbursement.medication;
+
+    if (field === 'associated_diagnosis') {
+      console.log('DEBUG: Handling associated_diagnosis change:', {
+        oldValue: disbursement.associated_diagnosis,
+        newValue: value,
+        disbursementId: disbursement.id,
+        medication: disbursement.medication
+      });
+      
+      disbursement.associated_diagnosis = value;
+      newDisbursements[index] = disbursement;
+      setDisbursements(newDisbursements);
+      onDisbursementsChange(newDisbursements);
+      return;
+    }
+    
+    if (field === 'notes' || field === 'frequency' || field === 'frequency_hours') {
+      disbursement[field] = value;
+      newDisbursements[index] = disbursement;
+      setDisbursements(newDisbursements);
+      onDisbursementsChange(newDisbursements);
+      return;
+    }
     
     if (field === 'medication') {
       const medicationId = typeof value === 'object' ? value?.id : value;
@@ -295,40 +350,39 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
           disbursement.quantity = initialState.quantity;
           disbursement.disbursement_multiplier = initialState.multiplier;
           disbursement.id = initialState.id; // Restore the original ID
+          disbursement.associated_diagnosis = initialState.associated_diagnosis; // Restore associated diagnosis
+          disbursement.notes = initialState.notes; // Restore notes
+          disbursement.frequency = initialState.frequency; // Restore frequency
+          disbursement.frequency_hours = initialState.frequency_hours; // Restore frequency hours
           
           console.log('STOCK DEBUG: [RESTORE] Using initial state:', {
             medication: medicationRecord?.drug_name,
             quantity: initialState.quantity,
             multiplier: initialState.multiplier,
             total: initialState.quantity * initialState.multiplier,
-            restoredId: initialState.id
+            restoredId: initialState.id,
+            associated_diagnosis: initialState.associated_diagnosis,
+            notes: initialState.notes,
+            frequency: initialState.frequency,
+            frequency_hours: initialState.frequency_hours
           });
         } else if (medicationRecord) {
-          // In pharmacy mode, keep the existing ID
+          // In pharmacy mode, keep the existing ID and fields
           if (!shouldPreserveId) {
             disbursement.id = undefined;
+            // Only clear these fields if not preserving state
+            disbursement.associated_diagnosis = undefined;
+            disbursement.notes = '';
+            disbursement.frequency = 'QD';
+            disbursement.frequency_hours = undefined;
           }
           // Set new quantities
           disbursement.quantity = medicationRecord.fixed_quantity;
           disbursement.disbursement_multiplier = 1;
-          
-          console.log('STOCK DEBUG: [NEW] Setting new medication:', {
-            medication: medicationRecord.drug_name,
-            currentStock: medicationRecord.stock,
-            fixedQuantity: medicationRecord.fixed_quantity,
-            isCompletelyNew: !shouldPreserveId,
-            preservingId: shouldPreserveId
-          });
         }
       } else {
         // If clearing the medication, track removal if it was initial and not in pharmacy mode
         if (previousMedicationId && initialMedicationState.has(previousMedicationId) && mode !== 'pharmacy') {
-          console.log('STOCK DEBUG: [REMOVE] Via clearing medication:', {
-            medication: disbursement.medicationDetails?.drug_name,
-            wasInitial: true,
-            currentDeletedState: Array.from(deletedMedications.entries())
-          });
-          
           setDeletedMedications(prev => {
             const newMap = new Map(prev);
             newMap.set(previousMedicationId, {
@@ -342,9 +396,13 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
         
         disbursement.medicationDetails = undefined;
         disbursement.medication = '';
-        // Only clear ID if not in pharmacy mode
-        if (mode !== 'pharmacy') {
+        // Only clear these fields if not in pharmacy mode
+        if (!mode || mode !== 'pharmacy') {
           disbursement.id = undefined;
+          disbursement.associated_diagnosis = undefined;
+          disbursement.notes = '';
+          disbursement.frequency = 'QD';
+          disbursement.frequency_hours = undefined;
         }
       }
     } else if (field === 'quantity' || field === 'disbursement_multiplier') {
@@ -377,8 +435,6 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
         }
       }
       disbursement[field] = numValue;
-    } else {
-      disbursement[field] = value;
     }
     
     newDisbursements[index] = disbursement;
@@ -446,223 +502,181 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
         <Typography>Loading medications...</Typography>
       ) : (
         <>
-          {disbursements.map((disbursement, index) => (
-            <Box 
-              key={index} 
-              sx={{ 
-                mb: 2, 
-                display: 'flex', 
-                alignItems: 'flex-start', 
-                gap: 2,
-                opacity: disbursement.markedForDeletion ? 0.5 : 1,
-                position: 'relative'
-              }}
-            >
-              {disbursement.markedForDeletion && (
-                <Typography 
-                  variant="caption" 
-                  sx={{ 
-                    position: 'absolute', 
-                    top: -10, 
-                    left: 0, 
-                    color: 'error.main',
-                    backgroundColor: 'background.paper',
-                    px: 1
-                  }}
-                >
-                  Marked for Deletion
-                </Typography>
-              )}
-              <Box sx={{ flex: 1 }}>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={4}>
-                    <Autocomplete
-                      options={medications || []}
-                      getOptionLabel={(option) => {
-                        if (typeof option === 'string') return option;
-                        const parts = [];
-                        parts.push(option.drug_name);
-                        if (option.dose) parts.push(option.dose);
-                        if (option.unit_size) parts.push(`(${option.unit_size})`);
-                        return parts.join(' ');
-                      }}
-                      filterOptions={(options, { inputValue }) => {
-                        const searchTerms = inputValue.toLowerCase().split(' ');
-                        return options.filter(option => {
-                          if (typeof option === 'string') return false;
-                          const drugName = option.drug_name.toLowerCase();
-                          const category = option.drug_category.toLowerCase();
-                          
-                          // Check if all search terms are found in either drug name or category
-                          return searchTerms.every(term => 
-                            drugName.includes(term) || category.includes(term)
-                          );
-                        });
-                      }}
-                      isOptionEqualToValue={(option, value) => 
-                        option.id === (typeof value === 'string' ? value : value?.id)
-                      }
-                      value={disbursement.medicationDetails || null}
-                      onChange={(_, newValue) => 
-                        handleDisbursementChange(index, 'medication', newValue)
-                      }
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          label="Medication"
-                          fullWidth
-                          placeholder="Search by name or category..."
-                        />
-                      )}
-                      renderOption={(props, option) => (
-                        <li {...props}>
-                          <Box sx={{ 
-                            width: '100%', 
-                            display: 'flex', 
-                            justifyContent: 'space-between',
-                            alignItems: 'center'
-                          }}>
-                            <Typography>
-                              {option.drug_name}
-                              {option.dose && ` ${option.dose}`}
-                              {option.unit_size && ` (${option.unit_size})`}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ ml: 2 }}>
-                              {option.drug_category}
-                            </Typography>
-                          </Box>
-                        </li>
-                      )}
-                      disabled={disabled}
-                    />
-                  </Grid>
-                  <Grid item xs={12} sm={2}>
-                    <TextField
-                      fullWidth
-                      label="Fixed Quantity"
-                      type="number"
-                      value={disbursement.medicationDetails?.fixed_quantity || disbursement.quantity}
-                      disabled={true}
-                      InputProps={{
-                        readOnly: true,
-                      }}
-                    />
-                    {disbursement.medicationDetails && (
-                      <Box sx={{ mt: 0.5 }}>
-                        <Typography variant="caption" color="textSecondary">
-                          Current Stock: {disbursement.medicationDetails.stock}
-                        </Typography>
-                        {disbursement.quantity && disbursement.disbursement_multiplier && (
-                          <Typography
-                            variant="caption"
-                            sx={{ 
-                              display: 'block',
-                              color: calculateStockChange(disbursement, index) === null ? 'text.secondary' : 'error.main'
-                            }}
-                          >
-                            {(() => {
-                              const stockChange = calculateStockChange(disbursement, index);
-                              if (stockChange === null) {
-                                return 'No Change (Initial)';
-                              }
-                              return `→ ${disbursement.medicationDetails.stock + stockChange} (${stockChange})`;
-                            })()}
-                          </Typography>
-                        )}
-                      </Box>
-                    )}
-                  </Grid>
-                  <Grid item xs={12} sm={2}>
-                    <FormControl fullWidth>
-                      <InputLabel>Frequency</InputLabel>
-                      <Select
-                        value={disbursement.frequency || 'QD'}
-                        label="Frequency"
-                        onChange={(e) => handleDisbursementChange(index, 'frequency', e.target.value)}
-                        disabled={disabled}
-                      >
-                        <MenuItem value="QD">Once daily (QD)</MenuItem>
-                        <MenuItem value="BID">Twice daily (BID)</MenuItem>
-                        <MenuItem value="TID">Three times daily (TID)</MenuItem>
-                        <MenuItem value="QID">Four times daily (QID)</MenuItem>
-                        <MenuItem value="QHS">At bedtime (QHS)</MenuItem>
-                        <MenuItem value="QAM">Every morning (QAM)</MenuItem>
-                        <MenuItem value="QPM">Every evening (QPM)</MenuItem>
-                        <MenuItem value="PRN">As needed (PRN)</MenuItem>
-                        <MenuItem value="Q#H">Every # hours (Q#H)</MenuItem>
-                        <MenuItem value="STAT">Immediately (STAT)</MenuItem>
-                      </Select>
-                    </FormControl>
-                    {disbursement.frequency === 'Q#H' && (
+          {disbursements.map((disbursement, index) => {
+            const stockChange = calculateStockChange(disbursement, index);
+            const medication = disbursement.medicationDetails;
+            const isProcessed = mode === 'pharmacy' && disbursement.isProcessed;
+            const showStockChange = !disbursement.markedForDeletion && stockChange !== null;
+
+            if (disbursement.markedForDeletion) return null;
+
+            return (
+              <Grid container spacing={2} alignItems="center" key={index} sx={{ mb: 2 }}>
+                {/* Medication Selection - wider now */}
+                <Grid item xs={4}>
+                  <Autocomplete
+                    value={medication || null}
+                    onChange={(_, newValue) => handleDisbursementChange(index, 'medication', newValue)}
+                    options={medications || []}
+                    getOptionLabel={(option) => option.drug_name}
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    renderInput={(params) => (
                       <TextField
-                        fullWidth
-                        label="Hours"
-                        type="number"
-                        value={disbursement.frequency_hours || ''}
-                        onChange={(e) => handleDisbursementChange(index, 'frequency_hours', e.target.value)}
-                        disabled={disabled}
-                        InputProps={{
-                          inputProps: {
-                            min: 1,
-                            max: 24
-                          }
-                        }}
-                        sx={{ mt: 2 }}
+                        {...params}
+                        label="Medication"
+                        size="small"
+                        disabled={disabled || isProcessed}
                       />
                     )}
-                  </Grid>
-                  <Grid item xs={12} sm={2}>
-                    <TextField
-                      fullWidth
-                      label="Multiplier"
-                      type="number"
-                      value={disbursement.disbursement_multiplier}
-                      onChange={(e) => 
-                        handleDisbursementChange(index, 'disbursement_multiplier', Number(e.target.value))
-                      }
-                      disabled={disabled}
-                      inputProps={{ min: 1 }}
-                    />
-                    {disbursement.medicationDetails && (
-                      <Typography variant="caption" color="textSecondary">
-                        Total: {calculateTotalQuantity(disbursement)}
+                  />
+                </Grid>
+
+                {/* Fixed Quantity - narrower */}
+                <Grid item xs={1}>
+                  <TextField
+                    fullWidth
+                    label="Qty"
+                    type="number"
+                    size="small"
+                    value={disbursement.quantity}
+                    onChange={(e) => handleDisbursementChange(index, 'quantity', e.target.value)}
+                    disabled={true}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+
+                {/* Multiplier - narrower */}
+                <Grid item xs={1}>
+                  <TextField
+                    fullWidth
+                    label="×"
+                    type="number"
+                    size="small"
+                    value={disbursement.disbursement_multiplier}
+                    onChange={(e) => handleDisbursementChange(index, 'disbursement_multiplier', e.target.value)}
+                    disabled={disabled || isProcessed}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+
+                {/* Stock and Change Display */}
+                <Grid item xs={1}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <Typography variant="body2" color="textSecondary">
+                      Stock: {medication?.stock || 0}
+                    </Typography>
+                    {!disbursement.markedForDeletion && (
+                      <Typography
+                        variant="body2"
+                        color="error.main"
+                        sx={{ fontWeight: 'medium' }}
+                      >
+                        ({-calculateTotalQuantity(disbursement)})
                       </Typography>
                     )}
-                  </Grid>
-                  <Grid item xs={12} sm={3}>
+                  </Box>
+                </Grid>
+
+                {/* Frequency */}
+                <Grid item xs={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Frequency</InputLabel>
+                    <Select
+                      value={disbursement.frequency || 'QD'}
+                      onChange={(e) => handleDisbursementChange(index, 'frequency', e.target.value)}
+                      disabled={disabled || isProcessed}
+                      label="Frequency"
+                    >
+                      <MenuItem value="QD">QD (Once daily)</MenuItem>
+                      <MenuItem value="BID">BID (Twice daily)</MenuItem>
+                      <MenuItem value="TID">TID (Three times daily)</MenuItem>
+                      <MenuItem value="QID">QID (Four times daily)</MenuItem>
+                      <MenuItem value="QHS">QHS (At bedtime)</MenuItem>
+                      <MenuItem value="QAM">QAM (Every morning)</MenuItem>
+                      <MenuItem value="QPM">QPM (Every evening)</MenuItem>
+                      <MenuItem value="PRN">PRN (As needed)</MenuItem>
+                      <MenuItem value="Q#H">Q#H (Every # hours)</MenuItem>
+                      <MenuItem value="STAT">STAT (Immediately)</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                {/* Hours field if Q#H is selected */}
+                {disbursement.frequency === 'Q#H' && (
+                  <Grid item xs={1}>
                     <TextField
                       fullWidth
-                      label="Notes"
-                      value={disbursement.notes}
-                      onChange={(e) => 
-                        handleDisbursementChange(index, 'notes', e.target.value)
-                      }
-                      disabled={disabled}
+                      label="Hours"
+                      type="number"
+                      size="small"
+                      value={disbursement.frequency_hours || ''}
+                      onChange={(e) => handleDisbursementChange(index, 'frequency_hours', e.target.value)}
+                      disabled={disabled || isProcessed}
+                      InputLabelProps={{ shrink: true }}
                     />
                   </Grid>
+                )}
+
+                {/* Associated Diagnosis - before Notes */}
+                <Grid item xs={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Associated Diagnosis</InputLabel>
+                    <Select
+                      value={disbursement.associated_diagnosis || ''}
+                      onChange={(e) => handleDisbursementChange(index, 'associated_diagnosis', e.target.value)}
+                      disabled={disabled || isProcessed}
+                      label="Associated Diagnosis"
+                    >
+                      <MenuItem value="">
+                        <em>None</em>
+                      </MenuItem>
+                      {currentDiagnoses.map((diagnosis) => (
+                        <MenuItem key={diagnosis.id} value={diagnosis.id}>
+                          {diagnosis.name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                 </Grid>
-              </Box>
-              {!disabled && (
-                <IconButton
-                  onClick={() => handleRemoveDisbursement(index)}
-                  color="error"
-                  sx={{ mt: 1 }}
-                >
-                  <DeleteIcon />
-                </IconButton>
-              )}
-            </Box>
-          ))}
+
+                {/* Notes - adjust width based on Q#H and diagnosis field */}
+                <Grid item xs={disbursement.frequency === 'Q#H' ? 1 : 1}>
+                  <TextField
+                    fullWidth
+                    label="Notes"
+                    size="small"
+                    value={disbursement.notes}
+                    onChange={(e) => handleDisbursementChange(index, 'notes', e.target.value)}
+                    disabled={disabled || isProcessed}
+                  />
+                </Grid>
+
+                {/* Delete button */}
+                <Grid item xs={1}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconButton
+                      onClick={() => handleRemoveDisbursement(index)}
+                      disabled={disabled || isProcessed}
+                      size="small"
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </Box>
+                </Grid>
+              </Grid>
+            );
+          })}
           {mode !== 'view' && (
-            <Button
-              variant="outlined"
-              onClick={handleAddDisbursement}
-              startIcon={<AddIcon />}
-              sx={{ mt: 2 }}
-              disabled={disabled}
-            >
-              Add Medication
-            </Button>
+            <Box sx={{ mt: 2 }}>
+              <Button
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={handleAddDisbursement}
+                disabled={disabled}
+              >
+                Add Medication
+              </Button>
+            </Box>
           )}
         </>
       )}

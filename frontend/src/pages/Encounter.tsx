@@ -129,7 +129,6 @@ interface EncounterRecord extends BaseModel {
   diagnosis: string[];
   other_chief_complaint?: string;
   history_of_present_illness?: string;
-  past_medical_history?: string;
   assessment?: string;
   plan?: string;
   disbursements: DisbursementWithId[];
@@ -1002,17 +1001,17 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         markedForDeletion
       });
 
-        // Get existing disbursements and medications in a single batch
-        const [existingDisbursementsResult, medicationsResult] = await Promise.all([
-          pb.collection('disbursements').getList<ExistingDisbursement>(1, 50, {
-            filter: `encounter = "${encounterId}"`,
-            expand: 'medication',
+      // Get existing disbursements and medications in a single batch
+      const [existingDisbursementsResult, medicationsResult] = await Promise.all([
+        pb.collection('disbursements').getList<ExistingDisbursement>(1, 50, {
+          filter: `encounter = "${encounterId}"`,
+          expand: 'medication',
             fields: 'id,medication,quantity,notes,processed'
-          }),
-          Promise.all(validDisbursements.map(d => 
-            pb.collection('inventory').getOne<MedicationRecord>(d.medication)
-          ))
-        ]);
+        }),
+        Promise.all(validDisbursements.map(d => 
+          pb.collection('inventory').getOne<MedicationRecord>(d.medication)
+        ))
+      ]);
 
       console.log('DEBUG: ID Verification:', {
         markedForDeletion: markedForDeletion.map(d => ({
@@ -1027,9 +1026,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         }))
       });
 
-        const existingMap = new Map<string, ExistingDisbursement>(
-          existingDisbursementsResult.items.map(d => [d.id, d])
-        );
+      const existingMap = new Map<string, ExistingDisbursement>(
+        existingDisbursementsResult.items.map(d => [d.id, d])
+      );
 
       // First handle deletions to free up stock
       for (const disbursement of markedForDeletion) {
@@ -1090,73 +1089,76 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       }
 
       // Now verify stock levels for remaining valid disbursements
-        for (const disbursement of validDisbursements) {
+      for (const disbursement of validDisbursements) {
         const medication = medicationsResult.find(m => m.id === disbursement.medication);
-          if (!medication) continue;
+        if (!medication) continue;
 
-          const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
-          
-          // Only check stock for new or modified disbursements
-          const existing = disbursement.id ? existingMap.get(disbursement.id) : null;
-          if (!existing || existing.quantity !== quantity) {
-            // For existing disbursements, only check the difference
-            const stockChange = existing ? quantity - existing.quantity : quantity;
-            const newStockLevel = medication.stock - stockChange;
-            if (newStockLevel < 0) {
-              throw new Error(`Not enough stock for ${medication.drug_name}. Available: ${medication.stock}, Needed: ${stockChange}`);
-            }
+        const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+        
+        // Only check stock for new or modified disbursements
+        const existing = disbursement.id ? existingMap.get(disbursement.id) : null;
+        if (!existing || existing.quantity !== quantity) {
+          // For existing disbursements, only check the difference
+          const stockChange = existing ? quantity - existing.quantity : quantity;
+          const newStockLevel = medication.stock - stockChange;
+          if (newStockLevel < 0) {
+            throw new Error(`Not enough stock for ${medication.drug_name}. Available: ${medication.stock}, Needed: ${stockChange}`);
           }
         }
+      }
 
       // Process all valid disbursements in sequence to prevent race conditions
       const processedDisbursements: Record<string, any>[] = [];
-        for (const disbursement of validDisbursements) {
+      for (const disbursement of validDisbursements) {
         const medication = medicationsResult.find(m => m.id === disbursement.medication);
-          if (!medication) continue;
+        if (!medication) continue;
 
-          const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
-          
-          if (disbursement.id) {
-            // Update existing disbursement
-            const existing = existingMap.get(disbursement.id);
-            if (existing) {
-              existingMap.delete(disbursement.id);
+        const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+        
+        if (disbursement.id) {
+          const existing = existingMap.get(disbursement.id);
+          if (existing) {
+            existingMap.delete(disbursement.id);
 
-              // In pharmacy mode, we might be changing the medication
-              const medicationChanged = existing.medication !== disbursement.medication;
-              const notesChanged = existing.notes !== disbursement.notes;
-              
-              if (medicationChanged || existing.quantity !== quantity || notesChanged) {
-                // If medication changed, we need to handle stock for both old and new medication
-                if (medicationChanged) {
-                  // Restore stock for old medication
-                  const oldMedication = await pb.collection('inventory').getOne<MedicationRecord>(existing.medication);
-                  await pb.collection('inventory').update(existing.medication, {
-                    stock: oldMedication.stock + existing.quantity
-                  });
+            // In pharmacy mode, we might be changing the medication
+            const medicationChanged = existing.medication !== disbursement.medication;
+            const notesChanged = existing.notes !== disbursement.notes;
+            const frequencyChanged = existing.frequency !== (disbursement.frequency || 'QD');
+            const frequencyHoursChanged = existing.frequency_hours !== (disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null);
+            const diagnosisChanged = existing.associated_diagnosis !== (disbursement.associated_diagnosis || null);
+            
+            if (medicationChanged || existing.quantity !== quantity || notesChanged || 
+                frequencyChanged || frequencyHoursChanged || diagnosisChanged) {
+              // If medication changed, we need to handle stock for both old and new medication
+              if (medicationChanged) {
+                // Restore stock for old medication
+                const oldMedication = await pb.collection('inventory').getOne<MedicationRecord>(existing.medication);
+                await pb.collection('inventory').update(existing.medication, {
+                  stock: oldMedication.stock + existing.quantity
+                });
+                
+                // Reduce stock for new medication
+                await pb.collection('inventory').update(disbursement.medication, {
+                  stock: medication.stock - quantity
+                });
+              } else {
+                // Only update stock if quantity changed
+                const stockChange = quantity - existing.quantity;
+                if (stockChange !== 0) {
+                  // Get fresh medication record to ensure accurate stock
+                  const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
+                  const newStock = updatedMedication.stock - stockChange;
                   
-                  // Reduce stock for new medication
-                  await pb.collection('inventory').update(disbursement.medication, {
-                    stock: medication.stock - quantity
-                  });
-                } else {
-                  // Only update stock if quantity changed
-                  const stockChange = quantity - existing.quantity;
-                  if (stockChange !== 0) {
-                    // Get fresh medication record to ensure accurate stock
-                    const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
-                    const newStock = updatedMedication.stock - stockChange;
-                    
-                    if (newStock < 0) {
-                      throw new Error(`Not enough stock for ${updatedMedication.drug_name}. Available: ${updatedMedication.stock}, Needed: ${quantity}`);
-                    }
+                  if (newStock < 0) {
+                    throw new Error(`Not enough stock for ${updatedMedication.drug_name}. Available: ${updatedMedication.stock}, Needed: ${quantity}`);
+                  }
 
-                    // Update stock first
+                  // Update stock first
                     try {
-                      await pb.collection('inventory').update(disbursement.medication, {
-                        stock: newStock,
+                  await pb.collection('inventory').update(disbursement.medication, {
+                    stock: newStock,
                         disbursement_multiplier: 1 // Ensure this is set to prevent validation errors
-                      });
+                  });
                     } catch (error: any) {
                       console.error('DEBUG: Error updating inventory:', {
                         error,
@@ -1167,38 +1169,39 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                       });
                       throw error;
                     }
-                  }
                 }
-
-                // Update the disbursement record
-                const updated = await pb.collection('disbursements').update(disbursement.id, {
-                  medication: disbursement.medication,
-                  quantity: quantity,
-                  notes: disbursement.notes || '',
-                  frequency: disbursement.frequency || 'QD',
-                  frequency_hours: disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null
-                });
-                processedDisbursements.push(updated);
-              } else {
-                processedDisbursements.push(existing);
               }
+
+              // Update the disbursement record
+              const updated = await pb.collection('disbursements').update(disbursement.id, {
+                medication: disbursement.medication,
+                quantity: quantity,
+                notes: disbursement.notes || '',
+                frequency: disbursement.frequency || 'QD',
+                frequency_hours: disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null,
+                  associated_diagnosis: disbursement.associated_diagnosis || null
+              });
+              processedDisbursements.push(updated);
+            } else {
+              processedDisbursements.push(existing);
             }
-          } else {
-            // Create new disbursement
-            // Get fresh medication record to ensure accurate stock
-            const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
-            const newStock = updatedMedication.stock - quantity;
+          }
+        } else {
+          // Create new disbursement
+          // Get fresh medication record to ensure accurate stock
+          const updatedMedication = await pb.collection('inventory').getOne<MedicationRecord>(disbursement.medication);
+          const newStock = updatedMedication.stock - quantity;
           
           if (newStock < 0) {
             throw new Error(`Not enough stock for ${updatedMedication.drug_name}. Available: ${updatedMedication.stock}, Needed: ${quantity}`);
           }
             
-            // Update stock first
+          // Update stock first
           try {
-            await pb.collection('inventory').update(disbursement.medication, {
-              stock: newStock,
+          await pb.collection('inventory').update(disbursement.medication, {
+            stock: newStock,
               disbursement_multiplier: 1 // Ensure this is set to prevent validation errors
-            });
+          });
           } catch (error: any) {
             console.error('DEBUG: Error updating inventory:', {
               error,
@@ -1210,16 +1213,17 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             throw error;
           }
             
-            // Then create disbursement
+          // Then create disbursement
           const created = await pb.collection('disbursements').create({
-              encounter: encounterId,
-              medication: disbursement.medication,
-              quantity: quantity,
-              notes: disbursement.notes || '',
-              processed: false,
-              frequency: disbursement.frequency || 'QD',
-              frequency_hours: disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null
-            });
+            encounter: encounterId,
+            medication: disbursement.medication,
+            quantity: quantity,
+            notes: disbursement.notes || '',
+            processed: false,
+            frequency: disbursement.frequency || 'QD',
+            frequency_hours: disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null,
+            associated_diagnosis: disbursement.associated_diagnosis || null
+          });
           processedDisbursements.push(created);
         }
       }
@@ -1247,7 +1251,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               notes: d.notes || '',
               medicationDetails: medication,
               // Reset any deletion flags
-              markedForDeletion: false
+              markedForDeletion: false,
+              // Include missing fields
+              frequency: d.frequency || 'QD',
+              frequency_hours: d.frequency === 'Q#H' ? d.frequency_hours : null,
+              associated_diagnosis: d.associated_diagnosis || null
             };
           })
         );
@@ -1474,6 +1482,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     showingCheckoutButtons: currentMode === 'checkout',
     location: location.state
   });
+
+  const handleDisbursementsChange = (disbursements: DisbursementItem[]) => {
+    setFormData(prev => ({ ...prev, disbursements }));
+  };
 
   if (isAuthLoading) {
     return <Typography>Initializing...</Typography>;
@@ -1898,12 +1910,20 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
               </Typography>
               <DisbursementForm
                 encounterId={encounterId}
-                disabled={isFieldDisabled('disbursement')}
+                queueItemId={currentQueueItem?.id}
                 mode={currentMode}
+                disabled={currentMode === 'view'}
                 initialDisbursements={formData.disbursements}
-                onDisbursementsChange={(disbursements: DisbursementItem[]) => 
-                  setFormData(prev => ({ ...prev, disbursements }))
-                }
+                onDisbursementsChange={handleDisbursementsChange}
+                onDisbursementComplete={() => handleQueueStatusChange('completed')}
+                currentDiagnoses={(formData.diagnosis || []).map(diagId => {
+                  // Look for the diagnosis in both expanded data and full list
+                  const diagRecord = formData.expand?.diagnosis?.find(d => d.id === diagId) || diagnoses.find(d => d.id === diagId);
+                  return {
+                    id: diagId,
+                    name: diagRecord?.name || diagId
+                  };
+                })}
               />
             </Grid>
 
