@@ -512,8 +512,8 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
 
             return (
               <Grid container spacing={2} alignItems="center" key={index} sx={{ mb: 2 }}>
-                {/* Medication Selection - wider now */}
-                <Grid item xs={4}>
+                {/* Medication Selection */}
+                <Grid item xs={12} sm={3}>
                   <Autocomplete
                     value={medication || null}
                     onChange={(_, newValue) => handleDisbursementChange(index, 'medication', newValue)}
@@ -531,54 +531,53 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                   />
                 </Grid>
 
-                {/* Fixed Quantity - narrower */}
-                <Grid item xs={1}>
-                  <TextField
-                    fullWidth
-                    label="Qty"
-                    type="number"
-                    size="small"
-                    value={disbursement.quantity}
-                    onChange={(e) => handleDisbursementChange(index, 'quantity', e.target.value)}
-                    disabled={true}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Grid>
-
-                {/* Multiplier - narrower */}
-                <Grid item xs={1}>
-                  <TextField
-                    fullWidth
-                    label="×"
-                    type="number"
-                    size="small"
-                    value={disbursement.disbursement_multiplier}
-                    onChange={(e) => handleDisbursementChange(index, 'disbursement_multiplier', e.target.value)}
-                    disabled={disabled || isProcessed}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </Grid>
-
-                {/* Stock and Change Display */}
-                <Grid item xs={1}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <Typography variant="body2" color="textSecondary">
-                      Stock: {medication?.stock || 0}
-                    </Typography>
-                    {!disbursement.markedForDeletion && (
-                      <Typography
-                        variant="body2"
-                        color="error.main"
-                        sx={{ fontWeight: 'medium' }}
-                      >
-                        ({-calculateTotalQuantity(disbursement)})
+                {/* Quantity and Multiplier Group - Stack horizontally on desktop, vertically on mobile */}
+                <Grid item container xs={12} sm={3} spacing={1}>
+                  <Grid item xs={6} sm={4}>
+                    <TextField
+                      fullWidth
+                      label="Qty"
+                      type="number"
+                      size="small"
+                      value={disbursement.quantity}
+                      disabled={true}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={6} sm={4}>
+                    <TextField
+                      fullWidth
+                      label="×"
+                      type="number"
+                      size="small"
+                      value={disbursement.disbursement_multiplier}
+                      onChange={(e) => handleDisbursementChange(index, 'disbursement_multiplier', e.target.value)}
+                      disabled={disabled || isProcessed}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Box sx={{ 
+                      display: 'flex', 
+                      flexDirection: { xs: 'row', sm: 'column' }, 
+                      alignItems: 'center',
+                      justifyContent: { xs: 'space-between', sm: 'center' },
+                      px: { xs: 0, sm: 1 }
+                    }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Stock: {medication?.stock || 0}
                       </Typography>
-                    )}
-                  </Box>
+                      {!disbursement.markedForDeletion && (
+                        <Typography variant="body2" color="error.main" sx={{ fontWeight: 'medium', ml: { xs: 2, sm: 0 } }}>
+                          ({-calculateTotalQuantity(disbursement)})
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
                 </Grid>
 
-                {/* Frequency */}
-                <Grid item xs={2}>
+                {/* Frequency Group */}
+                <Grid item xs={12} sm={2}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Frequency</InputLabel>
                     <Select
@@ -587,23 +586,23 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                       disabled={disabled || isProcessed}
                       label="Frequency"
                     >
-                      <MenuItem value="QD">QD (Once daily)</MenuItem>
-                      <MenuItem value="BID">BID (Twice daily)</MenuItem>
-                      <MenuItem value="TID">TID (Three times daily)</MenuItem>
-                      <MenuItem value="QID">QID (Four times daily)</MenuItem>
-                      <MenuItem value="QHS">QHS (At bedtime)</MenuItem>
-                      <MenuItem value="QAM">QAM (Every morning)</MenuItem>
-                      <MenuItem value="QPM">QPM (Every evening)</MenuItem>
-                      <MenuItem value="PRN">PRN (As needed)</MenuItem>
-                      <MenuItem value="Q#H">Q#H (Every # hours)</MenuItem>
-                      <MenuItem value="STAT">STAT (Immediately)</MenuItem>
+                      <MenuItem value="QD">QD</MenuItem>
+                      <MenuItem value="BID">BID</MenuItem>
+                      <MenuItem value="TID">TID</MenuItem>
+                      <MenuItem value="QID">QID</MenuItem>
+                      <MenuItem value="QHS">QHS</MenuItem>
+                      <MenuItem value="QAM">QAM</MenuItem>
+                      <MenuItem value="QPM">QPM</MenuItem>
+                      <MenuItem value="PRN">PRN</MenuItem>
+                      <MenuItem value="Q#H">Q#H</MenuItem>
+                      <MenuItem value="STAT">STAT</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
 
-                {/* Hours field if Q#H is selected */}
+                {/* Hours field - only show if Q#H selected */}
                 {disbursement.frequency === 'Q#H' && (
-                  <Grid item xs={1}>
+                  <Grid item xs={6} sm={1}>
                     <TextField
                       fullWidth
                       label="Hours"
@@ -617,19 +616,17 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                   </Grid>
                 )}
 
-                {/* Associated Diagnosis - before Notes */}
-                <Grid item xs={2}>
+                {/* Associated Diagnosis */}
+                <Grid item xs={12} sm={2}>
                   <FormControl fullWidth size="small">
-                    <InputLabel>Associated Diagnosis</InputLabel>
+                    <InputLabel>Diagnosis</InputLabel>
                     <Select
                       value={disbursement.associated_diagnosis || ''}
                       onChange={(e) => handleDisbursementChange(index, 'associated_diagnosis', e.target.value)}
                       disabled={disabled || isProcessed}
-                      label="Associated Diagnosis"
+                      label="Diagnosis"
                     >
-                      <MenuItem value="">
-                        <em>None</em>
-                      </MenuItem>
+                      <MenuItem value="">None</MenuItem>
                       {currentDiagnoses.map((diagnosis) => (
                         <MenuItem key={diagnosis.id} value={diagnosis.id}>
                           {diagnosis.name}
@@ -639,8 +636,8 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                   </FormControl>
                 </Grid>
 
-                {/* Notes - adjust width based on Q#H and diagnosis field */}
-                <Grid item xs={disbursement.frequency === 'Q#H' ? 1 : 1}>
+                {/* Notes */}
+                <Grid item xs={12} sm={disbursement.frequency === 'Q#H' ? 1.5 : 1.5}>
                   <TextField
                     fullWidth
                     label="Notes"
@@ -652,16 +649,16 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                 </Grid>
 
                 {/* Delete button */}
-                <Grid item xs={1}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <IconButton
-                      onClick={() => handleRemoveDisbursement(index)}
-                      disabled={disabled || isProcessed}
-                      size="small"
-                    >
-                      <DeleteIcon />
-                    </IconButton>
-                  </Box>
+                <Grid item xs={12} sm={0.5} sx={{ 
+                  display: 'flex', 
+                  justifyContent: { xs: 'flex-end', sm: 'center' }
+                }}>
+                  <IconButton
+                    onClick={() => handleRemoveDisbursement(index)}
+                    disabled={disabled || isProcessed}
+                  >
+                    <DeleteIcon />
+                  </IconButton>
                 </Grid>
               </Grid>
             );

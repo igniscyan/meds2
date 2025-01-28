@@ -1523,35 +1523,39 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                   <>
                     {' • '}
                     <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                      <Typography variant="subtitle1" color="text.secondary">
-                        Pregnant:
-                      </Typography>
-                      <FormControl size="small" sx={{ minWidth: 150 }}>
-                        <Select
-                          value={patient?.pregnancy_status || ''}
-                          onChange={async (e) => {
-                            if (!patient?.id) return;
-                            await pb.collection('patients').update(patient.id, {
-                              pregnancy_status: e.target.value
-                            });
-                            setPatient(prev => prev ? { ...prev, pregnancy_status: e.target.value } : null);
-                          }}
-                          variant="standard"
-                          disabled={isFieldDisabled('vitals')}
-                          sx={{ 
-                            '& .MuiSelect-select': { 
-                              py: 0,
-                              color: 'text.secondary',
-                              fontSize: 'subtitle1.fontSize'
-                            }
-                          }}
-                        >
-                          <MenuItem value="">Not Specified</MenuItem>
-                          <MenuItem value="yes">Yes</MenuItem>
-                          <MenuItem value="no">No</MenuItem>
-                          <MenuItem value="potentially">Potentially</MenuItem>
-                        </Select>
-                      </FormControl>
+                      {patient?.gender !== 'male' && (
+                        <>
+                          <Typography variant="subtitle1" color="text.secondary">
+                            Pregnant:
+                          </Typography>
+                          <FormControl size="small" sx={{ minWidth: 150 }}>
+                            <Select
+                              value={patient?.pregnancy_status || ''}
+                              onChange={async (e) => {
+                                if (!patient?.id) return;
+                                await pb.collection('patients').update(patient.id, {
+                                  pregnancy_status: e.target.value
+                                });
+                                setPatient(prev => prev ? { ...prev, pregnancy_status: e.target.value } : null);
+                              }}
+                              variant="standard"
+                              disabled={isFieldDisabled('vitals')}
+                              sx={{ 
+                                '& .MuiSelect-select': { 
+                                  py: 0,
+                                  color: 'text.secondary',
+                                  fontSize: 'subtitle1.fontSize'
+                                }
+                              }}
+                            >
+                              <MenuItem value="">Not Specified</MenuItem>
+                              <MenuItem value="yes">Yes</MenuItem>
+                              <MenuItem value="no">No</MenuItem>
+                              <MenuItem value="potentially">Potentially</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </>
+                      )}
                     </Box>
                   </>
                 )}
@@ -1743,31 +1747,33 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                     )}
                   </Box>
                 </Grid>
-                <Grid item xs={12} sm={4}>
-                  <Box>
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={formData.pregnancy_test}
-                          onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
-                          disabled={isFieldDisabled('vitals')}
-                        />
-                      }
-                      label="Pregnancy Test"
-                    />
-                    {formData.pregnancy_test && (
-                      <TextField
-                        fullWidth
-                        size="small"
-                        label="Pregnancy Test Result"
-                        value={formData.pregnancy_test_result || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test_result: e.target.value }))}
-                        disabled={isFieldDisabled('vitals')}
-                        sx={{ mt: 1 }}
+                {patient?.gender !== 'male' && (
+                  <Grid item xs={12} sm={4}>
+                    <Box>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={formData.pregnancy_test}
+                            onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test: e.target.checked }))}
+                            disabled={isFieldDisabled('vitals')}
+                          />
+                        }
+                        label="Pregnancy Test"
                       />
-                    )}
-                  </Box>
-                </Grid>
+                      {formData.pregnancy_test && (
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Pregnancy Test Result"
+                          value={formData.pregnancy_test_result || ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, pregnancy_test_result: e.target.value }))}
+                          disabled={isFieldDisabled('vitals')}
+                          sx={{ mt: 1 }}
+                        />
+                      )}
+                    </Box>
+                  </Grid>
+                )}
               </Grid>
             </Grid>
 
