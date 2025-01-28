@@ -20,12 +20,15 @@ import {
   FormHelperText,
   FormGroup,
   Checkbox,
+  Autocomplete,
+  Chip,
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import CloseIcon from '@mui/icons-material/Close';
 import { pb } from '../atoms/auth';
+import { BaseModel } from 'pocketbase';
 import { useSettings } from '../hooks/useSettings';
 
 interface PatientModalProps {
@@ -54,7 +57,18 @@ interface PatientModalProps {
     systolic_pressure?: number | null;
     diastolic_pressure?: number | null;
     pulse_ox?: number | null;
+    chief_complaint?: string[];
+    other_chief_complaint?: string;
   };
+}
+
+interface ChiefComplaint extends BaseModel {
+  id: string;
+  name: string;
+  created: string;
+  updated: string;
+  collectionId: string;
+  collectionName: string;
 }
 
 export const PatientModal: React.FC<PatientModalProps> = ({
@@ -87,6 +101,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     blood_sugar: false,
     pregnancy_test: false,
     pulse_ox: null as number | null,
+    chief_complaint: [] as string[],
+    other_chief_complaint: '',
   });
 
   const [addToQueue, setAddToQueue] = useState(true);
@@ -103,6 +119,10 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     gender: false,
     lineNumber: false
   });
+
+  const [chiefComplaints, setChiefComplaints] = useState<ChiefComplaint[]>([]);
+  const [showOtherComplaint, setShowOtherComplaint] = useState(false);
+  const [otherComplaintValue, setOtherComplaintValue] = useState('');
 
   // Initialize data when modal opens or initialData changes
   useEffect(() => {
@@ -129,6 +149,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         blood_sugar: initialData.blood_sugar ?? false,
         pregnancy_test: initialData.pregnancy_test ?? false,
         pulse_ox: initialData.pulse_ox ?? null,
+        chief_complaint: initialData.chief_complaint ?? [],
+        other_chief_complaint: initialData.other_chief_complaint ?? '',
       });
       setDateValue(initialData.dob ? new Date(initialData.dob) : null);
     } else {
@@ -152,6 +174,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
         blood_sugar: false,
         pregnancy_test: false,
         pulse_ox: null,
+        chief_complaint: [],
+        other_chief_complaint: '',
       });
       setDateValue(null);
       setUseManualAge(false);
@@ -181,6 +205,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           blood_sugar: false,
           pregnancy_test: false,
           pulse_ox: null,
+          chief_complaint: [],
+          other_chief_complaint: '',
         });
         setDateValue(null);
         setUseManualAge(false);
@@ -189,6 +215,28 @@ export const PatientModal: React.FC<PatientModalProps> = ({
       }
     };
   }, [initialData, open]);
+
+  // Add effect to load chief complaints
+  useEffect(() => {
+    if (!open) return;
+
+    const loadChiefComplaints = async () => {
+      try {
+        const complaintsResult = await pb.collection('chief_complaints').getList<ChiefComplaint>(1, 50, {
+          sort: 'name',
+          $autoCancel: false
+        });
+        
+        setChiefComplaints(complaintsResult.items.filter((c, index, self) => 
+          index === self.findIndex(t => t.name === c.name)
+        ));
+      } catch (error) {
+        console.error('Error loading chief complaints:', error);
+      }
+    };
+
+    loadChiefComplaints();
+  }, [open]);
 
   const calculateAge = (dob: string): number => {
     try {
@@ -339,6 +387,38 @@ export const PatientModal: React.FC<PatientModalProps> = ({
     }
   };
 
+  const handleComplaintChange = (_event: React.SyntheticEvent, values: ChiefComplaint[]) => {
+    const hasOther = values.some(v => v.name === 'OTHER (Custom Text Input)');
+    setShowOtherComplaint(hasOther);
+    
+    // Always update the chief_complaints array with the IDs
+    const complaintIds = values.map(v => v.id);
+    
+    if (!hasOther) {
+      setOtherComplaintValue('');
+      setFormData(prev => ({
+        ...prev,
+        chief_complaint: complaintIds,
+        other_chief_complaint: '',
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        chief_complaint: complaintIds,
+        other_chief_complaint: prev.other_chief_complaint || ''
+      }));
+    }
+  };
+
+  const handleOtherComplaintChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value.toUpperCase();
+    setOtherComplaintValue(value);
+    setFormData(prev => ({
+      ...prev,
+      other_chief_complaint: value,
+    }));
+  };
+
   const handleSubmit = async () => {
     try {
       // Validate required fields
@@ -381,14 +461,15 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
           systolic_pressure: formData.systolic_pressure ? Number(formData.systolic_pressure) : null,
           diastolic_pressure: formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null,
+          pulse_ox: formData.pulse_ox ? Number(formData.pulse_ox) : null,
           urinalysis: formData.urinalysis,
           urinalysis_result: '',
           blood_sugar: formData.blood_sugar,
           blood_sugar_result: '',
           pregnancy_test: formData.pregnancy_test,
           pregnancy_test_result: '',
-          chief_complaint: null,
-          other_chief_complaint: '',
+          chief_complaint: formData.chief_complaint,
+          other_chief_complaint: formData.other_chief_complaint,
           history_of_present_illness: '',
           past_medical_history: '',
           assessment: '',
@@ -457,6 +538,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({
           smoker: formData.smoker,
           allergies: formData.allergies,
           pregnancy_status: formData.gender === 'male' ? '' : formData.pregnancy_status,
+          chief_complaint: formData.chief_complaint,
+          other_chief_complaint: formData.other_chief_complaint,
         };
 
         let patientId: string;
@@ -487,14 +570,15 @@ export const PatientModal: React.FC<PatientModalProps> = ({
             heart_rate: formData.heart_rate ? Number(formData.heart_rate) : null,
             systolic_pressure: formData.systolic_pressure ? Number(formData.systolic_pressure) : null,
             diastolic_pressure: formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null,
+            pulse_ox: formData.pulse_ox ? Number(formData.pulse_ox) : null,
             urinalysis: formData.urinalysis,
             urinalysis_result: '',
             blood_sugar: formData.blood_sugar,
             blood_sugar_result: '',
             pregnancy_test: formData.pregnancy_test,
             pregnancy_test_result: '',
-            chief_complaint: null,
-            other_chief_complaint: '',
+            chief_complaint: formData.chief_complaint,
+            other_chief_complaint: formData.other_chief_complaint,
             history_of_present_illness: '',
             past_medical_history: '',
             assessment: '',
@@ -769,6 +853,50 @@ export const PatientModal: React.FC<PatientModalProps> = ({
               disabled={isFieldDisabled('allergies')}
             />
           </Grid>
+
+          <Grid item xs={12}>
+            <FormControl fullWidth>
+              <Autocomplete<ChiefComplaint, true, false, false>
+                multiple
+                value={chiefComplaints.filter(c => formData.chief_complaint?.includes(c.id)) || []}
+                onChange={handleComplaintChange}
+                options={chiefComplaints}
+                getOptionLabel={(option: ChiefComplaint) => option.name}
+                disabled={isFieldDisabled('chief_complaint')}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Chief Complaints"
+                    placeholder="Search complaints..."
+                  />
+                )}
+                renderTags={(tagValue, getTagProps) =>
+                  tagValue.map((option, index) => (
+                    <Chip
+                      label={option.name}
+                      {...getTagProps({ index })}
+                      key={option.id}
+                    />
+                  ))
+                }
+                ListboxProps={{ sx: { maxHeight: '200px' } }}
+              />
+            </FormControl>
+          </Grid>
+
+          {(showOtherComplaint || formData.other_chief_complaint) && (
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Specify Other Chief Complaint"
+                value={otherComplaintValue}
+                onChange={handleOtherComplaintChange}
+                disabled={isFieldDisabled('other_chief_complaint')}
+                placeholder="Enter new chief complaint"
+                helperText="Please use all caps for consistency"
+              />
+            </Grid>
+          )}
 
           {shouldShowSection('tests') && (
             <Grid item xs={12}>

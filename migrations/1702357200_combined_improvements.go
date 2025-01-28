@@ -1415,14 +1415,6 @@ func init() {
 				Dose:         "Folic Acid + Others",
 			},
 			{
-				DrugName:     "Prednisone 5mg",
-				DrugCategory: "Steroid",
-				Stock:        1000,
-				FixedQty:     14,
-				UnitSize:     "14 ct",
-				Dose:         "5mg",
-			},
-			{
 				DrugName:     "Amlodipine 10mg",
 				DrugCategory: "Blood Pressure / Calcium Channel Blocker",
 				Stock:        3000,

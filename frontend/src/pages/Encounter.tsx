@@ -402,7 +402,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 medicationDetails: medication,
                 isProcessed: d.processed || false,
                 frequency: d.frequency || 'QD',
-                frequency_hours: d.frequency_hours
+                frequency_hours: d.frequency_hours,
+                associated_diagnosis: d.associated_diagnosis || null
               };
             });
 
@@ -1304,7 +1305,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         medicationDetails: medication,
         isProcessed: d.processed || false,
         frequency: d.frequency || 'QD',
-        frequency_hours: d.frequency_hours
+        frequency_hours: d.frequency_hours,
+        associated_diagnosis: d.associated_diagnosis || null
       };
     });
 
