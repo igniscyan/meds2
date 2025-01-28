@@ -352,69 +352,6 @@ func init() {
 						},
 					},
 				},
-				&schema.SchemaField{
-					Name:     "past_medical_history",
-					Type:     "text",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "chief_complaint",
-					Type:     "relation",
-					Required: false,
-					Options: &schema.RelationOptions{
-						CollectionId: "chief_complaints",
-						MaxSelect:    nil, // Changed to nil to allow multiple selections
-					},
-				},
-				&schema.SchemaField{
-					Name:     "diagnosis",
-					Type:     "relation",
-					Required: false,
-					Options: &schema.RelationOptions{
-						CollectionId: "diagnosis",
-						MaxSelect:    nil, // Allow multiple selections
-					},
-				},
-				&schema.SchemaField{
-					Name:     "other_chief_complaint",
-					Type:     "text",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "subjective_notes",
-					Type:     "text",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "urinalysis",
-					Type:     "bool",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "blood_sugar",
-					Type:     "bool",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "pregnancy_test",
-					Type:     "bool",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "urinalysis_result",
-					Type:     "text",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "blood_sugar_result",
-					Type:     "text",
-					Required: false,
-				},
-				&schema.SchemaField{
-					Name:     "pregnancy_test_result",
-					Type:     "text",
-					Required: false,
-				},
 			),
 		}
 
@@ -518,6 +455,11 @@ func init() {
 					Required: false,
 				},
 				&schema.SchemaField{
+					Name:     "other_diagnosis",
+					Type:     "text",
+					Required: false,
+				},
+				&schema.SchemaField{
 					Name:     "subjective_notes",
 					Type:     "text",
 					Required: false,
@@ -584,7 +526,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "frequency",
 					Type:     "select",
-					Required: true,
+					Required: false,
 					Options: &schema.SelectOptions{
 						MaxSelect: 1,
 						Values: []string{
