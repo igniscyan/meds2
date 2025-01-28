@@ -598,7 +598,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       // Save encounter data first
       const encounterData = {
         chief_complaint: formData.chief_complaint || [],
-        other_chief_complaint: formData.other_chief_complaint || ''
+        other_chief_complaint: formData.other_chief_complaint || '',
+        diagnosis: formData.diagnosis || [],
+        other_diagnosis: formData.other_diagnosis || ''
       };
 
       if (encounterId) {
@@ -796,6 +798,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         chief_complaint: formData.chief_complaint || [],
         diagnosis: formData.diagnosis || [],
         other_chief_complaint: formData.other_chief_complaint || '',
+        other_diagnosis: formData.other_diagnosis || '',
         past_medical_history: formData.past_medical_history || '',
         subjective_notes: formData.subjective_notes || '',
         allergies: formData.allergies || '',
