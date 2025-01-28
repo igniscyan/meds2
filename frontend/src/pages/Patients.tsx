@@ -269,73 +269,88 @@ export const Patients = () => {
   }
 
   const renderPatientTable = (patientList: Patient[]) => (
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Age</TableCell>
-              <TableCell>Gender</TableCell>
-              <TableCell>Smoker</TableCell>
-              <TableCell align="right">Actions</TableCell>
+    <TableContainer component={Paper}>
+      <Table size="small" stickyHeader>
+        <TableHead>
+          <TableRow>
+            <TableCell>Name</TableCell>
+            <TableCell>Age</TableCell>
+            <TableCell>Gender</TableCell>
+            <TableCell>Smoker</TableCell>
+            <TableCell align="right">Actions</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {patientList.map((patient) => (
+            <TableRow 
+              key={patient.id}
+              sx={{ 
+                '&:hover': {
+                  backgroundColor: '#f5f5f5'
+                }
+              }}
+            >
+              <TableCell>{patient.first_name} {patient.last_name}</TableCell>
+              <TableCell>{formatAgeDisplay(patient.age)}</TableCell>
+              <TableCell>{patient.gender}</TableCell>
+              <TableCell>{patient.smoker}</TableCell>
+              <TableCell align="right">
+                <RoleBasedAccess requiredRole="provider">
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
+                    <Tooltip title="View Patient">
+                      <IconButton
+                        size="small"
+                        onClick={() => navigate(`/patient/${patient.id}`)}
+                      >
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Edit Patient">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleEditClick(patient)}
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Delete Patient">
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => handleDeleteClick(patient)}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </RoleBasedAccess>
+              </TableCell>
             </TableRow>
-          </TableHead>
-          <TableBody>
-            {patientList.map((patient) => (
-              <TableRow key={patient.id}>
-                <TableCell>{patient.first_name} {patient.last_name}</TableCell>
-                <TableCell>{formatAgeDisplay(patient.age)}</TableCell>
-                <TableCell>{patient.gender}</TableCell>
-                <TableCell>{patient.smoker}</TableCell>
-                <TableCell align="right">
-                    <RoleBasedAccess requiredRole="provider">
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                      <Tooltip title="View Patient">
-                    <IconButton
-                      size="small"
-                      onClick={() => navigate(`/patient/${patient.id}`)}
-                    >
-                          <VisibilityIcon />
-                    </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Edit Patient">
-                      <IconButton
-                        size="small"
-                          onClick={() => handleEditClick(patient)}
-                      >
-                          <EditIcon />
-                      </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete Patient">
-                      <IconButton
-                        size="small"
-                          color="error"
-                          onClick={() => handleDeleteClick(patient)}
-                      >
-                          <DeleteIcon />
-                      </IconButton>
-                      </Tooltip>
-                    </Box>
-                    </RoleBasedAccess>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Patients</Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+    <Box sx={{ p: { xs: 2, sm: 2 } }}>
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        mb: 2,
+        flexWrap: 'wrap',
+        gap: 1
+      }}>
+        <Typography variant="h4" sx={{ mb: 0 }}>Patients</Typography>
+        <Box sx={{ display: 'flex', gap: 1 }}>
           <RoleBasedAccess requiredRole="provider">
             <Button
               variant="contained"
               color="primary"
               startIcon={<AddIcon />}
               onClick={handleAddClick}
+              size="small"
             >
               Add Patient
             </Button>
@@ -344,6 +359,7 @@ export const Patients = () => {
               color="secondary"
               startIcon={<ListIcon />}
               onClick={() => setBulkDistributionOpen(true)}
+              size="small"
             >
               Fast Track Patient
             </Button>
@@ -358,59 +374,79 @@ export const Patients = () => {
         placeholder="Search patients by name..."
         value={searchQuery}
         onChange={(e) => setSearchQuery(e.target.value)}
-        sx={{ mb: 3 }}
+        sx={{ mb: 2 }}
+        size="small"
         InputProps={{
           startAdornment: <SearchIcon color="action" sx={{ mr: 1 }} />,
         }}
       />
 
-      <Tabs value={tabValue} onChange={handleTabChange} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+      <Tabs 
+        value={tabValue} 
+        onChange={handleTabChange} 
+        sx={{ 
+          borderBottom: 1, 
+          borderColor: 'divider',
+          minHeight: 40,
+          '& .MuiTab-root': {
+            minHeight: 40,
+            py: 0
+          }
+        }}
+      >
         <Tab label="All Patients" />
         <Tab label="Today's Patients" />
         <Tab label="Historical" />
       </Tabs>
 
-      <TabPanel value={tabValue} index={0}>
-        {renderPatientTable(filterPatientsBySearch(patients))}
-      </TabPanel>
+      <Box sx={{ mt: 2, height: 'calc(100vh - 280px)', overflowY: 'auto' }}>
+        <TabPanel value={tabValue} index={0}>
+          {renderPatientTable(filterPatientsBySearch(patients))}
+        </TabPanel>
 
-      <TabPanel value={tabValue} index={1}>
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h5" gutterBottom>
-            Active Patients ({filterPatientsBySearch(activePatients).length})
-          </Typography>
-          {renderPatientTable(filterPatientsBySearch(activePatients))}
-        </Box>
-
-        <Box>
-          <Typography variant="h5" gutterBottom>
-            Completed Today ({filterPatientsBySearch(completedPatients).length})
-          </Typography>
-          {renderPatientTable(filterPatientsBySearch(completedPatients))}
-        </Box>
-      </TabPanel>
-
-      <TabPanel value={tabValue} index={2}>
-        <Box sx={{ mb: 3 }}>
-          <LocalizationProvider dateAdapter={AdapterDateFns}>
-            <DatePicker
-              label="Select Date"
-              value={selectedDate}
-              onChange={(newValue) => setSelectedDate(newValue)}
-              slotProps={{ textField: { sx: { width: 250 } } }}
-            />
-          </LocalizationProvider>
-        </Box>
-
-        {selectedDate && (
-          <>
-            <Typography variant="h5" gutterBottom>
-              Patients for {selectedDate.toLocaleDateString()}
+        <TabPanel value={tabValue} index={1}>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              Active Patients ({filterPatientsBySearch(activePatients).length})
             </Typography>
-            {renderPatientTable(filterPatientsBySearch(getFilteredPatients(selectedDate)))}
-          </>
-        )}
-      </TabPanel>
+            {renderPatientTable(filterPatientsBySearch(activePatients))}
+          </Box>
+
+          <Box>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              Completed Today ({filterPatientsBySearch(completedPatients).length})
+            </Typography>
+            {renderPatientTable(filterPatientsBySearch(completedPatients))}
+          </Box>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={2}>
+          <Box sx={{ mb: 2 }}>
+            <LocalizationProvider dateAdapter={AdapterDateFns}>
+              <DatePicker
+                label="Select Date"
+                value={selectedDate}
+                onChange={(newValue) => setSelectedDate(newValue)}
+                slotProps={{ 
+                  textField: { 
+                    sx: { width: 250 },
+                    size: "small"
+                  } 
+                }}
+              />
+            </LocalizationProvider>
+          </Box>
+
+          {selectedDate && (
+            <>
+              <Typography variant="h6" sx={{ mb: 1 }}>
+                Patients for {selectedDate.toLocaleDateString()}
+              </Typography>
+              {renderPatientTable(filterPatientsBySearch(getFilteredPatients(selectedDate)))}
+            </>
+          )}
+        </TabPanel>
+      </Box>
 
       <PatientModal
         open={modalOpen}

@@ -706,23 +706,23 @@ const Dashboard: React.FC = () => {
         sx={{
           flexDirection: 'column',
           alignItems: 'stretch',
-          gap: 1,
-          py: 1.5,
-          px: 2
+          gap: 0.5,
+          py: 1,
+          px: 1.5
         }}
       >
         <Box sx={{ 
           display: 'flex', 
           flexDirection: { xs: 'column', sm: 'row' },
           alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: { xs: 1, sm: 2 },
+          gap: { xs: 0.5, sm: 1 },
           width: '100%'
         }}>
           {/* Patient Info */}
           <Box sx={{ 
             display: 'flex', 
             alignItems: 'center', 
-            gap: 1,
+            gap: 0.5,
             flex: 1,
             flexWrap: 'wrap'
           }}>
@@ -730,7 +730,12 @@ const Dashboard: React.FC = () => {
               label={`#${queueItem.line_number}`} 
               size="small"
               sx={{ 
-                minWidth: 45,
+                minWidth: 40,
+                height: 24,
+                '& .MuiChip-label': {
+                  px: 1,
+                  fontSize: '0.75rem'
+                },
                 cursor: 'pointer',
                 '&:hover': {
                   backgroundColor: queueItem.priority > 3 
@@ -771,13 +776,16 @@ const Dashboard: React.FC = () => {
               </DialogActions>
             </Dialog>
 
-            <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+            <Typography variant="subtitle2" sx={{ 
+              fontWeight: 500,
+              fontSize: '0.875rem'
+            }}>
               {queueItem.expand?.patient?.first_name} {queueItem.expand?.patient?.last_name}
               <Typography 
                 component="span" 
                 sx={{ 
-                  ml: 1,
-                  fontSize: '0.7rem',
+                  ml: 0.5,
+                  fontSize: '0.75rem',
                   color: 'text.secondary',
                   fontWeight: 'normal'
                 }}
@@ -792,8 +800,8 @@ const Dashboard: React.FC = () => {
               gap: 0.5,
               color: getWaitTimeColor(waitTimeMinutes)
             }}>
-              <AccessTimeIcon fontSize="small" />
-              <Typography variant="body2" component="span">
+              <AccessTimeIcon sx={{ fontSize: '0.875rem' }} />
+              <Typography variant="body2" component="span" sx={{ fontSize: '0.75rem' }}>
                 {formatWaitTime(queueItem.check_in_time)}
               </Typography>
             </Box>
@@ -826,7 +834,7 @@ const Dashboard: React.FC = () => {
           <Box sx={{ 
             display: 'flex',
             flexDirection: { xs: 'column', sm: 'row' },
-            gap: 1,
+            gap: 0.5,
             width: { xs: '100%', sm: 'auto' }
           }}>
             {displayPreferences.show_care_team_assignment && (
@@ -836,10 +844,12 @@ const Dashboard: React.FC = () => {
                 size="small"
                 displayEmpty
                 sx={{ 
-                  minWidth: { xs: '100%', sm: 150 },
+                  minWidth: { xs: '100%', sm: 120 },
                   '& .MuiSelect-select': {
-                    py: 0.5
-                  }
+                    py: 0.5,
+                    fontSize: '0.75rem'
+                  },
+                  height: 32
                 }}
               >
                 <MenuItem value="">
@@ -863,10 +873,12 @@ const Dashboard: React.FC = () => {
               onChange={(e) => handleStatusChange(queueItem.id, e.target.value as QueueStatus)}
               size="small"
               sx={{ 
-                minWidth: { xs: '100%', sm: 150 },
+                minWidth: { xs: '100%', sm: 120 },
                 '& .MuiSelect-select': {
-                  py: 0.5
-                }
+                  py: 0.5,
+                  fontSize: '0.75rem'
+                },
+                height: 32
               }}
             >
               {queueSections.map(section => (
@@ -881,10 +893,12 @@ const Dashboard: React.FC = () => {
                 onChange={(e) => handlePriorityChange(queueItem.id, Number(e.target.value))}
                 size="small"
                 sx={{ 
-                  minWidth: { xs: '100%', sm: 120 },
+                  minWidth: { xs: '100%', sm: 100 },
                   '& .MuiSelect-select': {
-                    py: 0.5
-                  }
+                    py: 0.5,
+                    fontSize: '0.75rem'
+                  },
+                  height: 32
                 }}
               >
                 {[1, 2, 3, 4, 5].map(priority => (
@@ -898,7 +912,15 @@ const Dashboard: React.FC = () => {
         </Box>
 
         {/* Action Buttons */}
-        <ActionButtons />
+        <Box sx={{ 
+          display: 'flex', 
+          gap: 1,
+          flexDirection: { xs: 'column', sm: 'row' },
+          width: { xs: '100%', sm: 'auto' },
+          mt: { xs: 0.5, sm: 0 }
+        }}>
+          <ActionButtons />
+        </Box>
       </ListItem>
     );
   };
@@ -923,37 +945,41 @@ const Dashboard: React.FC = () => {
       if (a.priority !== b.priority) {
         return b.priority - a.priority;
       }
-      // Then by wait time (longer wait first)
+      // Then by line number (lower line number first)
+      if (a.line_number !== b.line_number) {
+        return a.line_number - b.line_number;
+      }
+      // Finally by wait time (longer wait first) if line numbers are equal
       return new Date(a.check_in_time).getTime() - new Date(b.check_in_time).getTime();
     });
   };
 
   return (
-    <Box sx={{ p: 4 }}>
-      <Grid container spacing={3}>
+    <Box sx={{ p: { xs: 2, sm: 2 } }}>
+      <Grid container spacing={2}>
         {/* Analytics Section */}
         <Grid item xs={12}>
           <Box sx={{ 
             display: 'flex', 
             alignItems: 'center',
-            gap: 3,
-            mb: 4,
+            gap: 2,
+            mb: 2,
             flexWrap: 'wrap'
           }}>
             <Box sx={{ 
               display: 'flex', 
               alignItems: 'center', 
-              gap: 2,
+              gap: 1,
               flex: '1 1 auto',
               minWidth: { xs: '100%', sm: 'auto' }
             }}>
-              <Typography variant="h5">Queue Overview</Typography>
+              <Typography variant="h5" sx={{ fontSize: '1.25rem' }}>Queue Overview</Typography>
               <IconButton 
                 onClick={fetchAnalytics} 
                 disabled={queueLoading}
                 size="small"
               >
-                <RefreshIcon />
+                <RefreshIcon fontSize="small" />
               </IconButton>
               {displayPreferences.show_care_team_assignment && (
                 <Select
@@ -962,10 +988,11 @@ const Dashboard: React.FC = () => {
                   size="small"
                   displayEmpty
                   sx={{ 
-                    minWidth: 150,
-                    ml: 2,
+                    minWidth: 120,
+                    ml: 1,
                     '& .MuiSelect-select': {
-                      py: 0.5
+                      py: 0.5,
+                      fontSize: '0.875rem'
                     }
                   }}
                 >
@@ -989,29 +1016,21 @@ const Dashboard: React.FC = () => {
 
             <Box sx={{ 
               display: 'flex', 
-              gap: 3,
+              gap: 2,
               flexWrap: 'wrap',
               flex: '1 1 auto',
               justifyContent: 'flex-end'
             }}>
-              <Box sx={{ 
-                display: 'flex', 
-                alignItems: 'center',
-                gap: 1 
-              }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography color="textSecondary" variant="body2">
                   Patients Today:
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
                   {analytics.patientsToday}
                 </Typography>
               </Box>
 
-              <Box sx={{ 
-                display: 'flex', 
-                alignItems: 'center',
-                gap: 1
-              }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography color="textSecondary" variant="body2">
                   Avg. Wait Time:
                 </Typography>
@@ -1019,6 +1038,7 @@ const Dashboard: React.FC = () => {
                   variant="h6" 
                   sx={{ 
                     fontWeight: 600,
+                    fontSize: '1rem',
                     color: getWaitTimeColor(analytics.averageWaitTime)
                   }}
                 >
@@ -1030,32 +1050,39 @@ const Dashboard: React.FC = () => {
         </Grid>
 
         {/* Queue Sections */}
-        <Grid container spacing={4}>
+        <Grid container spacing={2}>
           {queueSections.map(section => (
             <Grid item xs={12} md={6} key={section.status}>
-              <Paper sx={{ p: 3 }}>
+              <Paper sx={{ p: 2 }}>
                 <Box sx={{ 
                   borderBottom: 1, 
                   borderColor: 'divider', 
-                  pb: 2,
-                  mb: 3
+                  pb: 1,
+                  mb: 1
                 }}>
-                  <Typography variant="h6">
+                  <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600 }}>
                     {section.title} ({section.items.length})
                   </Typography>
-                  <Box sx={{ mt: 1.5 }}>
-                    <Typography variant="body2" color="textSecondary">
+                  <Box sx={{ mt: 0.5 }}>
+                    <Typography variant="body2" color="textSecondary" sx={{ fontSize: '0.75rem' }}>
                       {section.description}
                     </Typography>
                   </Box>
                 </Box>
-                <List sx={{ '& .MuiListItem-root': { py: 2 } }}>
+                <List sx={{ 
+                  '& .MuiListItem-root': { 
+                    py: 1,
+                    px: 1.5
+                  },
+                  maxHeight: 'calc(100vh - 280px)',
+                  overflowY: 'auto'
+                }}>
                   {section.renderItems ? (
                     section.renderItems(section.items)
                   ) : (
                     sortQueueItems(section.items).map((item, index) => (
                       <React.Fragment key={item.id}>
-                        {index > 0 && <Divider sx={{ my: 1 }} />}
+                        {index > 0 && <Divider sx={{ my: 0.5 }} />}
                         <QueueItemComponent item={item} />
                       </React.Fragment>
                     ))
@@ -1063,7 +1090,7 @@ const Dashboard: React.FC = () => {
                   {section.items.length === 0 && (
                     <Typography 
                       color="textSecondary" 
-                      sx={{ py: 4, textAlign: 'center' }}
+                      sx={{ py: 2, textAlign: 'center', fontSize: '0.875rem' }}
                     >
                       No patients in this queue
                     </Typography>
@@ -1074,14 +1101,15 @@ const Dashboard: React.FC = () => {
           ))}
         </Grid>
       </Grid>
+
       {queueLoading && (
         <Box sx={{ 
           display: 'flex', 
           justifyContent: 'center', 
-          p: 4,
-          mt: 4
+          p: 2,
+          mt: 2
         }}>
-          <CircularProgress />
+          <CircularProgress size={24} />
         </Box>
       )}
 
@@ -1089,14 +1117,14 @@ const Dashboard: React.FC = () => {
         <Alert 
           severity="error" 
           onClose={() => setError(null)}
-          sx={{ mt: 4, mb: 2 }}
+          sx={{ mt: 2, mb: 1 }}
         >
           {error}
         </Alert>
       )}
 
       {processing && (
-        <CircularProgress size={24} sx={{ position: 'fixed', bottom: 24, right: 24 }} />
+        <CircularProgress size={20} sx={{ position: 'fixed', bottom: 16, right: 16 }} />
       )}
     </Box>
   );

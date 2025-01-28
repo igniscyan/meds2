@@ -64,11 +64,11 @@ const Inventory: React.FC = () => {
 
   return (
     <RoleBasedAccess requiredRole={['provider', 'pharmacy'] as const}>
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h4" gutterBottom>Inventory</Typography>
-        
+      <Box sx={{ p: { xs: 2, sm: 2 } }}>
+        <Typography variant="h4" sx={{ mb: 2 }}>Inventory</Typography>
+
         {/* Search Bar */}
-        <Paper sx={{ p: 2, mb: 2 }}>
+        <Paper sx={{ p: 1.5, mb: 2 }}>
           <TextField
             fullWidth
             placeholder="Search by drug name or category..."
@@ -87,8 +87,8 @@ const Inventory: React.FC = () => {
         </Paper>
 
         {/* Inventory Table */}
-        <TableContainer component={Paper}>
-          <Table>
+        <TableContainer component={Paper} sx={{ height: 'calc(100vh - 220px)' }}>
+          <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
                 <TableCell>Drug Name</TableCell>
@@ -101,11 +101,11 @@ const Inventory: React.FC = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={4} align="center">Loading...</TableCell>
+                  <TableCell colSpan={5} align="center">Loading...</TableCell>
                 </TableRow>
               ) : filteredInventory?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} align="center">No inventory items found</TableCell>
+                  <TableCell colSpan={5} align="center">No inventory items found</TableCell>
                 </TableRow>
               ) : (
                 filteredInventory
@@ -114,7 +114,10 @@ const Inventory: React.FC = () => {
                     <TableRow 
                       key={item.id}
                       sx={{ 
-                        backgroundColor: item.stock <= item.fixed_quantity ? '#fff4e5' : 'inherit'
+                        backgroundColor: item.stock <= item.fixed_quantity ? '#fff4e5' : 'inherit',
+                        '&:hover': {
+                          backgroundColor: item.stock <= item.fixed_quantity ? '#ffecb5' : '#f5f5f5'
+                        }
                       }}
                     >
                       <TableCell>{item.drug_name}</TableCell>
@@ -128,13 +131,13 @@ const Inventory: React.FC = () => {
             </TableBody>
           </Table>
           <TablePagination
-            rowsPerPageOptions={[5, 10, 25, 50, 100]}
             component="div"
             count={filteredInventory?.length || 0}
             rowsPerPage={rowsPerPage}
             page={page}
             onPageChange={handleChangePage}
             onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[10, 25, 50, 100]}
           />
         </TableContainer>
       </Box>
