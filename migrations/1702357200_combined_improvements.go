@@ -1988,7 +1988,7 @@ func init() {
 			"DEEP VEIN THROMBOSIS (DVT)", "LEUKEMIA (E.G., ACUTE LYMPHOBLASTIC LEUKEMIA)",
 			"LYMPHOMA (HODGKIN'S/NON-HODGKIN'S)", "BREAST CANCER", "COLON CANCER", "PROSTATE CANCER",
 			"THROMBOCYTOPENIA", "HEMOPHILIA",
-			"OTHER (Custom Text Input)",
+			"OTHER (Custom Text Input)", "WELL CHECK",
 		}
 
 		for _, diagnosisName := range diagnoses {

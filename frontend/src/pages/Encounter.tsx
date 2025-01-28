@@ -770,6 +770,22 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         return;
       }
 
+      // Validate diagnosis
+      if (!formData.diagnosis || formData.diagnosis.length === 0) {
+        alert('At least one diagnosis is required. If the patient is healthy, please select "WELL CHECK".');
+        return;
+      }
+
+      // Validate "OTHER" diagnosis if selected
+      const hasOtherDiagnosis = diagnoses
+        .filter(d => formData.diagnosis?.includes(d.id))
+        .some(d => d.name === 'OTHER (Custom Text Input)');
+      
+      if (hasOtherDiagnosis && (!formData.other_diagnosis || formData.other_diagnosis.trim() === '')) {
+        alert('Please specify the other diagnosis.');
+        return;
+      }
+
       // Log the current state for debugging
       console.log('DEBUG Form Data:', {
         formData,
@@ -1893,7 +1909,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                       onChange={handleOtherComplaintChange}
                       disabled={isFieldDisabled('subjective')}
                       placeholder="Enter new chief complaint"
-                      helperText="Please use all caps for consistency"
+                      helperText="Please separate items with a comma"
                     />
                   </Grid>
                 )}
@@ -1911,6 +1927,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                           {...params}
                           label="Diagnosis"
                           placeholder="Search diagnoses..."
+                          helperText="At least one diagnosis is required. If the patient is healthy, select 'WELL CHECK'"
+                          error={formData.diagnosis?.length === 0}
                         />
                       )}
                       renderTags={(tagValue, getTagProps) =>
@@ -1935,7 +1953,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                       onChange={handleOtherDiagnosisChange}
                       disabled={isFieldDisabled('subjective')}
                       placeholder="Enter new diagnosis"
-                      helperText="Please use all caps for consistency"
+                      helperText="Please separate items with a comma"
                     />
                   </Grid>
                 )}
