@@ -270,7 +270,16 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
         disabled={disabled || isDeleted}
         sx={{
           opacity: isDeleted ? 0.5 : 1,
-          textDecoration: isDeleted ? 'line-through' : 'none'
+          textDecoration: isDeleted ? 'line-through' : 'none',
+          width: '100%',
+          '& .MuiInputBase-root': {
+            minHeight: '40px',
+            height: 'auto',
+            paddingRight: '39px !important' // Ensure space for dropdown arrow
+          },
+          '& .MuiAutocomplete-input': {
+            padding: '0 !important'  // Remove extra padding from input
+          }
         }}
       />
     );
@@ -290,7 +299,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
       !d.markedForDeletion &&
       idx !== index  // Exclude current disbursement to avoid double counting
     );
-    
+
     // Calculate total quantity being disbursed for this medication
     const totalDisbursedQuantity = allDisbursementsForMed.reduce((total, d) => 
       total + (d.quantity * (d.disbursement_multiplier || 1)), 0
@@ -390,7 +399,9 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   };
 
   const handleConfirmationComplete = () => {
+    // Just close the confirmation dialog and call the parent's callback
     setShowConfirmation(false);
+    
     if (onDisbursementComplete) {
       onDisbursementComplete();
     }
@@ -459,10 +470,25 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
             const currentStock = medication?.stock || 0;
             const isProcessed = mode === 'pharmacy' && disbursement.isProcessed;
             const totalQuantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
-            const otherDisbursementsTotal = disbursements
+            
+            // Only calculate stock-related values if a medication is selected
+            const hasMedication = !!disbursement.medication;
+            const otherDisbursementsTotal = hasMedication ? disbursements
               .filter((d, idx) => d.medication === disbursement.medication && idx !== index && !d.markedForDeletion)
-              .reduce((total, d) => total + (d.quantity * (d.disbursement_multiplier || 1)), 0);
-            const exceedsStock = totalQuantity + otherDisbursementsTotal > currentStock;
+              .reduce((total, d) => total + (d.quantity * (d.disbursement_multiplier || 1)), 0) : 0;
+            
+            // Calculate the actual change in stock, accounting for initial state
+            const initialState = disbursement.id ? initialMedicationState.get(disbursement.medication) : null;
+            const initialQuantity = initialState ? initialState.quantity * (initialState.multiplier || 1) : 0;
+            
+            // For new medications, show the full deduction
+            // For existing medications, only show the difference from initial state
+            const stockChangeAmount = disbursement.id
+              ? totalQuantity - initialQuantity  // Only show the difference for existing medications
+              : totalQuantity;                   // Show full amount for new medications
+            
+            const hasStockChange = hasMedication && stockChangeAmount !== 0;
+            const exceedsStock = hasMedication && (totalQuantity + otherDisbursementsTotal > currentStock);
 
             return (
               <Grid 
@@ -472,32 +498,41 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                 key={index} 
                 sx={{ 
                   mb: 2, 
-                  opacity: isDeleted ? 0.5 : 1,
+                  opacity: isDeleted ? 0.7 : 1,
                   backgroundColor: isDeleted ? 'rgba(0, 0, 0, 0.05)' : 'transparent',
                   transition: 'all 0.3s ease-in-out',
                   padding: 1,
                   borderRadius: 1,
                   position: 'relative',
-                  '&::before': {
-                    content: '""',
+                  border: isDeleted ? '1px solid rgba(0, 0, 0, 0.1)' : 'none',
+                  '&::before': isDeleted ? {
+                    content: '"Marked for Deletion"',
                     position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    borderRadius: 1,
-                    border: isDeleted ? '1px solid rgba(0, 0, 0, 0.1)' : 'none',
-                    pointerEvents: 'none'
-                  }
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    color: 'text.secondary',
+                    fontSize: '1.2rem',
+                    fontWeight: 500,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.1em',
+                    pointerEvents: 'none',
+                    zIndex: 1,
+                    textShadow: '1px 1px 2px rgba(255, 255, 255, 0.8)'
+                  } : {}
                 }}
               >
                 {/* Medication Selection */}
-                <Grid item xs={12} sm={3}>
+                <Grid item xs={12} sm={3} sx={{ 
+                  opacity: isDeleted ? 0.3 : 1,
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
                   {renderMedicationSelect(index, disbursement)}
                 </Grid>
 
                 {/* Quantity and Multiplier Group */}
-                <Grid item container xs={12} sm={3} spacing={1}>
+                <Grid item container xs={12} sm={3} spacing={1} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
                   <Grid item xs={6} sm={4}>
                     <TextField
                       fullWidth
@@ -507,7 +542,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                       value={disbursement.quantity}
                       disabled={true}
                       InputLabelProps={{ shrink: true }}
-                      error={exceedsStock}
+                      error={hasMedication && exceedsStock}
                     />
                   </Grid>
                   <Grid item xs={6} sm={4}>
@@ -518,10 +553,10 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                       size="small"
                       value={disbursement.disbursement_multiplier}
                       onChange={(e) => handleDisbursementChange(index, 'disbursement_multiplier', e.target.value)}
-                      disabled={disabled || isProcessed || isDeleted}
+                      disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       InputLabelProps={{ shrink: true }}
-                      error={exceedsStock}
-                      helperText={exceedsStock ? "Exceeds available stock" : ""}
+                      error={hasMedication && exceedsStock}
+                      helperText={hasMedication && exceedsStock ? "Exceeds available stock" : ""}
                     />
                   </Grid>
                   <Grid item xs={12} sm={4}>
@@ -530,14 +565,23 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                       flexDirection: { xs: 'row', sm: 'column' }, 
                       alignItems: 'center',
                       justifyContent: { xs: 'space-between', sm: 'center' },
-                      px: { xs: 0, sm: 1 }
+                      px: { xs: 0, sm: 1 },
+                      height: '100%',
+                      minHeight: '40px'
                     }}>
                       <Typography variant="body2" color="text.secondary">
-                        Stock: {currentStock}
+                        Stock: {hasMedication ? currentStock : '-'}
                       </Typography>
-                      {!disbursement.markedForDeletion && (
-                        <Typography variant="body2" color={exceedsStock ? "error.main" : "text.secondary"} sx={{ fontWeight: 'medium', ml: { xs: 2, sm: 0 } }}>
-                          ({-totalQuantity})
+                      {hasMedication && !isDeleted && hasStockChange && (
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            fontWeight: 'medium',
+                            ml: { xs: 2, sm: 0 },
+                            color: 'error.main'
+                          }}
+                        >
+                          ({-stockChangeAmount})
                         </Typography>
                       )}
                     </Box>
@@ -545,13 +589,13 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                 </Grid>
 
                 {/* Frequency Group */}
-                <Grid item xs={12} sm={2}>
+                <Grid item xs={12} sm={2} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Frequency</InputLabel>
                     <Select
                       value={disbursement.frequency || 'QD'}
                       onChange={(e) => handleDisbursementChange(index, 'frequency', e.target.value)}
-                      disabled={disabled || isProcessed || isDeleted}
+                      disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       label="Frequency"
                     >
                       <MenuItem value="QD">QD</MenuItem>
@@ -570,7 +614,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
 
                 {/* Hours field - only show if Q#H selected */}
                 {disbursement.frequency === 'Q#H' && (
-                  <Grid item xs={6} sm={1}>
+                  <Grid item xs={6} sm={1} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
                     <TextField
                       fullWidth
                       label="Hours"
@@ -578,20 +622,20 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                       size="small"
                       value={disbursement.frequency_hours || ''}
                       onChange={(e) => handleDisbursementChange(index, 'frequency_hours', e.target.value)}
-                      disabled={disabled || isProcessed || isDeleted}
+                      disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       InputLabelProps={{ shrink: true }}
                     />
                   </Grid>
                 )}
 
                 {/* Associated Diagnosis */}
-                <Grid item xs={12} sm={2}>
+                <Grid item xs={12} sm={2} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Diagnosis</InputLabel>
                     <Select
                       value={disbursement.associated_diagnosis || ''}
                       onChange={(e) => handleDisbursementChange(index, 'associated_diagnosis', e.target.value)}
-                      disabled={disabled || isProcessed || isDeleted}
+                      disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       label="Diagnosis"
                     >
                       <MenuItem value="">None</MenuItem>
@@ -605,18 +649,18 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                 </Grid>
 
                 {/* Notes */}
-                <Grid item xs={12} sm={disbursement.frequency === 'Q#H' ? 1.5 : 1.5}>
+                <Grid item xs={12} sm={disbursement.frequency === 'Q#H' ? 1.5 : 1.5} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
                   <TextField
                     fullWidth
                     label="Notes"
                     size="small"
                     value={disbursement.notes}
                     onChange={(e) => handleDisbursementChange(index, 'notes', e.target.value)}
-                    disabled={disabled || isProcessed || isDeleted}
+                    disabled={disabled || isProcessed || isDeleted || !hasMedication}
                   />
                 </Grid>
 
-                {/* Delete/Restore Button */}
+                {/* Delete/Restore Button - No opacity reduction */}
                 <Grid item xs={12} sm={0.5}>
                   <IconButton
                     onClick={() => isDeleted ? 
@@ -624,6 +668,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                       handleRemoveDisbursement(index)}
                     disabled={disabled || isProcessed}
                     color={isDeleted ? "primary" : "default"}
+                    sx={{ opacity: 1 }}  // Force full opacity for the undo button
                   >
                     {isDeleted ? <UndoIcon /> : <DeleteIcon />}
                   </IconButton>

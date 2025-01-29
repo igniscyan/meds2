@@ -84,9 +84,18 @@ const Settings: React.FC = () => {
     setSaving(true);
     setSaveSuccess(false);
     try {
+      // Ensure override_field_restrictions_all_roles is false if override_field_restrictions is false
+      const displayPreferences = {
+        ...settings.display_preferences,
+        override_field_restrictions_all_roles: 
+          settings.display_preferences.override_field_restrictions 
+            ? settings.display_preferences.override_field_restrictions_all_roles 
+            : false
+      };
+
       const updatedSettings = await pb.collection('settings').update<Settings>(settings.id, {
         unit_display: settings.unit_display,
-        display_preferences: settings.display_preferences,
+        display_preferences: displayPreferences,
         updated_by: (pb.authStore.model as Admin)?.id
       });
       setSettings(updatedSettings);
@@ -96,7 +105,7 @@ const Settings: React.FC = () => {
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       console.error('Error saving settings:', err);
-        setError('Failed to save settings. Please try again.');
+      setError('Failed to save settings. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -117,13 +126,28 @@ const Settings: React.FC = () => {
   const handleDisplayPreferenceChange = (field: keyof DisplayPreferences) => (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!settings) return;
     
-    setSettings({
-      ...settings,
-      display_preferences: {
-        ...settings.display_preferences,
-        [field]: event.target.checked
-      }
-    });
+    const newValue = event.target.checked;
+    
+    // Special handling for override field restrictions
+    if (field === 'override_field_restrictions' && !newValue) {
+      // If turning off override_field_restrictions, also turn off all_roles
+      setSettings({
+        ...settings,
+        display_preferences: {
+          ...settings.display_preferences,
+          [field]: newValue,
+          override_field_restrictions_all_roles: false
+        }
+      });
+    } else {
+      setSettings({
+        ...settings,
+        display_preferences: {
+          ...settings.display_preferences,
+          [field]: newValue
+        }
+      });
+    }
   };
 
   const handleWipePatientNames = async () => {

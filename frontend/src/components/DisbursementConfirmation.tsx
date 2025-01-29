@@ -143,7 +143,7 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
         status: 'completed',
         end_time: new Date().toISOString()
       });
-
+      
       onConfirm();
     } catch (error) {
       console.error('Error processing disbursements:', error);

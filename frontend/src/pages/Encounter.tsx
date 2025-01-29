@@ -611,6 +611,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       console.log('Saving disbursement changes');
       await saveDisbursementChanges();
 
+      // Show success notification
+      alert(action === 'save' ? 'Encounter saved successfully' : 'Patient has been sent to checkout');
+
       if (action === 'checkout') {
         // Update queue status to at_checkout
         console.log('Sending to checkout');
