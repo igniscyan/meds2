@@ -45,14 +45,20 @@ interface Encounter extends Record {
   heart_rate: number;
   systolic_pressure: number;
   diastolic_pressure: number;
-  chief_complaint: string;
+  chief_complaint: string[];
+  diagnosis: string[];
   other_chief_complaint?: string;
+  other_diagnosis?: string;
   created: string;
   expand?: {
     chief_complaint?: {
       id: string;
       name: string;
-    };
+    }[];
+    diagnosis?: {
+      id: string;
+      name: string;
+    }[];
   };
 }
 
@@ -82,7 +88,7 @@ const PatientDashboard: React.FC = () => {
   const { records: encounters, loading, error } = useRealtimeSubscription<Encounter>('encounters', {
     filter: `patient = "${patientId}"`,
     sort: '-created',
-    expand: 'chief_complaint'
+    expand: 'chief_complaint,diagnosis'
   });
 
   useEffect(() => {
@@ -290,6 +296,7 @@ const PatientDashboard: React.FC = () => {
             <TableRow>
               <TableCell>Date</TableCell>
               <TableCell>Chief Complaints</TableCell>
+              <TableCell>Diagnosis</TableCell>
               <TableCell>Vitals</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
@@ -301,7 +308,68 @@ const PatientDashboard: React.FC = () => {
                   {new Date(encounter.created).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  {encounter.expand?.chief_complaint?.name || encounter.other_chief_complaint || 'No complaint recorded'}
+                  {(() => {
+                    if (!encounter.expand?.chief_complaint?.length && !encounter.other_chief_complaint) {
+                      return 'No complaint recorded';
+                    }
+
+                    const complaints = [];
+                    
+                    // Add standard complaints
+                    if (encounter.expand?.chief_complaint) {
+                      complaints.push(...encounter.expand.chief_complaint
+                        .filter(c => c.name !== 'OTHER (Custom Text Input)')
+                        .map(c => c.name)
+                      );
+                    }
+                    
+                    // Add other complaints if present
+                    if (encounter.other_chief_complaint) {
+                      complaints.push(...encounter.other_chief_complaint.split(',').map(c => c.trim()));
+                    }
+
+                    return complaints.length > 0 ? (
+                      <Box>
+                        {complaints.map((complaint, index) => (
+                          <Typography key={index} variant="body2" sx={{ mb: index < complaints.length - 1 ? 0.5 : 0 }}>
+                            • {complaint}
+                          </Typography>
+                        ))}
+                      </Box>
+                    ) : 'No complaint recorded';
+                  })()}
+                </TableCell>
+                <TableCell>
+                  {(() => {
+                    if (!encounter.expand?.diagnosis?.length && !encounter.other_diagnosis) {
+                      return 'No diagnosis recorded';
+                    }
+
+                    const diagnoses = [];
+                    
+                    // Add standard diagnoses
+                    if (encounter.expand?.diagnosis) {
+                      diagnoses.push(...encounter.expand.diagnosis
+                        .filter(d => d.name !== 'OTHER (Custom Text Input)')
+                        .map(d => d.name)
+                      );
+                    }
+                    
+                    // Add other diagnoses if present
+                    if (encounter.other_diagnosis) {
+                      diagnoses.push(...encounter.other_diagnosis.split(',').map(d => d.trim()));
+                    }
+
+                    return diagnoses.length > 0 ? (
+                      <Box>
+                        {diagnoses.map((diagnosis, index) => (
+                          <Typography key={index} variant="body2" sx={{ mb: index < diagnoses.length - 1 ? 0.5 : 0 }}>
+                            • {diagnosis}
+                          </Typography>
+                        ))}
+                      </Box>
+                    ) : 'No diagnosis recorded';
+                  })()}
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2">BP: {encounter.systolic_pressure}/{encounter.diastolic_pressure}</Typography>

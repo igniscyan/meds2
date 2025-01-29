@@ -757,7 +757,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       // Validate chief complaints
       if (!formData.chief_complaint || formData.chief_complaint.length === 0) {
         alert('At least one chief complaint is required.');
-        return;
+        return false;
       }
 
       // Validate "OTHER" chief complaint if selected
@@ -767,13 +767,13 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       
       if (hasOtherComplaint && (!formData.other_chief_complaint || formData.other_chief_complaint.trim() === '')) {
         alert('Please specify the other chief complaint.');
-        return;
+        return false;
       }
 
       // Validate diagnosis
       if (!formData.diagnosis || formData.diagnosis.length === 0) {
         alert('At least one diagnosis is required. If the patient is healthy, please select "WELL CHECK".');
-        return;
+        return false;
       }
 
       // Validate "OTHER" diagnosis if selected
@@ -783,170 +783,184 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       
       if (hasOtherDiagnosis && (!formData.other_diagnosis || formData.other_diagnosis.trim() === '')) {
         alert('Please specify the other diagnosis.');
-        return;
+        return false;
       }
 
-      // Log the current state for debugging
-      console.log('DEBUG Form Data:', {
-        formData,
-        mode: currentMode,
-        patientId,
-        encounterId,
-        currentQueueItem
-      });
-
-      // If in checkout mode, fetch the existing encounter data first
-      let existingEncounter: EncounterRecord | null = null;
-      if (currentMode === 'checkout' && encounterId) {
-        existingEncounter = await pb.collection('encounters').getOne<EncounterRecord>(encounterId);
-      }
-
-      // Prepare encounter data
-      const encounterData = {
-        patient: patientId,
-        height: currentMode === 'checkout' ? existingEncounter?.height : (formData.height ? Number(formData.height) : null),
-        weight: currentMode === 'checkout' ? existingEncounter?.weight : (formData.weight ? Number(formData.weight) : null),
-        temperature: currentMode === 'checkout' ? existingEncounter?.temperature : (formData.temperature ? Number(formData.temperature) : null),
-        heart_rate: currentMode === 'checkout' ? existingEncounter?.heart_rate : (formData.heart_rate ? Number(formData.heart_rate) : null),
-        systolic_pressure: currentMode === 'checkout' ? existingEncounter?.systolic_pressure : (formData.systolic_pressure ? Number(formData.systolic_pressure) : null),
-        diastolic_pressure: currentMode === 'checkout' ? existingEncounter?.diastolic_pressure : (formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null),
-        pulse_ox: currentMode === 'checkout' ? existingEncounter?.pulse_ox : (formData.pulse_ox ? Number(formData.pulse_ox) : null),
-        chief_complaint: formData.chief_complaint || [],
-        diagnosis: formData.diagnosis || [],
-        other_chief_complaint: formData.other_chief_complaint || '',
-        other_diagnosis: formData.other_diagnosis || '',
-        past_medical_history: formData.past_medical_history || '',
-        subjective_notes: formData.subjective_notes || '',
-        allergies: formData.allergies || '',
-        urinalysis: formData.urinalysis || false,
-        urinalysis_result: formData.urinalysis_result || '',
-        blood_sugar: formData.blood_sugar || false,
-        blood_sugar_result: formData.blood_sugar_result || '',
-        pregnancy_test: formData.pregnancy_test || false,
-        pregnancy_test_result: formData.pregnancy_test_result || '',
-      };
-
-      console.log('DEBUG: Prepared encounter data:', encounterData);
-
-      let savedEncounter: SavedEncounter;
       try {
-        // Always update if we have an encounterId, regardless of mode
-        if (encounterId) {
-          console.log('DEBUG: Updating existing encounter:', encounterId);
-          // Update existing encounter
-          savedEncounter = await pb.collection('encounters').update(encounterId, encounterData);
-          console.log('DEBUG: Update successful:', savedEncounter);
+        // Log the current state for debugging
+        console.log('DEBUG Form Data:', {
+          formData,
+          mode: currentMode,
+          patientId,
+          encounterId,
+          currentQueueItem
+        });
 
-          // Save disbursements if in pharmacy mode or if there are any disbursements
-          if (currentMode === 'pharmacy' || (formData.disbursements && formData.disbursements.length > 0)) {
-            console.log('DEBUG: Saving disbursements');
-          await saveDisbursementChanges();
-          }
-          
-          // Process all responses in a single batch
-          console.log('DEBUG: Processing responses:', 
-            questionResponses.map(r => ({
-              question: r.expand?.question?.question_text,
-              value: r.response_value,
-              type: r.expand?.question?.input_type,
-              isDependent: !!r.expand?.question?.depends_on,
-              hasId: !!r.id,
-              id: r.id
-            }))
-          );
+        // If in checkout mode, fetch the existing encounter data first
+        let existingEncounter: EncounterRecord | null = null;
+        if (currentMode === 'checkout' && encounterId) {
+          existingEncounter = await pb.collection('encounters').getOne<EncounterRecord>(encounterId);
+        }
 
-          // First, get all existing responses for this encounter
-          const existingResponses = await pb.collection('encounter_responses').getList<EncounterResponseRecord>(1, 200, {
-            filter: `encounter = "${encounterId}"`,
-            expand: 'question'
-          });
+        // Prepare encounter data
+        const encounterData = {
+          patient: patientId,
+          height: currentMode === 'checkout' ? existingEncounter?.height : (formData.height ? Number(formData.height) : null),
+          weight: currentMode === 'checkout' ? existingEncounter?.weight : (formData.weight ? Number(formData.weight) : null),
+          temperature: currentMode === 'checkout' ? existingEncounter?.temperature : (formData.temperature ? Number(formData.temperature) : null),
+          heart_rate: currentMode === 'checkout' ? existingEncounter?.heart_rate : (formData.heart_rate ? Number(formData.heart_rate) : null),
+          systolic_pressure: currentMode === 'checkout' ? existingEncounter?.systolic_pressure : (formData.systolic_pressure ? Number(formData.systolic_pressure) : null),
+          diastolic_pressure: currentMode === 'checkout' ? existingEncounter?.diastolic_pressure : (formData.diastolic_pressure ? Number(formData.diastolic_pressure) : null),
+          pulse_ox: currentMode === 'checkout' ? existingEncounter?.pulse_ox : (formData.pulse_ox ? Number(formData.pulse_ox) : null),
+          chief_complaint: formData.chief_complaint || [],
+          diagnosis: formData.diagnosis || [],
+          other_chief_complaint: formData.other_chief_complaint || '',
+          other_diagnosis: formData.other_diagnosis || '',
+          past_medical_history: formData.past_medical_history || '',
+          subjective_notes: formData.subjective_notes || '',
+          allergies: formData.allergies || '',
+          urinalysis: formData.urinalysis || false,
+          urinalysis_result: formData.urinalysis_result || '',
+          blood_sugar: formData.blood_sugar || false,
+          blood_sugar_result: formData.blood_sugar_result || '',
+          pregnancy_test: formData.pregnancy_test || false,
+          pregnancy_test_result: formData.pregnancy_test_result || '',
+        };
 
-          // Create a map of existing responses by question ID
-          const existingResponseMap = new Map<string, EncounterResponseRecord>(
-            existingResponses.items.map(r => [r.question, r])
-          );
+        console.log('DEBUG: Prepared encounter data:', encounterData);
 
-          // Process each response
-          for (const response of questionResponses) {
-              const existingResponse = existingResponseMap.get(response.question);
+        let savedEncounter: SavedEncounter;
+        try {
+          // Always update if we have an encounterId, regardless of mode
+          if (encounterId) {
+            console.log('DEBUG: Updating existing encounter:', encounterId);
+            // Update existing encounter
+            savedEncounter = await pb.collection('encounters').update(encounterId, encounterData);
+            console.log('DEBUG: Update successful:', savedEncounter);
 
-              if (existingResponse) {
-              // Update existing response if value changed
-              if (JSON.stringify(existingResponse.response_value) !== JSON.stringify(response.response_value)) {
-                await pb.collection('encounter_responses').update(existingResponse.id, {
-                  response_value: response.response_value
-                });
-              }
-              // Remove from map to track which ones need to be deleted
-              existingResponseMap.delete(response.question);
-              } else {
-              // Create new response
+            // Save disbursements if in pharmacy mode or if there are any disbursements
+            if (currentMode === 'pharmacy' || (formData.disbursements && formData.disbursements.length > 0)) {
+              console.log('DEBUG: Saving disbursements');
+            await saveDisbursementChanges();
+            }
+            
+            // Process all responses in a single batch
+            console.log('DEBUG: Processing responses:', 
+              questionResponses.map(r => ({
+                question: r.expand?.question?.question_text,
+                value: r.response_value,
+                type: r.expand?.question?.input_type,
+                isDependent: !!r.expand?.question?.depends_on,
+                hasId: !!r.id,
+                id: r.id
+              }))
+            );
+
+            // First, get all existing responses for this encounter
+            const existingResponses = await pb.collection('encounter_responses').getList<EncounterResponseRecord>(1, 200, {
+              filter: `encounter = "${encounterId}"`,
+              expand: 'question'
+            });
+
+            // Create a map of existing responses by question ID
+            const existingResponseMap = new Map<string, EncounterResponseRecord>(
+              existingResponses.items.map(r => [r.question, r])
+            );
+
+            // Process each response
+            for (const response of questionResponses) {
+                const existingResponse = existingResponseMap.get(response.question);
+
+                if (existingResponse) {
+                // Update existing response if value changed
+                if (JSON.stringify(existingResponse.response_value) !== JSON.stringify(response.response_value)) {
+                  await pb.collection('encounter_responses').update(existingResponse.id, {
+                    response_value: response.response_value
+                  });
+                }
+                // Remove from map to track which ones need to be deleted
+                existingResponseMap.delete(response.question);
+                } else {
+                // Create new response
+                  await pb.collection('encounter_responses').create({
+                    encounter: encounterId,
+                    question: response.question,
+                    response_value: response.response_value
+                  });
+                }
+            }
+
+            // Delete any remaining responses that weren't in the current set
+            for (const [_, response] of Array.from(existingResponseMap)) {
+              await pb.collection('encounter_responses').delete(response.id);
+            }
+          } else {
+            console.log('DEBUG: Creating new encounter');
+            savedEncounter = await pb.collection('encounters').create(encounterData);
+            console.log('DEBUG: Create successful:', savedEncounter);
+
+            // Save disbursements for new encounter
+            if (formData.disbursements && formData.disbursements.length > 0) {
+              console.log('DEBUG: Saving disbursements for new encounter');
+              await saveDisbursementChanges();
+            }
+
+            // Process responses in sequence to avoid race conditions
+            for (const response of questionResponses) {
+              try {
                 await pb.collection('encounter_responses').create({
-                  encounter: encounterId,
+                  encounter: savedEncounter.id,
                   question: response.question,
                   response_value: response.response_value
                 });
+              } catch (error) {
+                console.error('[Save Error]', {
+                  question: response.expand?.question?.question_text,
+                  error
+                });
+                throw error;
               }
-          }
-
-          // Delete any remaining responses that weren't in the current set
-          for (const [_, response] of Array.from(existingResponseMap)) {
-            await pb.collection('encounter_responses').delete(response.id);
-          }
-        } else {
-          console.log('DEBUG: Creating new encounter');
-          savedEncounter = await pb.collection('encounters').create(encounterData);
-          console.log('DEBUG: Create successful:', savedEncounter);
-
-          // Save disbursements for new encounter
-          if (formData.disbursements && formData.disbursements.length > 0) {
-            console.log('DEBUG: Saving disbursements for new encounter');
-            await saveDisbursementChanges();
-          }
-
-          // Process responses in sequence to avoid race conditions
-          for (const response of questionResponses) {
-            try {
-              await pb.collection('encounter_responses').create({
-                encounter: savedEncounter.id,
-                question: response.question,
-                response_value: response.response_value
-              });
-            } catch (error) {
-              console.error('[Save Error]', {
-                question: response.expand?.question?.question_text,
-                error
-              });
-              throw error;
             }
           }
-        }
 
-        // Update queue item with encounter ID if needed
-        if (currentQueueItem && savedEncounter) {
-          console.log('DEBUG: Updating queue item with encounter ID');
-          await pb.collection('queue').update(currentQueueItem.id, {
-            encounter: savedEncounter.id
+          // Update queue item with encounter ID if needed
+          if (currentQueueItem && savedEncounter) {
+            console.log('DEBUG: Updating queue item with encounter ID');
+            await pb.collection('queue').update(currentQueueItem.id, {
+              encounter: savedEncounter.id
+            });
+          }
+
+          // Show success message
+          alert('Encounter saved successfully');
+
+          // If this was a new encounter, navigate to the edit mode with the new ID
+          if (!encounterId && savedEncounter.id) {
+            navigate(`/encounter/${patientId}/${savedEncounter.id}/edit`);
+            return true;
+          }
+          return true;
+        } catch (error: any) {
+          console.error('DEBUG: Error saving encounter:', {
+            error,
+            errorMessage: error.message,
+            errorData: error.data,
+            originalError: error.originalError
           });
-        }
-
-        // Show success message
-        alert('Encounter saved successfully');
-
-        // If this was a new encounter, navigate to the edit mode with the new ID
-        if (!encounterId && savedEncounter.id) {
-          navigate(`/encounter/${patientId}/${savedEncounter.id}/edit`);
-          return;
+          alert('Failed to save encounter: ' + error.message);
+          return false;
         }
       } catch (error: any) {
-        console.error('DEBUG: Error saving encounter:', {
+        // Handle any errors
+        console.error('DEBUG: Form submission error:', {
           error,
           errorMessage: error.message,
           errorData: error.data,
           originalError: error.originalError
         });
-        alert('Failed to save encounter: ' + error.message);
-        throw error;
+        const errorMessage = error.message || 'An unknown error occurred';
+        alert(`Failed to save encounter: ${errorMessage}\nPlease try again.`);
+        return false;
       }
     } catch (error: any) {
       // Handle any errors
@@ -958,6 +972,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       });
       const errorMessage = error.message || 'An unknown error occurred';
       alert(`Failed to save encounter: ${errorMessage}\nPlease try again.`);
+      return false;
     }
   };
 
@@ -976,6 +991,23 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     try {
       // Check for chief complaint when moving to pharmacy or checkout
       if (newStatus === 'ready_pharmacy' || newStatus === 'at_checkout') {
+        // Validate diagnosis first
+        if (!formData.diagnosis || formData.diagnosis.length === 0) {
+          alert('At least one diagnosis is required before progressing the encounter. If the patient is healthy, please select "WELL CHECK".');
+          return;
+        }
+
+        // Validate "OTHER" diagnosis if selected
+        const hasOtherDiagnosis = diagnoses
+          .filter(d => formData.diagnosis?.includes(d.id))
+          .some(d => d.name === 'OTHER (Custom Text Input)');
+        
+        if (hasOtherDiagnosis && (!formData.other_diagnosis || formData.other_diagnosis.trim() === '')) {
+          alert('Please specify the other diagnosis before progressing.');
+          return;
+        }
+
+        // Then validate chief complaint
         if (!formData.chief_complaint || formData.chief_complaint.length === 0) {
           alert('At least one chief complaint is required before progressing the encounter.');
           return;
@@ -1467,22 +1499,18 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const handleCheckoutAction = async (action: 'complete' | 'save') => {
     console.log('Checkout action triggered:', { action, currentQueueItem });
     try {
-      if (!currentQueueItem) {
+      if (!currentQueueItem?.id) {
         console.error('No current queue item found');
         return;
       }
 
-      // Create a form element
+      // Create a form element and synthetic event
       const form = document.createElement('form');
-      
-      // Create a native event
       const nativeEvent = new Event('submit', { bubbles: true, cancelable: true });
       
-      // Track event state
       let defaultPrevented = false;
       let propagationStopped = false;
       
-      // Create a synthetic event using React's event interface
       const syntheticEvent = {
         preventDefault: () => { defaultPrevented = true; },
         target: form,
@@ -1503,17 +1531,27 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       } as unknown as React.FormEvent<HTMLFormElement>;
 
       // First save any changes
-      await handleSubmit(syntheticEvent);
+      const submitSuccess = await handleSubmit(syntheticEvent);
+      if (!submitSuccess) {
+        console.log('Submit failed, stopping checkout action');
+        return;
+      }
 
       if (action === 'complete') {
         console.log('Processing complete action');
-        // Update queue status
-        console.log('Updating queue status to completed');
-        await pb.collection('queue').update(currentQueueItem.id, {
-          status: 'completed',
-          end_time: new Date().toISOString()
-        });
-        navigate('/dashboard');
+        try {
+          // Update queue status
+          console.log('Updating queue status to completed');
+          await pb.collection('queue').update(currentQueueItem.id, {
+            status: 'completed',
+            end_time: new Date().toISOString()
+          });
+          navigate('/dashboard');
+        } catch (error) {
+          console.error('Error updating queue status:', error);
+          alert('Failed to complete checkout: ' + (error as Error).message);
+          return;
+        }
       }
     } catch (error) {
       console.error('Error in checkout action:', error);

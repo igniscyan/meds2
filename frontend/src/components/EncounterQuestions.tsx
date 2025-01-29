@@ -132,37 +132,37 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
   const handleResponseChange = useCallback((questionId: string, value: any) => {
     setResponses(prev => {
       const newResponses = { ...prev };
-      const baseResponse: QuestionResponse = {
-        id: '',
-        created: new Date().toISOString(),
-        updated: new Date().toISOString(),
-        collectionId: '',
-        collectionName: 'encounter_responses',
-        encounter: encounterId || '',
-        question: questionId,
-        response_value: value
-      };
-
-      newResponses[questionId] = baseResponse;
-
-      // Clear dependent questions when parent is unchecked
-      if (questionRecords) {
-        questionRecords.forEach(q => {
-          if (q.depends_on === questionId) {
-            if (!value) {
-              // Clear dependent question's value
-              newResponses[q.id] = {
-                ...baseResponse,
-                question: q.id,
-                response_value: q.input_type === 'checkbox' ? false : ''
-              };
+      
+      // If the value is empty/false, remove it from responses
+      if (value === false || value === '' || value === null || value === undefined) {
+        delete newResponses[questionId];
+        
+        // Also remove any dependent questions
+        if (questionRecords) {
+          questionRecords.forEach(q => {
+            if (q.depends_on === questionId) {
+              delete newResponses[q.id];
             }
-          }
-        });
+          });
+        }
+      } else {
+        // Only add the response if it has a value
+        const baseResponse: QuestionResponse = {
+          id: '',
+          created: new Date().toISOString(),
+          updated: new Date().toISOString(),
+          collectionId: '',
+          collectionName: 'encounter_responses',
+          encounter: encounterId || '',
+          question: questionId,
+          response_value: value
+        };
+        
+        newResponses[questionId] = baseResponse;
       }
 
-      // Notify parent of changes
-      const responseArray = Object.values(newResponses).filter(r => r.response_value !== undefined);
+      // Notify parent of changes - only include responses that have values
+      const responseArray = Object.values(newResponses);
       onResponsesChange(responseArray);
 
       return newResponses;
