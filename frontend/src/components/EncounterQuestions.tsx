@@ -20,6 +20,7 @@ import { BaseModel } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { EncounterMode } from '../pages/Encounter';
+import { useSettings } from '../hooks/useSettings';
 
 interface QuestionResponse extends BaseModel {
   encounter: string;
@@ -70,6 +71,8 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
   defaultExpanded = false,
   onResponsesChange
 }) => {
+  const { displayPreferences } = useSettings();
+  const userRole = (pb.authStore.model as { role?: string })?.role;
   const [expanded, setExpanded] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const responsesRef = useRef<ResponseMap>({});
@@ -128,6 +131,25 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
     return parentResponse?.response_value === true;
   }, [responses]);
 
+  // Function to check if fields should be editable based on settings
+  const shouldAllowEdit = useCallback(() => {
+    if (disabled) return false;
+    
+    // If override_field_restrictions is enabled and user is admin
+    if (displayPreferences?.override_field_restrictions && userRole === 'admin') {
+      return true;
+    }
+
+    // If override_field_restrictions_all_roles is enabled and override_field_restrictions is enabled
+    if (displayPreferences?.override_field_restrictions && 
+        displayPreferences?.override_field_restrictions_all_roles) {
+      return true;
+    }
+
+    // Default behavior - disable in pharmacy mode
+    return mode !== 'pharmacy';
+  }, [disabled, mode, displayPreferences, userRole]);
+
   // Handle response changes
   const handleResponseChange = useCallback((questionId: string, value: any) => {
     setResponses(prev => {
@@ -171,18 +193,17 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
 
   // Render question based on type
   const renderQuestion = useCallback((question: Question, category: Category) => {
-    // Don't render if this is a dependent question and parent condition isn't met
     if (!isQuestionVisible(question)) return null;
 
     const isSurveyQuestion = category.type === 'survey';
     const currentValue = responses[question.id]?.response_value;
     const isRequired = false;
-    const isPharmacyMode = mode === 'pharmacy';
+    const isEditable = shouldAllowEdit();
 
     // Common props for form controls
     const commonProps = {
-      disabled: disabled || isPharmacyMode,
-      error: !isPharmacyMode && isRequired && !currentValue,
+      disabled: !isEditable,
+      error: !isEditable && isRequired && !currentValue,
       helperText: question.description,
       sx: { mb: 2 }
     };
@@ -212,7 +233,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
             label={question.question_text}
             value={currentValue || ''}
             onChange={(e) => handleResponseChange(question.id, e.target.value)}
-            required={isRequired && !isPharmacyMode}
+            required={isRequired && !isEditable}
             {...commonProps}
           />
         );
@@ -223,7 +244,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
           <FormControl 
             key={question.id}
             fullWidth 
-            required={isRequired && !isPharmacyMode}
+            required={isRequired && !isEditable}
             {...commonProps}
           >
             <FormLabel>{question.question_text}</FormLabel>
@@ -249,7 +270,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       default:
         return null;
     }
-  }, [responses, disabled, mode, handleResponseChange, isQuestionVisible]);
+  }, [responses, shouldAllowEdit, isQuestionVisible, handleResponseChange]);
 
   // Handle accordion expansion/collapse
   const handleAccordionChange = (categoryId: string) => (_event: React.SyntheticEvent, isExpanded: boolean) => {
