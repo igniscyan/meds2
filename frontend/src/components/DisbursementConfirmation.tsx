@@ -57,7 +57,7 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
         if (!disbursement.medication || !disbursement.quantity) continue;
 
         const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
-        const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+        const quantity = disbursement.quantity * (disbursement.multiplier || 1);
 
         if (disbursement.id) {
           const existing = existingMap.get(disbursement.id);
@@ -81,7 +81,7 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
         if (!disbursement.medication || !disbursement.quantity) continue;
 
         const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
-        const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+        const quantity = disbursement.quantity * (disbursement.multiplier || 1);
 
         if (disbursement.id) {
           // Update existing disbursement
@@ -163,7 +163,7 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
           </Typography>
           <List>
             {disbursements.map((d, index) => {
-              const quantity = d.quantity * (d.disbursement_multiplier || 1);
+              const quantity = d.quantity * (d.multiplier || 1);
               const stockChange = d.id && d.originalQuantity && d.originalMultiplier
                 ? quantity - (d.originalQuantity * d.originalMultiplier)
                 : quantity;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   Box,
   Grid,
@@ -11,10 +11,14 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  Collapse,
+  Paper,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import UndoIcon from '@mui/icons-material/Undo';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
@@ -34,13 +38,13 @@ export interface DisbursementItem {
   medication: string;
   medicationDetails?: MedicationRecord;
   quantity: number;
-  disbursement_multiplier: number;
+  multiplier: number;
   notes?: string;
   originalQuantity?: number;
   originalMultiplier?: number;
   markedForDeletion?: boolean;
   isProcessed?: boolean;
-  frequency?: 'QD' | 'BID' | 'TID' | 'QID' | 'QHS' | 'QAM' | 'QPM' | 'PRN' | 'Q#H' | 'STAT';
+  frequency?: string;
   frequency_hours?: number;
   associated_diagnosis?: string;
 }
@@ -56,7 +60,45 @@ interface DisbursementFormProps {
   currentDiagnoses?: { id: string; name: string; }[];
 }
 
-export const DisbursementForm: React.FC<DisbursementFormProps> = ({
+// Add debug panel component
+const DebugPanel: React.FC<{
+  disbursement: DisbursementItem;
+  databaseValue?: number;
+  onCalculateStockChange: (d: DisbursementItem, index: number) => any;
+}> = ({ disbursement, databaseValue, onCalculateStockChange }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Paper sx={{ p: 1, my: 1, backgroundColor: '#f5f5f5' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="subtitle2">Debug Info</Typography>
+        <IconButton size="small" onClick={() => setOpen(!open)}>
+          {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+        </IconButton>
+      </Box>
+      <Collapse in={open}>
+        <Box sx={{ mt: 1 }}>
+          <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap' }}>
+            {JSON.stringify({
+              id: disbursement.id,
+              medication: disbursement.medicationDetails?.drug_name,
+              currentMultiplier: disbursement.multiplier,
+              databaseMultiplier: databaseValue,
+              currentQuantity: disbursement.quantity,
+              fixed_quantity: disbursement.medicationDetails?.fixed_quantity,
+              stockChange: onCalculateStockChange(disbursement, -1)
+            }, null, 2)}
+          </Typography>
+        </Box>
+      </Collapse>
+    </Paper>
+  );
+};
+
+export const DisbursementForm = forwardRef<
+  { resetLocalState: () => void },
+  DisbursementFormProps
+>(({
   encounterId,
   queueItemId,
   disabled = false,
@@ -65,7 +107,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   onDisbursementsChange,
   onDisbursementComplete,
   currentDiagnoses = [],
-}) => {
+}, ref) => {
   const { records: medications, loading, error } = useRealtimeSubscription<MedicationRecord>(
     'inventory',
     { sort: 'drug_name' }
@@ -96,7 +138,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   const [initialDisbursementState, setInitialDisbursementState] = useState<{
     medication: string;
     quantity: number;
-    disbursement_multiplier: number;
+    multiplier: number;
     medicationDetails?: MedicationRecord;
     notes?: string;
     frequency?: string;
@@ -107,14 +149,32 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   // Add a ref to track local state changes
   const [localStateChanges, setLocalStateChanges] = useState<Map<string, boolean>>(new Map());
 
+  // Add state for tracking database values
+  const [databaseValues, setDatabaseValues] = useState<Map<string, number>>(new Map());
+
+  // Add imperative handle for ref
+  useImperativeHandle(ref, () => ({
+    resetLocalState: () => {
+      setLocalStateChanges(new Map());
+      setDatabaseValues(new Map());
+      setInitialMedicationState(new Map());
+    }
+  }));
+
   // Modify useEffect to respect local state changes
   useEffect(() => {
     if (initialDisbursements?.length) {
       console.log('DEBUG: Initial disbursements received:', initialDisbursements.map(d => ({
         id: d.id,
         medication: d.medication,
-        associated_diagnosis: d.associated_diagnosis,
-        raw: d
+        quantity: d.quantity,
+        multiplier: d.multiplier,
+        originalMultiplier: d.originalMultiplier,
+        medicationDetails: {
+          drug_name: d.medicationDetails?.drug_name,
+          fixed_quantity: d.medicationDetails?.fixed_quantity,
+          stock: d.medicationDetails?.stock
+        }
       })));
 
       const newInitialState = new Map();
@@ -123,14 +183,15 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
         if (d.medication && d.id) {
           console.log('DEBUG: Processing disbursement for initial state:', {
             id: d.id,
-            medication: d.medication,
-            associated_diagnosis: d.associated_diagnosis,
-            raw: d
+            medication: d.medicationDetails?.drug_name,
+            quantity: d.quantity,
+            multiplier: d.multiplier,
+            fixed_quantity: d.medicationDetails?.fixed_quantity
           });
           
           newInitialState.set(d.medication, {
             quantity: d.quantity,
-            multiplier: d.disbursement_multiplier,
+            multiplier: d.multiplier || 1,  // Use stored multiplier or default to 1
             id: d.id,
             medicationDetails: d.medicationDetails,
             associated_diagnosis: d.associated_diagnosis,
@@ -142,7 +203,40 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
 
         // Check if this disbursement has a local state change
         const shouldBeDeleted = d.id ? localStateChanges.get(d.id) : false;
-        return { ...d, markedForDeletion: shouldBeDeleted ?? false };
+
+        // Ensure multiplier is set and reset original values after saving
+        const processedDisbursement = { 
+          ...d, 
+          multiplier: d.multiplier || 1,
+          originalMultiplier: d.multiplier || 1,  // Reset original to current after save
+          originalQuantity: d.quantity,  // Reset original quantity too
+          markedForDeletion: shouldBeDeleted ?? false 
+        };
+
+        console.log('DEBUG: Processed disbursement:', {
+          id: processedDisbursement.id,
+          medication: processedDisbursement.medicationDetails?.drug_name,
+          multiplier: processedDisbursement.multiplier,
+          originalMultiplier: processedDisbursement.originalMultiplier,
+          quantity: processedDisbursement.quantity,
+          originalQuantity: processedDisbursement.originalQuantity
+        });
+
+        return processedDisbursement;
+      });
+
+      console.log('DEBUG: Final state:', {
+        initialState: Array.from(newInitialState.entries()).map(([key, value]) => ({
+          medication: key,
+          multiplier: value.multiplier,
+          quantity: value.quantity
+        })),
+        processedDisbursements: processedDisbursements.map(d => ({
+          id: d.id,
+          medication: d.medicationDetails?.drug_name,
+          multiplier: d.multiplier,
+          originalMultiplier: d.originalMultiplier
+        }))
       });
 
       // Only set initial state if it hasn't been set before
@@ -152,6 +246,15 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
       });
 
       setDisbursements(processedDisbursements);
+
+      // Update useEffect to track database values
+      const newDatabaseValues = new Map();
+      processedDisbursements.forEach(d => {
+        if (d.id) {
+          newDatabaseValues.set(d.id, d.multiplier || 1);
+        }
+      });
+      setDatabaseValues(newDatabaseValues);
     }
   }, [initialDisbursements, localStateChanges]);
 
@@ -159,7 +262,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     const newDisbursement = {
       medication: '',
       quantity: 1,
-      disbursement_multiplier: 1,
+      multiplier: 1,
       notes: '',
       frequency: 'QD' as const, // Set default frequency
     };
@@ -223,7 +326,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
       const newDeletedMeds = new Map(prev);
       newDeletedMeds.set(disbursementToUpdate.id!, {
         quantity: disbursementToUpdate.quantity,
-        multiplier: disbursementToUpdate.disbursement_multiplier,
+        multiplier: disbursementToUpdate.multiplier,
         wasRestored: false
       });
       return newDeletedMeds;
@@ -285,31 +388,55 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     );
   };
 
-  // Calculate stock changes based on initial state and current disbursements
+  // Modify the main component to track database values
   const calculateStockChange = (disbursement: DisbursementItem, index: number) => {
     if (!disbursement.medicationDetails || !disbursement.medication || disbursement.markedForDeletion) {
       return null;
     }
 
-    const currentTotalQuantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+    // Get the current database value for this disbursement
+    const databaseMultiplier = disbursement.id ? (databaseValues.get(disbursement.id) ?? 1) : 1;
     
-    // Get all current disbursements for this medication (excluding marked for deletion)
+    // Calculate current amount using fixed_quantity and multiplier
+    const currentAmount = (disbursement.medicationDetails.fixed_quantity || 0) * (disbursement.multiplier || 1);
+    
+    // Calculate database amount
+    const databaseAmount = disbursement.id 
+      ? (disbursement.medicationDetails.fixed_quantity || 0) * databaseMultiplier
+      : 0;
+
+    console.log('DEBUG: Calculated amounts:', {
+      currentAmount,
+      databaseAmount,
+      difference: currentAmount - databaseAmount
+    });
+
+    // Get all current disbursements for this medication (excluding marked for deletion and current one)
     const allDisbursementsForMed = disbursements.filter((d, idx) => 
       d.medication === disbursement.medication && 
       !d.markedForDeletion &&
       idx !== index  // Exclude current disbursement to avoid double counting
     );
 
-    // Calculate total quantity being disbursed for this medication
-    const totalDisbursedQuantity = allDisbursementsForMed.reduce((total, d) => 
-      total + (d.quantity * (d.disbursement_multiplier || 1)), 0
-    ) + currentTotalQuantity;
+    // Calculate total amount being disbursed for this medication
+    const totalDisbursedAmount = allDisbursementsForMed.reduce((total, d) => 
+      total + (d.medicationDetails?.fixed_quantity || 0) * (d.multiplier || 1), 0
+    ) + currentAmount;
 
-    // Get initial stock level
-    const initialStock = disbursement.medicationDetails.stock || 0;
+    // Compare against database value instead of original value
+    const stockChange = disbursement.id ? (currentAmount - databaseAmount) : -currentAmount;
+
+    // Also check if we exceed stock
+    const exceedsStock = (currentAmount + totalDisbursedAmount) > (disbursement.medicationDetails?.stock || 0);
     
-    // Return the change in stock (negative means reduction)
-    return -totalDisbursedQuantity;
+    console.log('DEBUG: Final calculations:', {
+      stockChange,
+      exceedsStock,
+      totalDisbursedAmount,
+      hasStockChange: Math.abs(stockChange) > 0.001
+    });
+
+    return { stockChange, exceedsStock, totalDisbursedAmount };
   };
 
   const handleDisbursementChange = (
@@ -361,19 +488,19 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
       
       // Reset quantity and multiplier when medication changes
       disbursement.quantity = value?.fixed_quantity || 1;
-      disbursement.disbursement_multiplier = 1;
+      disbursement.multiplier = 1;
     } else {
       // For quantity and multiplier changes, validate against current stock
-      if (field === 'quantity' || field === 'disbursement_multiplier') {
+      if (field === 'quantity' || field === 'multiplier') {
         const newValue = Number(value) || 0;
         const currentStock = disbursement.medicationDetails?.stock || 0;
         const otherDisbursementsTotal = disbursements
           .filter((d, idx) => d.medication === disbursement.medication && idx !== index && !d.markedForDeletion)
-          .reduce((total, d) => total + (d.quantity * (d.disbursement_multiplier || 1)), 0);
+          .reduce((total, d) => total + (d.quantity * (d.multiplier || 1)), 0);
         
         // Calculate total after this change
         const newTotal = field === 'quantity' 
-          ? newValue * (disbursement.disbursement_multiplier || 1)
+          ? newValue * (disbursement.multiplier || 1)
           : (disbursement.quantity || 0) * newValue;
         
         // Only update if we have enough stock
@@ -391,7 +518,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
   };
 
   const calculateTotalQuantity = (disbursement: DisbursementItem) => {
-    return disbursement.quantity * disbursement.disbursement_multiplier;
+    return disbursement.quantity * disbursement.multiplier;
   };
 
   const handleConfirmDisbursement = () => {
@@ -417,7 +544,7 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
       currentDisbursements: disbursements.map(d => ({
         medication: d.medicationDetails?.drug_name,
         quantity: d.quantity,
-        multiplier: d.disbursement_multiplier,
+        multiplier: d.multiplier,
         id: d.id,
         markedForDeletion: d.markedForDeletion,
         rawDisbursement: {
@@ -448,6 +575,22 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
     );
   };
 
+  // Modify the render function to include debug panel
+  const renderDisbursementRow = (disbursement: DisbursementItem, index: number) => {
+    return (
+      <Box key={index}>
+        {/* Existing row content */}
+        
+        {/* Add debug panel */}
+        <DebugPanel 
+          disbursement={disbursement}
+          databaseValue={disbursement.id ? databaseValues.get(disbursement.id) : undefined}
+          onCalculateStockChange={calculateStockChange}
+        />
+      </Box>
+    );
+  };
+
   return (
     <Box>
       {mode === 'pharmacy' && (
@@ -469,26 +612,30 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
             const medication = disbursement.medicationDetails;
             const currentStock = medication?.stock || 0;
             const isProcessed = mode === 'pharmacy' && disbursement.isProcessed;
-            const totalQuantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+            const totalQuantity = disbursement.quantity * (disbursement.multiplier || 1);
             
             // Only calculate stock-related values if a medication is selected
             const hasMedication = !!disbursement.medication;
             const otherDisbursementsTotal = hasMedication ? disbursements
               .filter((d, idx) => d.medication === disbursement.medication && idx !== index && !d.markedForDeletion)
-              .reduce((total, d) => total + (d.quantity * (d.disbursement_multiplier || 1)), 0) : 0;
+              .reduce((total, d) => total + (d.quantity * (d.multiplier || 1)), 0) : 0;
             
             // Calculate the actual change in stock, accounting for initial state
             const initialState = disbursement.id ? initialMedicationState.get(disbursement.medication) : null;
-            const initialQuantity = initialState ? initialState.quantity * (initialState.multiplier || 1) : 0;
+            const currentAmount = (disbursement.medicationDetails?.fixed_quantity || 0) * (disbursement.multiplier || 1);
+            const initialAmount = initialState 
+              ? (initialState.medicationDetails?.fixed_quantity || 0) * (initialState.multiplier || 1)
+              : 0;
             
             // For new medications, show the full deduction
             // For existing medications, only show the difference from initial state
             const stockChangeAmount = disbursement.id
-              ? totalQuantity - initialQuantity  // Only show the difference for existing medications
-              : totalQuantity;                   // Show full amount for new medications
+              ? currentAmount - initialAmount  // Only show the difference for existing medications
+              : currentAmount;                 // Show full amount for new medications
             
-            const hasStockChange = hasMedication && stockChangeAmount !== 0;
-            const exceedsStock = hasMedication && (totalQuantity + otherDisbursementsTotal > currentStock);
+            const hasStockChange = hasMedication && Math.abs(stockChangeAmount) > 0.001; // Use small epsilon for floating point comparison
+            const stockChangeResult = calculateStockChange(disbursement, index);
+            const exceedsStock = stockChangeResult?.exceedsStock || false;
 
             return (
               <Grid 
@@ -551,8 +698,8 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
                       label="×"
                       type="number"
                       size="small"
-                      value={disbursement.disbursement_multiplier}
-                      onChange={(e) => handleDisbursementChange(index, 'disbursement_multiplier', e.target.value)}
+                      value={disbursement.multiplier}
+                      onChange={(e) => handleDisbursementChange(index, 'multiplier', e.target.value)}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       InputLabelProps={{ shrink: true }}
                       error={hasMedication && exceedsStock}
@@ -703,4 +850,4 @@ export const DisbursementForm: React.FC<DisbursementFormProps> = ({
       {renderDebugState()}
     </Box>
   );
-};
+});

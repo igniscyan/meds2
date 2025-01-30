@@ -569,6 +569,14 @@ func init() {
 					Type:     "text",
 					Required: false,
 				},
+				&schema.SchemaField{
+					Name:     "multiplier",
+					Type:     "number",
+					Required: false,
+					Options: &schema.NumberOptions{
+						Min: types.Pointer(1.0),
+					},
+				},
 			),
 		}
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -18,6 +18,7 @@ import {
   Autocomplete,
   FormControlLabel,
   Checkbox,
+  Collapse,
 } from '@mui/material';
 import ArrowBack from '@mui/icons-material/ArrowBack';
 import { pb } from '../atoms/auth';
@@ -31,6 +32,8 @@ import { useSettings } from '../hooks/useSettings';
 import AddIcon from '@mui/icons-material/Add';
 import { useAtomValue } from 'jotai';
 import { isLoadingAtom, authModelAtom } from '../atoms/auth';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 
 type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'at_checkout' | 'completed';
 
@@ -197,6 +200,59 @@ interface EncounterResponseRecord extends BaseModel {
 
 export type EncounterMode = 'create' | 'edit' | 'view' | 'pharmacy' | 'checkout';
 
+// Add debug panel component
+const DisbursementDebugPanel: React.FC<{
+  disbursements: any[];
+  databaseDisbursements: any[];
+}> = ({ disbursements, databaseDisbursements }) => {
+  const [open, setOpen] = useState(false);
+
+  const debugInfo = {
+    currentDisbursements: disbursements.map(d => ({
+      id: d.id,
+      medication: d.medicationDetails?.drug_name,
+      multiplier: d.multiplier,
+      quantity: d.quantity,
+      fixed_quantity: d.medicationDetails?.fixed_quantity,
+      stockChange: d.stockChange
+    })),
+    databaseState: databaseDisbursements.map(d => ({
+      id: d.id,
+      medication: d.expand?.medication?.drug_name,
+      multiplier: d.multiplier,
+      quantity: d.quantity
+    })),
+    differences: disbursements.map(d => {
+      const dbMatch = databaseDisbursements.find(db => db.id === d.id);
+      return {
+        id: d.id,
+        medication: d.medicationDetails?.drug_name,
+        currentMultiplier: d.multiplier,
+        databaseMultiplier: dbMatch?.multiplier,
+        hasChange: d.multiplier !== dbMatch?.multiplier
+      };
+    })
+  };
+
+  return (
+    <Paper sx={{ p: 2, my: 2, backgroundColor: '#f5f5f5' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Typography variant="h6">Disbursement Debug Info</Typography>
+        <IconButton size="small" onClick={() => setOpen(!open)}>
+          {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+        </IconButton>
+      </Box>
+      <Collapse in={open}>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap' }}>
+            {JSON.stringify(debugInfo, null, 2)}
+          </Typography>
+        </Box>
+      </Collapse>
+    </Paper>
+  );
+};
+
 export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'create' }) => {
   const { patientId, encounterId } = useParams();
   const navigate = useNavigate();
@@ -245,6 +301,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [questionResponses, setQuestionResponses] = useState<QuestionResponse[]>([]);
   const [savedEncounter, setSavedEncounter] = useState<SavedEncounter | null>(null);
   const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
+  const [databaseDisbursements, setDatabaseDisbursements] = useState<any[]>([]);
 
   const OTHER_COMPLAINT_VALUE = '__OTHER__';
 
@@ -424,7 +481,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 id: d.id,
                 medication: d.medication,
                 quantity: medication?.fixed_quantity || d.quantity,
-                disbursement_multiplier: multiplier,
+                multiplier,
                 notes: d.notes || '',
                 medicationDetails: medication,
                 isProcessed: d.processed || false,
@@ -468,7 +525,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 disbursements: disbursementItems.length > 0 ? disbursementItems : prev.disbursements || [{
                   medication: '',
                   quantity: 1,
-                  disbursement_multiplier: 1,
+                  multiplier: 1,
                   notes: '',
                 }]
             }));
@@ -610,6 +667,14 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       // Then save disbursement changes
       console.log('Saving disbursement changes');
       await saveDisbursementChanges();
+
+      // After successful save, update database state
+      await fetchDatabaseDisbursements();
+      
+      // Clear any local state changes in the DisbursementForm
+      if (disbursementFormRef.current) {
+        disbursementFormRef.current.resetLocalState();
+      }
 
       // Show success notification
       alert(action === 'save' ? 'Encounter saved successfully' : 'Patient has been sent to checkout');
@@ -942,6 +1007,15 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             navigate(`/encounter/${patientId}/${savedEncounter.id}/edit`);
             return true;
           }
+
+          // After successful save, update database state
+          await fetchDatabaseDisbursements();
+          
+          // Clear any local state changes in the DisbursementForm
+          if (disbursementFormRef.current) {
+            disbursementFormRef.current.resetLocalState();
+          }
+
           return true;
         } catch (error: any) {
           console.error('DEBUG: Error saving encounter:', {
@@ -1143,7 +1217,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             // Update stock first
             await pb.collection('inventory').update(existing.medication, {
               stock: newStock,
-              disbursement_multiplier: 1
+              multiplier: 1
             });
             
             // Then delete the disbursement
@@ -1161,7 +1235,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         const medication = medicationsResult.find(m => m.id === disbursement.medication);
         if (!medication) continue;
 
-        const quantity = disbursement.quantity * (disbursement.disbursement_multiplier || 1);
+        const quantity = disbursement.quantity * (disbursement.multiplier || 1);
         
         if (disbursement.id) {
           const existing = existingDisbursementsResult.items.find(d => d.id === disbursement.id);
@@ -1186,13 +1260,14 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
                 await pb.collection('inventory').update(medication.id, {
                   stock: newStock,
-                  disbursement_multiplier: 1
+                  multiplier: 1
                 });
               }
 
               // Update disbursement
               const updated = await pb.collection('disbursements').update(disbursement.id, {
                 quantity,
+                multiplier: disbursement.multiplier || 1,  // Save the multiplier
                 notes: disbursement.notes || '',
                 frequency: disbursement.frequency || 'QD',
                 frequency_hours: disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null,
@@ -1214,7 +1289,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           // Update stock first
           await pb.collection('inventory').update(medication.id, {
             stock: newStock,
-            disbursement_multiplier: 1
+            multiplier: 1
           });
 
           // Create disbursement
@@ -1222,6 +1297,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             encounter: encounterId,
             medication: disbursement.medication,
             quantity,
+            multiplier: disbursement.multiplier || 1,  // Save the multiplier
             notes: disbursement.notes || '',
             processed: false,
             frequency: disbursement.frequency || 'QD',
@@ -1236,17 +1312,21 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
       const updatedDisbursements = await Promise.all(
         processedDisbursements.map(async d => {
           const medication = await pb.collection('inventory').getOne<MedicationRecord>(d.medication);
+          const currentMultiplier = medication.fixed_quantity ? d.quantity / medication.fixed_quantity : 1;
           return {
             id: d.id,
             medication: d.medication,
             quantity: medication.fixed_quantity || d.quantity,
-            disbursement_multiplier: medication.fixed_quantity ? d.quantity / medication.fixed_quantity : 1,
+            multiplier: currentMultiplier,
             notes: d.notes || '',
             medicationDetails: medication,
             markedForDeletion: false, // Explicitly clear deletion flag
             frequency: d.frequency || 'QD',
             frequency_hours: d.frequency === 'Q#H' ? d.frequency_hours : null,
-            associated_diagnosis: d.associated_diagnosis || null
+            associated_diagnosis: d.associated_diagnosis || null,
+            // Set original values to current values after save
+            originalQuantity: medication.fixed_quantity || d.quantity,
+            originalMultiplier: currentMultiplier
           };
         })
       );
@@ -1289,7 +1369,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         id: d.id,
         medication: d.medication,
         quantity: medication?.fixed_quantity || d.quantity,
-        disbursement_multiplier: multiplier,
+        multiplier,
         notes: d.notes || '',
         medicationDetails: medication,
         isProcessed: d.processed || false,
@@ -1322,7 +1402,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         disbursements: disbursementItems.length > 0 ? disbursementItems : [{
           medication: '',
           quantity: 1,
-          disbursement_multiplier: 1,
+          multiplier: 1,
           notes: '',
         }]
       };
@@ -1483,6 +1563,32 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const handleDisbursementsChange = (disbursements: DisbursementItem[]) => {
     setFormData(prev => ({ ...prev, disbursements }));
   };
+
+  // Add function to fetch current database state
+  const fetchDatabaseDisbursements = useCallback(async () => {
+    if (!encounterId) return;
+    
+    try {
+      const result = await pb.collection('disbursements').getList(1, 100, {
+        filter: `encounter = "${encounterId}"`,
+        expand: 'medication'
+      });
+      setDatabaseDisbursements(result.items);
+      console.log('DEBUG: Fetched database disbursements:', result.items);
+    } catch (error) {
+      console.error('Error fetching database disbursements:', error);
+    }
+  }, [encounterId]);
+
+  // Update useEffect to fetch database state
+  useEffect(() => {
+    if (encounterId) {
+      fetchDatabaseDisbursements();
+    }
+  }, [encounterId, fetchDatabaseDisbursements]);
+
+  // Add ref for DisbursementForm
+  const disbursementFormRef = useRef<any>(null);
 
   if (isAuthLoading) {
     return <Typography>Initializing...</Typography>;
@@ -1927,13 +2033,13 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 Disbursements
               </Typography>
               <DisbursementForm
+                ref={disbursementFormRef}
                 encounterId={encounterId}
                 queueItemId={currentQueueItem?.id}
                 mode={currentMode}
                 disabled={currentMode === 'view'}
                 initialDisbursements={formData.disbursements}
                 onDisbursementsChange={handleDisbursementsChange}
-                onDisbursementComplete={() => handleQueueStatusChange('completed')}
                 currentDiagnoses={(formData.diagnosis || []).map(diagId => {
                   // Look for the diagnosis in both expanded data and full list
                   const diagRecord = formData.expand?.diagnosis?.find(d => d.id === diagId) || diagnoses.find(d => d.id === diagId);
@@ -2009,6 +2115,14 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           </Grid>
         </Box>
       </Paper>
+
+      {/* Add DisbursementDebugPanel */}
+      {process.env.NODE_ENV === 'development' && (
+        <DisbursementDebugPanel 
+          disbursements={formData.disbursements || []}
+          databaseDisbursements={databaseDisbursements}
+        />
+      )}
     </Box>
   );
 };
