@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -11,11 +11,25 @@ import {
   FormControlLabel,
   Paper,
   FormHelperText,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { BaseModel } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
-import { QuestionResponse } from '../pages/Encounter';
+import { EncounterMode } from '../pages/Encounter';
+import { useSettings } from '../hooks/useSettings';
+
+interface QuestionResponse extends BaseModel {
+  encounter: string;
+  question: string;
+  response_value: string | boolean | null;
+  expand?: {
+    question: Question;
+  };
+}
 
 interface Question extends BaseModel {
   question_text: string;
@@ -24,8 +38,12 @@ interface Question extends BaseModel {
   options?: string[];
   category: string;
   order: number;
-  required?: boolean;
+  required: boolean;
   depends_on?: string;
+  archived: boolean;
+  expand?: {
+    category?: Category;
+  }
 }
 
 interface Category extends BaseModel {
@@ -37,214 +55,164 @@ interface Category extends BaseModel {
 interface EncounterQuestionsProps {
   encounterId?: string;
   disabled?: boolean;
+  mode?: EncounterMode;
+  defaultExpanded?: boolean;
   onResponsesChange: (responses: QuestionResponse[]) => void;
+}
+
+interface ResponseMap {
+  [key: string]: QuestionResponse;
 }
 
 export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
   encounterId,
   disabled = false,
-  onResponsesChange,
+  mode = 'create',
+  defaultExpanded = false,
+  onResponsesChange
 }) => {
-  const [responses, setResponses] = useState<{ [key: string]: any }>({});
-  const [initialized, setInitialized] = useState(false);
+  const { displayPreferences } = useSettings();
+  const userRole = (pb.authStore.model as { role?: string })?.role;
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const responsesRef = useRef<ResponseMap>({});
+  const isInitializedRef = useRef(false);
 
-  // Use memoized subscriptions to prevent unnecessary re-renders
-  const { records: categories } = useRealtimeSubscription<Category>(
+  // Add debug logging for subscriptions
+  const { records: categoryRecords, loading: categoriesLoading } = useRealtimeSubscription<Category>(
     'encounter_question_categories',
-    useMemo(() => ({ 
-      sort: 'order', 
-      filter: 'archived = false' 
-    }), [])
+    useMemo(() => ({ sort: 'order', filter: 'archived = false' }), [])
   );
 
-  const { records: questions } = useRealtimeSubscription<Question>(
+  const { records: questionRecords, loading: questionsLoading } = useRealtimeSubscription<Question>(
     'encounter_questions',
-    useMemo(() => ({ 
-      sort: 'order', 
-      filter: 'archived = false', 
-      expand: 'category' 
-    }), [])
+    useMemo(() => ({ sort: 'order', filter: 'archived = false', expand: 'category' }), [])
   );
 
-  const { records: existingResponses } = useRealtimeSubscription<QuestionResponse>(
+  const { records: existingResponses, loading: responsesLoading } = useRealtimeSubscription<QuestionResponse>(
     'encounter_responses',
-    useMemo(() => 
-      encounterId 
-        ? { 
-            filter: `encounter = "${encounterId}"`, 
-            expand: 'question,question.category' 
-          } 
-        : undefined,
-      [encounterId]
-    )
+    useMemo(() => encounterId 
+      ? { 
+          filter: `encounter = "${encounterId}"`, 
+          expand: 'question,question.category' 
+        } 
+      : undefined, [encounterId])
   );
 
-  // Create a memoized response array to prevent unnecessary updates
-  const createResponseArray = useCallback((currentResponses: { [key: string]: any }) => {
-    return questions.map(q => {
-      const responseValue = currentResponses[q.id];
-      const existing = existingResponses.find(r => r.question === q.id);
-      
-      // Always include the response if it exists in currentResponses
-      if (responseValue === undefined) return null;
+  const [responses, setResponses] = useState<ResponseMap>({});
 
-      return {
-        id: existing?.id || '',
-        created: existing?.created || '',
-        updated: existing?.updated || '',
-        collectionId: existing?.collectionId || '',
-        collectionName: existing?.collectionName || '',
-        encounter: encounterId || '',
-        question: q.id,
-        response_value: responseValue,
-        expand: {
-          question: q
-        }
-      };
-    }).filter(Boolean) as QuestionResponse[];
-  }, [questions, existingResponses, encounterId]);
-
-  // Initialize responses from existing responses
+  // Update loading state based on all subscriptions
   useEffect(() => {
-    if (!initialized && existingResponses && questions.length > 0) {
-      const responseMap: { [key: string]: any } = {};
-      
-      // First pass: Initialize all questions with default values
-      questions.forEach(q => {
-        if (q.input_type === 'checkbox') {
-          responseMap[q.id] = false;
-        } else if (q.input_type === 'text') {
-          responseMap[q.id] = '';
-        } else if (q.input_type === 'select') {
-          responseMap[q.id] = '';
-        }
-      });
+    const isCategoriesLoading = categoriesLoading === true;
+    const isQuestionsLoading = questionsLoading === true;
+    const isResponsesLoading = encounterId ? responsesLoading === true : false;
+    const isLoading = isCategoriesLoading || isQuestionsLoading || isResponsesLoading;
+    setLoading(isLoading);
+  }, [categoriesLoading, questionsLoading, responsesLoading, encounterId]);
 
-      // Second pass: Set existing responses and infer checkbox states
+  // Initialize responses from existingResponses
+  useEffect(() => {
+    if (!responsesLoading && existingResponses && !isInitializedRef.current) {
+      const responseMap: ResponseMap = {};
       existingResponses.forEach(response => {
-        if (response.response_value !== undefined) {
-          responseMap[response.question] = response.response_value;
-          
-          // Find if this is a dependent field
-          const question = questions.find(q => q.id === response.question);
-          if (question?.depends_on) {
-            // If we have a value for a dependent field, the parent checkbox must be checked
-            responseMap[question.depends_on] = true;
-          }
-        }
+        responseMap[response.question] = response;
       });
-
-      // Third pass: Ensure all dependent fields are properly handled
-      questions.forEach(question => {
-        if (question.depends_on) {
-          const parentValue = responseMap[question.depends_on];
-          const hasValue = responseMap[question.id] !== undefined && 
-                          responseMap[question.id] !== '' &&
-                          responseMap[question.id] !== null;
-          
-          // If parent is unchecked, clear dependent field
-          if (!parentValue) {
-            responseMap[question.id] = question.input_type === 'checkbox' ? false : '';
-          }
-          // If we have a value but parent is undefined, set parent to checked
-          else if (hasValue && parentValue === undefined) {
-            responseMap[question.depends_on] = true;
-          }
-        }
-      });
-
       setResponses(responseMap);
-      setInitialized(true);
-      onResponsesChange(createResponseArray(responseMap));
+      responsesRef.current = responseMap;
+      isInitializedRef.current = true;
     }
-  }, [existingResponses, questions, initialized, createResponseArray, onResponsesChange]);
+  }, [existingResponses, responsesLoading]);
 
-  // Reset when encounterId changes
-  useEffect(() => {
-    if (!encounterId) {
-      setResponses({});
-      setInitialized(false);
+  // Add a function to check if a question should be visible
+  const isQuestionVisible = useCallback((question: Question) => {
+    if (!question.depends_on) return true;
+    
+    const parentResponse = responses[question.depends_on];
+    return parentResponse?.response_value === true;
+  }, [responses]);
+
+  // Function to check if fields should be editable based on settings
+  const shouldAllowEdit = useCallback(() => {
+    if (disabled) return false;
+    
+    // If override_field_restrictions is enabled and user is admin
+    if (displayPreferences?.override_field_restrictions && userRole === 'admin') {
+      return true;
     }
-  }, [encounterId]);
+
+    // If override_field_restrictions_all_roles is enabled and override_field_restrictions is enabled
+    if (displayPreferences?.override_field_restrictions && 
+        displayPreferences?.override_field_restrictions_all_roles) {
+      return true;
+    }
+
+    // Default behavior - disable in pharmacy mode
+    return mode !== 'pharmacy';
+  }, [disabled, mode, displayPreferences, userRole]);
 
   // Handle response changes
   const handleResponseChange = useCallback((questionId: string, value: any) => {
     setResponses(prev => {
       const newResponses = { ...prev };
-      newResponses[questionId] = value;
-
-      // Handle dependent fields
-      const currentQuestion = questions.find(q => q.id === questionId);
-      if (currentQuestion?.input_type === 'checkbox') {
-        questions.forEach(q => {
-          if (q.depends_on === questionId) {
-            if (!value) {
-              // Clear dependent field when unchecking
-              newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
-            } else {
-              // When checking, either restore previous value or set default
-              const existingResponse = existingResponses.find(r => r.question === q.id);
-              if (existingResponse) {
-                newResponses[q.id] = existingResponse.response_value;
-              } else if (prev[q.id] !== undefined) {
-                newResponses[q.id] = prev[q.id];
-              } else {
-                // Set default value if no previous value exists
-                newResponses[q.id] = q.input_type === 'checkbox' ? false : '';
-              }
+      
+      // If the value is empty/false, remove it from responses
+      if (value === false || value === '' || value === null || value === undefined) {
+        delete newResponses[questionId];
+        
+        // Also remove any dependent questions
+        if (questionRecords) {
+          questionRecords.forEach(q => {
+            if (q.depends_on === questionId) {
+              delete newResponses[q.id];
             }
-          }
-        });
+          });
+        }
+      } else {
+        // Only add the response if it has a value
+        const baseResponse: QuestionResponse = {
+          id: '',
+          created: new Date().toISOString(),
+          updated: new Date().toISOString(),
+          collectionId: '',
+          collectionName: 'encounter_responses',
+          encounter: encounterId || '',
+          question: questionId,
+          response_value: value
+        };
+        
+        newResponses[questionId] = baseResponse;
       }
 
-      // Notify parent of changes
-      onResponsesChange(createResponseArray(newResponses));
+      // Notify parent of changes - only include responses that have values
+      const responseArray = Object.values(newResponses);
+      onResponsesChange(responseArray);
+
       return newResponses;
     });
-  }, [questions, existingResponses, createResponseArray, onResponsesChange]);
+  }, [questionRecords, encounterId, onResponsesChange]);
 
-  // Render question (existing implementation)
+  // Render question based on type
   const renderQuestion = useCallback((question: Question, category: Category) => {
+    if (!isQuestionVisible(question)) return null;
+
     const isSurveyQuestion = category.type === 'survey';
-    const isCounterQuestion = category.type === 'counter';
-    
-    if (isCounterQuestion && question.input_type !== 'checkbox') {
-      return null;
-    }
+    const currentValue = responses[question.id]?.response_value;
+    const isRequired = false;
+    const isEditable = shouldAllowEdit();
 
-    const isRequired = isSurveyQuestion && question.required;
-    const currentValue = responses[question.id];
-    
-    // Check dependencies
-    if (question.depends_on) {
-      const dependentValue = responses[question.depends_on];
-      if (dependentValue === false) {
-        return null;
-      }
-    }
-
-    const hasValidValue = (() => {
-      if (question.input_type === 'checkbox') {
-        return typeof currentValue === 'boolean';
-      }
-      if (question.depends_on && responses[question.depends_on]) {
-        return true;
-      }
-      return currentValue !== undefined && currentValue !== null && 
-        (question.input_type !== 'text' || currentValue.trim() !== '');
-    })();
-
+    // Common props for form controls
     const commonProps = {
-      disabled,
-      error: isRequired && !hasValidValue,
-      helperText: isRequired ? (hasValidValue ? question.description : 'This field is required') : question.description,
-      sx: { mb: isSurveyQuestion ? 3 : 1 }
+      disabled: !isEditable,
+      error: !isEditable && isRequired && !currentValue,
+      helperText: question.description,
+      sx: { mb: 2 }
     };
 
     switch (question.input_type) {
       case 'checkbox':
         return (
           <FormControlLabel
+            key={question.id}
             control={
               <Checkbox
                 checked={!!currentValue}
@@ -252,12 +220,7 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
                 {...commonProps}
               />
             }
-            label={
-              <Box component="span" sx={{ color: isRequired ? 'error.main' : 'inherit' }}>
-                {question.question_text}
-                {isRequired && ' *'}
-              </Box>
-            }
+            label={question.question_text}
           />
         );
 
@@ -265,11 +228,12 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
         if (!isSurveyQuestion) return null;
         return (
           <TextField
+            key={question.id}
             fullWidth
-            required={isRequired}
             label={question.question_text}
-            value={currentValue ?? ''}
+            value={currentValue || ''}
             onChange={(e) => handleResponseChange(question.id, e.target.value)}
+            required={isRequired && !isEditable}
             {...commonProps}
           />
         );
@@ -277,12 +241,16 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       case 'select':
         if (!isSurveyQuestion) return null;
         return (
-          <FormControl fullWidth error={commonProps.error} required={isRequired}>
+          <FormControl 
+            key={question.id}
+            fullWidth 
+            required={isRequired && !isEditable}
+            {...commonProps}
+          >
             <FormLabel>{question.question_text}</FormLabel>
             <Select
-              value={currentValue ?? ''}
+              value={currentValue || ''}
               onChange={(e) => handleResponseChange(question.id, e.target.value)}
-              {...commonProps}
             >
               <MenuItem value="">
                 <em>Select an option</em>
@@ -302,41 +270,51 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
       default:
         return null;
     }
-  }, [responses, disabled, handleResponseChange]);
+  }, [responses, shouldAllowEdit, isQuestionVisible, handleResponseChange]);
+
+  // Handle accordion expansion/collapse
+  const handleAccordionChange = (categoryId: string) => (_event: React.SyntheticEvent, isExpanded: boolean) => {
+    setExpanded(prev => 
+      isExpanded 
+        ? [...prev, categoryId]
+        : prev.filter(id => id !== categoryId)
+    );
+  };
+
+  // Initialize expanded state when categories load or defaultExpanded changes
+  useEffect(() => {
+    if (defaultExpanded && categoryRecords?.length > 0) {
+      setExpanded(categoryRecords.map(cat => cat.id));
+    }
+  }, [categoryRecords, defaultExpanded]);
 
   return (
-    <Box>
-      {categories.map((category) => {
-        const categoryQuestions = questions.filter((q) => q.category === category.id);
+    <Box sx={{ mt: 2 }}>
+      {categoryRecords?.map(category => {
+        const categoryQuestions = questionRecords?.filter(q => q.category === category.id) || [];
         if (categoryQuestions.length === 0) return null;
+
         return (
-          <Paper 
-            key={category.id} 
-            sx={{ 
-              p: 2, 
-              mb: 2,
-              backgroundColor: category.type === 'survey' ? 'background.default' : 'action.hover',
-              borderRadius: category.type === 'survey' ? 2 : 1
-            }}
+          <Accordion
+            key={category.id}
+            expanded={expanded.includes(category.id)}
+            onChange={handleAccordionChange(category.id)}
+            sx={{ mb: 1 }}
           >
-            <Typography variant="h6" sx={{ mb: category.type === 'survey' ? 3 : 2 }}>
-              {category.name}
-              {category.type === 'counter' && (
-                <Typography variant="caption" sx={{ ml: 1, color: 'text.secondary' }}>
-                  (Item Counter)
-                </Typography>
-              )}
-            </Typography>
-            <Box sx={{ pl: 2 }}>
-              {categoryQuestions.map((question) => (
-                <Box key={question.id} sx={{ mb: 2 }}>
-                  {renderQuestion(question, category)}
-                </Box>
-              ))}
-            </Box>
-          </Paper>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography variant="h6">{category.name}</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Box sx={{ pl: 2 }}>
+                {categoryQuestions.map(question => renderQuestion(question, category))}
+              </Box>
+            </AccordionDetails>
+          </Accordion>
         );
       })}
+      {loading && (
+        <Typography>Loading questions...</Typography>
+      )}
     </Box>
   );
 };

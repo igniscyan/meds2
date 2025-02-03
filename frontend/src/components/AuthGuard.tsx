@@ -1,37 +1,71 @@
 import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAtom } from 'jotai';
-import { authModelAtom, pb } from '../atoms/auth';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { authModelAtom, isLoadingAtom, pb, AuthModel } from '../atoms/auth';
+import { Box, CircularProgress } from '@mui/material';
 
 interface AuthGuardProps {
   children: React.ReactNode;
 }
 
 const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
-  const [authModel] = useAtom(authModelAtom);
+  const user = useAtomValue(authModelAtom);
+  const loading = useAtomValue(isLoadingAtom);
   const location = useLocation();
+  const setAuthModel = useSetAtom(authModelAtom);
 
+  // Sync PocketBase auth state with Jotai on mount and auth changes
   useEffect(() => {
-    const checkAuth = async () => {
-      if (pb.authStore.isValid && pb.authStore.model) {
-        const email = pb.authStore.model.email;
-        const token = pb.authStore.token;
-        
-        if (!email || !token) {
-          console.error('Auth data missing');
-          pb.authStore.clear();
-          window.location.href = `/login?redirect=${encodeURIComponent(location.pathname)}`;
-        }
+    const syncAuthState = async () => {
+      console.log('[AuthGuard Debug] Syncing auth state:', {
+        hasUser: !!user,
+        pbAuthValid: pb.authStore.isValid,
+        pbAuthModel: pb.authStore.model?.id,
+        timestamp: new Date().toISOString()
+      });
+
+      // If PocketBase has valid auth but Jotai doesn't, sync the state
+      if (pb.authStore.isValid && pb.authStore.model && !user) {
+        console.log('[AuthGuard Debug] Syncing PocketBase auth to Jotai');
+        setAuthModel(pb.authStore.model as unknown as AuthModel);
+        return;
+      }
+
+      // If Jotai has auth but PocketBase doesn't, clear Jotai
+      if (!pb.authStore.isValid && user) {
+        console.log('[AuthGuard Debug] Clearing Jotai auth state');
+        setAuthModel(null);
       }
     };
 
-    checkAuth();
-  }, [location.pathname]);
+    syncAuthState();
+  }, [user, setAuthModel]);
 
-  if (!authModel) {
-    // Save the location they were trying to go to for after login
-    return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname)}`} replace />;
+  // Show loading state while checking auth
+  if (loading) {
+    console.log('[AuthGuard Debug] Showing loading state');
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress />
+      </Box>
+    );
   }
+
+  // Only redirect if we're not loading and there's no valid auth
+  if (!loading && (!user || !pb.authStore.isValid)) {
+    console.log('[AuthGuard Debug] No authenticated user, redirecting to login:', {
+      from: location.pathname,
+      search: location.search,
+      timestamp: new Date().toISOString()
+    });
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  console.log('[AuthGuard Debug] Rendering protected content:', {
+    userId: user?.id,
+    path: location.pathname,
+    timestamp: new Date().toISOString()
+  });
 
   return <>{children}</>;
 };

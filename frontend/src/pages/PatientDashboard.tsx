@@ -14,10 +14,13 @@ import {
   Grid,
   Divider,
 } from '@mui/material';
-import { Add as AddIcon } from '@mui/icons-material';
+import { Add as AddIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
+import { RoleBasedAccess } from '../components/RoleBasedAccess';
+import DeletePatientDialog from '../components/DeletePatientDialog';
+import { PatientModal } from '../components/PatientModal';
 
 interface Patient extends Record {
   first_name: string;
@@ -26,27 +29,66 @@ interface Patient extends Record {
   gender: string;
   age: number;
   smoker: string;
+  height?: number | null;
+  weight?: number | null;
+  temperature?: number | null;
+  heart_rate?: number | null;
+  systolic_pressure?: number | null;
+  diastolic_pressure?: number | null;
 }
 
 interface Encounter extends Record {
   patient: string;
-  height_inches: number;
+  height: number;
   weight: number;
   temperature: number;
   heart_rate: number;
   systolic_pressure: number;
   diastolic_pressure: number;
-  chief_complaint: string;
+  chief_complaint: string[];
+  diagnosis: string[];
+  other_chief_complaint?: string;
+  other_diagnosis?: string;
   created: string;
+  expand?: {
+    chief_complaint?: {
+      id: string;
+      name: string;
+    }[];
+    diagnosis?: {
+      id: string;
+      name: string;
+    }[];
+  };
 }
+
+// Add helper function to format age display
+const formatAgeDisplay = (ageInYears: number): string => {
+  if (ageInYears >= 1) {
+    return `${Math.floor(ageInYears)} years`;
+  } else {
+    const months = Math.floor(ageInYears * 12);
+    if (months >= 1) {
+      return `${months} months`;
+    } else {
+      const weeks = Math.floor(ageInYears * 52);
+      return `${weeks} weeks`;
+    }
+  }
+};
 
 const PatientDashboard: React.FC = () => {
   const { patientId } = useParams();
   const navigate = useNavigate();
   const [patient, setPatient] = useState<Patient | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'create' | 'new_encounter'>('create');
+  const [modalInitialData, setModalInitialData] = useState<any>(null);
   const { records: encounters, loading, error } = useRealtimeSubscription<Encounter>('encounters', {
     filter: `patient = "${patientId}"`,
     sort: '-created',
+    expand: 'chief_complaint,diagnosis'
   });
 
   useEffect(() => {
@@ -69,8 +111,122 @@ const PatientDashboard: React.FC = () => {
     loadPatient();
   }, [patientId, navigate]);
 
-  const handleStartEncounter = () => {
-    navigate(`/encounter/${patientId}`, { state: { mode: 'edit' } });
+  const handleStartEncounter = async () => {
+    if (!patient) return;
+
+    try {
+      // Check for encounters from today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const result = await pb.collection('encounters').getList(1, 1, {
+        filter: `patient = "${patientId}" && created >= "${today.toISOString().split('T')[0]}"`,
+        sort: '-created',
+        expand: 'chief_complaint'
+      });
+
+      if (result.items.length > 0) {
+        const existingEncounter = result.items[0];
+        const confirmResponse = window.confirm(
+          `An encounter already exists from today (${new Date(existingEncounter.created).toLocaleTimeString()}). \n\n` +
+          `Would you like to view the existing encounter? \n` +
+          `Click 'OK' to view existing encounter \n` +
+          `Click 'Cancel' to create a new encounter anyway`
+        );
+        
+        if (confirmResponse) {
+          // Navigate to existing encounter in view mode
+          navigate(`/encounter/${patientId}/${existingEncounter.id}`, { 
+            state: { mode: 'view' }
+          });
+          return;
+        }
+      }
+
+      // Calculate current age from DOB
+      const currentAge = calculateAge(patient.dob);
+
+      // Open PatientModal in new_encounter mode
+      setModalMode('new_encounter');
+      setModalInitialData({
+        ...patient,
+        currentAge,
+      });
+      setModalOpen(true);
+    } catch (error) {
+      console.error('Error in handleStartEncounter:', error);
+      alert('Failed to start new encounter: ' + (error as Error).message);
+    }
+  };
+
+  // Add the calculateAge function
+  const calculateAge = (dob: string): number => {
+    try {
+      if (!dob) return 0;
+      // Handle both timestamp and date-only formats
+      const datePart = dob.includes(' ') ? dob.split(' ')[0] : dob;
+      const [year, month, day] = datePart.split('-').map(Number);
+      
+      // Create date in local timezone for age calculation
+      const birthDate = new Date(year, month - 1, day);
+      if (isNaN(birthDate.getTime())) return 0;
+
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      
+      return age >= 0 ? age : 0;
+    } catch (error) {
+      console.error('Error calculating age:', error);
+      return 0;
+    }
+  };
+
+  const handleDeleteClick = () => {
+    setDeleteDialogOpen(true);
+  };
+
+  const handleAddToQueue = async (patientId: string, encounterId: string) => {
+    try {
+      // Find the existing queue record for this encounter
+      const result = await pb.collection('queue').getList(1, 1, {
+        filter: `encounter = "${encounterId}"`,
+        sort: '-created'
+      });
+
+      if (result.items.length === 0) {
+        console.error('No queue record found for encounter');
+        alert('Failed to find queue record for this encounter');
+        return;
+      }
+
+      const queueRecord = result.items[0];
+      
+      // Update the existing queue record
+      await pb.collection('queue').update(queueRecord.id, {
+        status: 'at_checkout',
+        end_time: null
+      });
+
+      alert('Patient returned to checkout status');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Error updating queue status:', error);
+      alert('Failed to update queue status: ' + (error as Error).message);
+    }
+  };
+
+  const handleSave = () => {
+    // After saving, refresh the patient data
+    if (patientId) {
+      pb.collection('patients').getOne(patientId)
+        .then(record => setPatient(record as Patient))
+        .catch(error => console.error('Error refreshing patient data:', error));
+    }
   };
 
   // Don't show loading if we have patient data
@@ -87,14 +243,24 @@ const PatientDashboard: React.FC = () => {
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3, mb: 3 }}>
         <Grid container spacing={2}>
-          <Grid item xs={12}>
+          <Grid item xs={12} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h4" gutterBottom>
               {patient.first_name} {patient.last_name}
             </Typography>
+            <RoleBasedAccess requiredRole="provider">
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={handleDeleteClick}
+              >
+                Delete Patient
+              </Button>
+            </RoleBasedAccess>
           </Grid>
           <Grid item xs={12} sm={4}>
             <Typography variant="body1">
-              <strong>Age:</strong> {patient.age}
+              <strong>Age:</strong> {formatAgeDisplay(patient.age)}
             </Typography>
           </Grid>
           <Grid item xs={12} sm={4}>
@@ -112,14 +278,16 @@ const PatientDashboard: React.FC = () => {
 
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h5">Encounters</Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={handleStartEncounter}
-        >
-          New Encounter
-        </Button>
+        <RoleBasedAccess requiredRole="provider">
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={handleStartEncounter}
+          >
+            New Encounter
+          </Button>
+        </RoleBasedAccess>
       </Box>
 
       <TableContainer component={Paper}>
@@ -128,6 +296,7 @@ const PatientDashboard: React.FC = () => {
             <TableRow>
               <TableCell>Date</TableCell>
               <TableCell>Chief Complaints</TableCell>
+              <TableCell>Diagnosis</TableCell>
               <TableCell>Vitals</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
@@ -139,7 +308,68 @@ const PatientDashboard: React.FC = () => {
                   {new Date(encounter.created).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  {encounter.chief_complaint}
+                  {(() => {
+                    if (!encounter.expand?.chief_complaint?.length && !encounter.other_chief_complaint) {
+                      return 'No complaint recorded';
+                    }
+
+                    const complaints = [];
+                    
+                    // Add standard complaints
+                    if (encounter.expand?.chief_complaint) {
+                      complaints.push(...encounter.expand.chief_complaint
+                        .filter(c => c.name !== 'OTHER (Custom Text Input)')
+                        .map(c => c.name)
+                      );
+                    }
+                    
+                    // Add other complaints if present
+                    if (encounter.other_chief_complaint) {
+                      complaints.push(...encounter.other_chief_complaint.split(',').map(c => c.trim()));
+                    }
+
+                    return complaints.length > 0 ? (
+                      <Box>
+                        {complaints.map((complaint, index) => (
+                          <Typography key={index} variant="body2" sx={{ mb: index < complaints.length - 1 ? 0.5 : 0 }}>
+                            • {complaint}
+                          </Typography>
+                        ))}
+                      </Box>
+                    ) : 'No complaint recorded';
+                  })()}
+                </TableCell>
+                <TableCell>
+                  {(() => {
+                    if (!encounter.expand?.diagnosis?.length && !encounter.other_diagnosis) {
+                      return 'No diagnosis recorded';
+                    }
+
+                    const diagnoses = [];
+                    
+                    // Add standard diagnoses
+                    if (encounter.expand?.diagnosis) {
+                      diagnoses.push(...encounter.expand.diagnosis
+                        .filter(d => d.name !== 'OTHER (Custom Text Input)')
+                        .map(d => d.name)
+                      );
+                    }
+                    
+                    // Add other diagnoses if present
+                    if (encounter.other_diagnosis) {
+                      diagnoses.push(...encounter.other_diagnosis.split(',').map(d => d.trim()));
+                    }
+
+                    return diagnoses.length > 0 ? (
+                      <Box>
+                        {diagnoses.map((diagnosis, index) => (
+                          <Typography key={index} variant="body2" sx={{ mb: index < diagnoses.length - 1 ? 0.5 : 0 }}>
+                            • {diagnosis}
+                          </Typography>
+                        ))}
+                      </Box>
+                    ) : 'No diagnosis recorded';
+                  })()}
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2">BP: {encounter.systolic_pressure}/{encounter.diastolic_pressure}</Typography>
@@ -155,6 +385,27 @@ const PatientDashboard: React.FC = () => {
                   >
                     View Details
                   </Button>
+                  <RoleBasedAccess requiredRole="provider">
+                    <Button
+                      size="small"
+                      color="secondary"
+                      onClick={async () => {
+                        try {
+                          if (!encounter.id || !patientId) {
+                            alert('Missing encounter ID or patient ID');
+                            return;
+                          }
+                          await handleAddToQueue(patientId, encounter.id);
+                        } catch (error) {
+                          console.error('Error adding to queue:', error);
+                          alert('Error adding to queue: ' + (error as Error).message);
+                        }
+                      }}
+                      sx={{ ml: 1 }}
+                    >
+                      Add to Queue
+                    </Button>
+                  </RoleBasedAccess>
                 </TableCell>
               </TableRow>
             ))}
@@ -168,6 +419,22 @@ const PatientDashboard: React.FC = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <PatientModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSave={handleSave}
+        mode={modalMode}
+        initialData={modalInitialData}
+      />
+
+      <DeletePatientDialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        patientId={patientId || ''}
+        patientName={patient ? `${patient.first_name} ${patient.last_name}` : ''}
+        redirectToList={true}
+      />
     </Box>
   );
 };

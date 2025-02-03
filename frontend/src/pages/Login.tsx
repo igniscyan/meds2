@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Button, TextField, Typography, Paper } from '@mui/material';
+import { Box, Button, TextField, Typography, Paper, Container } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSetAtom } from 'jotai';
 import { authModelAtom, AuthModel, pb } from '../atoms/auth';
@@ -38,7 +38,12 @@ const Login: React.FC = () => {
       justifyContent="center"
       alignItems="center"
       minHeight="100vh"
-      bgcolor="#f5f5f5"
+      sx={{
+        background: `linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('/background.webp'), url('/background.png')`,
+        backgroundSize: 'cover, cover',
+        backgroundPosition: 'center, center',
+        backgroundRepeat: 'no-repeat, no-repeat'
+      }}
     >
       <Paper
         elevation={3}
@@ -47,10 +52,12 @@ const Login: React.FC = () => {
           width: '100%',
           maxWidth: 400,
           textAlign: 'center',
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(10px)'
         }}
       >
         <Typography variant="h4" component="h1" gutterBottom>
-          Login
+          MEDS Login
         </Typography>
         {error && (
           <Typography color="error" sx={{ mb: 2 }}>
@@ -87,6 +94,20 @@ const Login: React.FC = () => {
           </Button>
         </form>
       </Paper>
+      <Typography 
+        variant="body1" 
+        color="text.secondary" 
+        align="center" 
+        sx={{ 
+          mt: 4,
+          position: 'absolute',
+          bottom: 16,
+          width: '100%',
+          fontSize: '1.1rem'
+        }}
+      >
+        Created By: David Clark & Brandon Clark
+      </Typography>
     </Box>
   );
 };

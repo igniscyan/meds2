@@ -23,15 +23,49 @@ func init() {
 			}
 		}
 
-		// Create test user if it doesn't exist
+		// Get users collection and add role field first
 		users, err := dao.FindCollectionByNameOrId("users")
 		if err == nil {
-			_, err := dao.FindFirstRecordByData("users", "email", "user@example.com")
+			// Add role field if it doesn't exist
+			roleField := users.Schema.GetFieldByName("role")
+			if roleField == nil {
+				users.Schema.AddField(&schema.SchemaField{
+					Name:     "role",
+					Type:     schema.FieldTypeSelect,
+					Required: true,
+					Options: &schema.SelectOptions{
+						Values:    []string{"provider", "pharmacy", "admin"},
+						MaxSelect: 1,
+					},
+				})
+				if err := dao.SaveCollection(users); err != nil {
+					return err
+				}
+			}
+
+			// Create provider user
+			_, err := dao.FindFirstRecordByData("users", "email", "provider@example.com")
 			if err != nil {
 				record := models.NewRecord(users)
-				record.Set("username", "testuser")
-				record.Set("email", "user@example.com")
+				record.Set("username", "provider")
+				record.Set("email", "provider@example.com")
 				record.Set("emailVisibility", true)
+				record.Set("role", "provider")
+				record.SetPassword("password123")
+				record.Set("verified", true)
+				if err := dao.SaveRecord(record); err != nil {
+					return err
+				}
+			}
+
+			// Create pharmacy user
+			_, err = dao.FindFirstRecordByData("users", "email", "pharmacyuser@example.com")
+			if err != nil {
+				record := models.NewRecord(users)
+				record.Set("username", "pharmacyuser")
+				record.Set("email", "pharmacyuser@example.com")
+				record.Set("emailVisibility", true)
+				record.Set("role", "pharmacy")
 				record.SetPassword("password123")
 				record.Set("verified", true)
 				if err := dao.SaveRecord(record); err != nil {
@@ -67,7 +101,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "stock",
 					Type:     "number",
-					Required: true,
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name:     "fixed_quantity",
@@ -248,24 +282,6 @@ func init() {
 			return err
 		}
 
-		// Add "OTHER" to chief complaints if it doesn't exist
-		_, err = dao.FindFirstRecordByData("chief_complaints", "name", "OTHER (Custom Text Input)")
-		if err != nil {
-			record := models.NewRecord(chiefComplaints)
-			record.Set("name", "OTHER (Custom Text Input)")
-			if err := dao.SaveRecord(record); err != nil {
-				return err
-			}
-		}
-
-		// Remove the old "OTHER" entry if it exists
-		oldOther, err := dao.FindFirstRecordByData("chief_complaints", "name", "OTHER")
-		if err == nil {
-			if err := dao.DeleteRecord(oldOther); err != nil {
-				return err
-			}
-		}
-
 		// Seed chief complaints data
 		complaints := []string{
 			"ABDOMINAL PAIN",
@@ -381,7 +397,8 @@ func init() {
 					Type:     "select",
 					Required: true,
 					Options: &schema.SelectOptions{
-						Values: []string{"checkbox", "text", "select"},
+						Values:    []string{"checkbox", "text", "select"},
+						MaxSelect: 1,
 					},
 				},
 				&schema.SchemaField{
@@ -414,7 +431,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "required",
 					Type:     "bool",
-					Required: true,
+					Required: false,
 				},
 				&schema.SchemaField{
 					Name: "depends_on",
@@ -428,7 +445,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "archived",
 					Type:     "bool",
-					Required: true,
+					Required: false,
 				},
 			)
 		}
@@ -701,6 +718,82 @@ func init() {
 		}
 
 		if err := dao.SaveCollection(responses); err != nil {
+			return err
+		}
+
+		// Create bulk_distributions collection
+		bulkDistributions := &models.Collection{
+			Name: "bulk_distributions",
+			Type: "base",
+			Schema: schema.NewSchema(
+				&schema.SchemaField{
+					Name:     "date",
+					Type:     "date",
+					Required: true,
+				},
+				&schema.SchemaField{
+					Name:     "notes",
+					Type:     "text",
+					Required: false,
+				},
+			),
+		}
+
+		// Set validation rules
+		bulkRule := "@request.auth.id != ''"
+		bulkDistributions.ListRule = &bulkRule
+		bulkDistributions.ViewRule = &bulkRule
+		bulkDistributions.CreateRule = &bulkRule
+		bulkDistributions.UpdateRule = &bulkRule
+		bulkDistributions.DeleteRule = &bulkRule
+
+		if err := dao.SaveCollection(bulkDistributions); err != nil {
+			return err
+		}
+
+		// Create bulk_distribution_items collection
+		maxSelect = 1
+		bulkItems := &models.Collection{
+			Name: "bulk_distribution_items",
+			Type: "base",
+			Schema: schema.NewSchema(
+				&schema.SchemaField{
+					Name: "distribution",
+					Type: "relation",
+					Options: &schema.RelationOptions{
+						CollectionId: "bulk_distributions",
+						MaxSelect:    &maxSelect,
+					},
+					Required: true,
+				},
+				&schema.SchemaField{
+					Name: "question",
+					Type: "relation",
+					Options: &schema.RelationOptions{
+						CollectionId: "encounter_questions",
+						MaxSelect:    &maxSelect,
+					},
+					Required: true,
+				},
+				&schema.SchemaField{
+					Name:     "quantity",
+					Type:     "number",
+					Required: true,
+					Options: &schema.NumberOptions{
+						Min: float64Ptr(0),
+					},
+				},
+			),
+		}
+
+		// Set validation rules
+		bulkItems.ListRule = &bulkRule
+		bulkItems.ViewRule = &bulkRule
+		bulkItems.CreateRule = &bulkRule
+		bulkItems.UpdateRule = &bulkRule
+		bulkItems.DeleteRule = &bulkRule
+
+		if err := dao.SaveCollection(bulkItems); err != nil {
 			return err
 		}
 
@@ -1008,27 +1101,7 @@ func init() {
 			}
 		}
 
-		// Update users collection to add role field
-		users, err = dao.FindCollectionByNameOrId("users")
-		if err != nil {
-			return err
-		}
-
-		// Add role field if it doesn't exist
-		roleField := users.Schema.GetFieldByName("role")
-		if roleField == nil {
-			users.Schema.AddField(&schema.SchemaField{
-				Name:     "role",
-				Type:     schema.FieldTypeSelect,
-				Required: true,
-				Options: &schema.SelectOptions{
-					Values:    []string{"provider", "pharmacy", "admin"},
-					MaxSelect: 1,
-				},
-			})
-		}
-
-		return dao.SaveCollection(users)
+		return nil
 	}, func(db dbx.Builder) error {
 		dao := daos.New(db)
 
