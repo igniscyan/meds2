@@ -207,7 +207,7 @@ const Settings: React.FC = () => {
             These settings control how measurements are displayed during data entry. Important notes:
             • Changing these settings only affects how new data is entered and displayed
             • Existing data in the database is not converted or modified
-            • You can switch between units at any time without affecting stored data (this is not recommended)
+            • You can switch between units at any time without affecting stored data 
           </Typography>
           
           <Box sx={{ mb: 3 }}>
