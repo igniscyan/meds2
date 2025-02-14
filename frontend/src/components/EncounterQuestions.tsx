@@ -81,12 +81,21 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
   // Add debug logging for subscriptions
   const { records: categoryRecords, loading: categoriesLoading } = useRealtimeSubscription<Category>(
     'encounter_question_categories',
-    useMemo(() => ({ sort: 'order', filter: 'archived = false' }), [])
+    useMemo(() => ({ 
+      sort: 'order', 
+      filter: 'archived = false',
+      $autoCancel: false // Prevent auto-cancellation of subscription
+    }), [])
   );
 
   const { records: questionRecords, loading: questionsLoading } = useRealtimeSubscription<Question>(
     'encounter_questions',
-    useMemo(() => ({ sort: 'order', filter: 'archived = false', expand: 'category' }), [])
+    useMemo(() => ({ 
+      sort: 'order', 
+      filter: 'archived = false', 
+      expand: 'category',
+      $autoCancel: false // Prevent auto-cancellation of subscription
+    }), [])
   );
 
   const { records: existingResponses, loading: responsesLoading } = useRealtimeSubscription<QuestionResponse>(
@@ -94,10 +103,70 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
     useMemo(() => encounterId 
       ? { 
           filter: `encounter = "${encounterId}"`, 
-          expand: 'question,question.category' 
+          expand: 'question,question.category',
+          $autoCancel: false // Prevent auto-cancellation of subscription
         } 
       : undefined, [encounterId])
   );
+
+  // Add debug logging for real-time updates
+  useEffect(() => {
+    console.log('Real-time update received:', {
+      categories: categoryRecords,
+      questions: questionRecords,
+      responses: existingResponses
+    });
+  }, [categoryRecords, questionRecords, existingResponses]);
+
+  // Force refresh of questions when categories change
+  useEffect(() => {
+    if (categoryRecords?.length > 0) {
+      const loadQuestions = async () => {
+        try {
+          const categoryIds = categoryRecords.map(cat => cat.id);
+          const categoryFilter = categoryIds.map(id => `category = "${id}"`).join(' || ');
+          const questions = await pb.collection('encounter_questions').getList(1, 50, {
+            filter: `(${categoryFilter}) && archived = false`,
+            sort: 'order',
+            expand: 'category'
+          });
+          console.log('Refreshed questions:', questions.items);
+        } catch (err) {
+          console.error('Error refreshing questions:', err);
+        }
+      };
+      loadQuestions();
+    }
+  }, [categoryRecords]);
+
+  // Add error recovery for responses
+  useEffect(() => {
+    if (encounterId && !responsesLoading && existingResponses.length === 0) {
+      console.log('No responses found, checking if recovery needed');
+      const checkResponses = async () => {
+        try {
+          const responses = await pb.collection('encounter_responses').getList<QuestionResponse>(1, 50, {
+            filter: `encounter = "${encounterId}"`,
+            expand: 'question,question.category'
+          });
+          if (responses.items.length > 0) {
+            console.log('Recovered responses:', responses.items);
+            const responseMap: ResponseMap = {};
+            responses.items.forEach(response => {
+              if (response.question && typeof response.question === 'string') {
+                responseMap[response.question] = response;
+              }
+            });
+            setResponses(responseMap);
+            responsesRef.current = responseMap;
+          }
+        } catch (err) {
+          console.error('Error recovering responses:', err);
+        }
+      };
+      checkResponses();
+    }
+  }, [encounterId, responsesLoading, existingResponses]);
 
   const [responses, setResponses] = useState<ResponseMap>({});
 

@@ -204,7 +204,10 @@ const Settings: React.FC = () => {
         <Paper sx={{ p: 3 }}>
           <Typography variant="h6" gutterBottom>Unit Display Preferences</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            These settings only affect how units are displayed during data entry. Changing these settings will not convert or alter any existing data in the system.
+            These settings control how measurements are displayed during data entry. Important notes:
+            • Changing these settings only affects how new data is entered and displayed
+            • Existing data in the database is not converted or modified
+            • You can switch between units at any time without affecting stored data (this is not recommended)
           </Typography>
           
           <Box sx={{ mb: 3 }}>

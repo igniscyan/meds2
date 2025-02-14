@@ -173,12 +173,28 @@ const Dashboard: React.FC = () => {
   // Update handler for care team changes
   const handleCareTeamChange = async (queueId: string, teamNumber: string | null) => {
     try {
-      await pb.collection('queue').update(queueId, {
+      setProcessing(queueId); // Add loading state while updating
+      console.log('Updating care team assignment:', { queueId, teamNumber });
+      
+      const updatedQueue = await pb.collection('queue').update(queueId, {
         intended_provider: teamNumber
       });
+      
+      // Update local state immediately after successful update
+      const updatedQueueItems = queueItems.map(item => 
+        item.id === queueId ? { ...item, intended_provider: teamNumber } : item
+      );
+      
+      // Force refresh the queue items to ensure sync
+      const refreshedItem = await pb.collection('queue').getOne(queueId);
+      console.log('Care team assignment updated:', refreshedItem);
+      
+      setError(null);
     } catch (error) {
       console.error('Error updating care team assignment:', error);
       setError('Failed to update care team assignment');
+    } finally {
+      setProcessing(null);
     }
   };
 
@@ -843,6 +859,7 @@ const Dashboard: React.FC = () => {
                 onChange={(e) => handleCareTeamChange(queueItem.id, e.target.value || null)}
                 size="small"
                 displayEmpty
+                disabled={processing === queueItem.id}
                 sx={{ 
                   minWidth: { xs: '100%', sm: 120 },
                   '& .MuiSelect-select': {
