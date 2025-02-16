@@ -127,25 +127,26 @@ const Dashboard: React.FC = () => {
   const { displayPreferences, loading: settingsLoading } = useSettings();
   const [selectedTeamFilter, setSelectedTeamFilter] = useState<string>('');
 
-  // Subscribe to queue changes
+  // Subscribe to queue changes with expanded fields
   const { records: queueItems, loading: queueLoading } = useRealtimeSubscription<QueueItem>('queue', {
     sort: '-priority,check_in_time',
     expand: 'patient,assigned_to,intended_provider,encounter',
-    filter: 'status != "completed"'
+    filter: 'status != "completed"',
+    $autoCancel: false // Prevent auto-cancellation
   });
 
-  // Remove provider subscription since we're using care team numbers
+  // Debug logging for display preferences
   useEffect(() => {
     console.log('Display Preferences:', displayPreferences);
   }, [displayPreferences]);
 
-  // Add debug logging for queue items
+  // Debug logging for queue items
   useEffect(() => {
     console.log('Queue items received:', queueItems);
     console.log('Queue items expanded data:', queueItems.map(item => item.expand));
   }, [queueItems]);
 
-  // Add debug logging for auth store
+  // Debug logging for auth store
   useEffect(() => {
     console.log('Auth Store Debug:', {
       model: pb.authStore.model,
@@ -158,6 +159,28 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     if (!queueLoading) {
       fetchAnalytics();
+    }
+  }, [queueItems, queueLoading]);
+
+  // Debug logging for display preferences changes
+  useEffect(() => {
+    console.log('Display preferences changed:', {
+      show_care_team_assignment: displayPreferences?.show_care_team_assignment,
+      care_team_count: displayPreferences?.care_team_count,
+      show_gyn_team: displayPreferences?.show_gyn_team,
+      show_optometry_team: displayPreferences?.show_optometry_team
+    });
+  }, [displayPreferences]);
+
+  // Debug logging for queue items and their care team assignments
+  useEffect(() => {
+    if (!queueLoading) {
+      console.log('Queue items updated:', queueItems.map(item => ({
+        id: item.id,
+        patient: item.expand?.patient?.first_name,
+        intended_provider: item.intended_provider,
+        status: item.status
+      })));
     }
   }, [queueItems, queueLoading]);
 
@@ -176,29 +199,43 @@ const Dashboard: React.FC = () => {
       setProcessing(queueId); // Add loading state while updating
       console.log('Updating care team assignment:', { queueId, teamNumber });
       
+      // Update the queue item
       const updatedQueue = await pb.collection('queue').update(queueId, {
-        intended_provider: teamNumber
+        intended_provider: teamNumber,
+        updated: new Date().toISOString() // Force an update event
       });
       
-      // Update local state immediately after successful update
-      const updatedQueueItems = queueItems.map(item => 
-        item.id === queueId ? { ...item, intended_provider: teamNumber } : item
-      );
+      console.log('Queue item updated:', updatedQueue);
       
-      // Force refresh the queue items to ensure sync
-      const refreshedItem = await pb.collection('queue').getOne(queueId);
-      console.log('Care team assignment updated:', refreshedItem);
+      // Get the full updated queue item with expanded fields
+      const refreshedItem = await pb.collection('queue').getOne<QueueItem>(queueId, {
+        expand: 'patient,assigned_to,intended_provider,encounter'
+      });
       
+      console.log('Refreshed queue item:', refreshedItem);
+      
+      // Force a refresh of all queue items to ensure consistency
+      const result = await pb.collection('queue').getList<QueueItem>(1, 100, {
+        sort: '-priority,check_in_time',
+        expand: 'patient,assigned_to,intended_provider,encounter',
+        filter: 'status != "completed"',
+        $autoCancel: false
+      });
+      
+      console.log('Queue refresh complete:', result.items);
       setError(null);
-    } catch (error) {
-      console.error('Error updating care team assignment:', error);
-      setError('Failed to update care team assignment');
+    } catch (error: any) {
+      // Ignore auto-cancellation errors
+      if (!error.message?.includes('autocancelled')) {
+        console.error('Error updating care team assignment:', error);
+        setError('Failed to update care team assignment');
+      }
     } finally {
       setProcessing(null);
     }
   };
 
-  // Fetch analytics data
+  // Update analytics data
   const fetchAnalytics = async () => {
     try {
       // Get today's date in YYYY-MM-DD format

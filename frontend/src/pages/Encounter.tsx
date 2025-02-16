@@ -475,13 +475,13 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             // Convert disbursements to DisbursementItems
             const disbursementItems = (disbursements.items as Disbursement[]).map(d => {
               const medication = d.expand?.medication as MedicationRecord;
-              const multiplier = medication ? d.quantity / medication.fixed_quantity : 1;
+              const multiplier = medication ? d.quantity / medication.fixed_quantity : '';
               
               return {
                 id: d.id,
                 medication: d.medication,
                 quantity: medication?.fixed_quantity || d.quantity,
-                multiplier,
+                multiplier: multiplier.toString(),
                 notes: d.notes || '',
                 medicationDetails: medication,
                 isProcessed: d.processed || false,
@@ -522,10 +522,10 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 other_chief_complaint: encounterRecord.other_chief_complaint || '',
                 diagnosis: encounterRecord.diagnosis || [],
                 other_diagnosis: encounterRecord.other_diagnosis || '',
-                disbursements: disbursementItems.length > 0 ? disbursementItems : prev.disbursements || [{
+                disbursements: disbursementItems.length > 0 ? disbursementItems : [{
                   medication: '',
                   quantity: 1,
-                  multiplier: 1,
+                  multiplier: '',  // Allow empty multiplier
                   notes: '',
                 }]
             }));
@@ -1235,7 +1235,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         const medication = medicationsResult.find(m => m.id === disbursement.medication);
         if (!medication) continue;
 
-        const quantity = disbursement.quantity * (disbursement.multiplier || 1);
+        // Convert multiplier to number for calculations, empty multiplier becomes 0
+        const multiplierNum = typeof disbursement.multiplier === 'string' 
+          ? (disbursement.multiplier === '' ? 0 : parseFloat(disbursement.multiplier) || 0)
+          : disbursement.multiplier || 0;
+        const quantity = disbursement.quantity * multiplierNum;
         
         if (disbursement.id) {
           const existing = existingDisbursementsResult.items.find(d => d.id === disbursement.id);
@@ -1259,15 +1263,14 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
                 }
 
                 await pb.collection('inventory').update(medication.id, {
-                  stock: newStock,
-                  multiplier: 1
+                  stock: newStock
                 });
               }
 
               // Update disbursement
               const updated = await pb.collection('disbursements').update(disbursement.id, {
                 quantity,
-                multiplier: disbursement.multiplier || 1,  // Save the multiplier
+                multiplier: disbursement.multiplier,  // Save the original multiplier string
                 notes: disbursement.notes || '',
                 frequency: disbursement.frequency || 'QD',
                 frequency_hours: disbursement.frequency === 'Q#H' ? disbursement.frequency_hours : null,
@@ -1297,7 +1300,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             encounter: encounterId,
             medication: disbursement.medication,
             quantity,
-            multiplier: disbursement.multiplier || 1,  // Save the multiplier
+            multiplier: disbursement.multiplier,  // Save the original multiplier string
             notes: disbursement.notes || '',
             processed: false,
             frequency: disbursement.frequency || 'QD',
@@ -1369,7 +1372,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         id: d.id,
         medication: d.medication,
         quantity: medication?.fixed_quantity || d.quantity,
-        multiplier,
+        multiplier: multiplier.toString(),  // Convert to string for form input
         notes: d.notes || '',
         medicationDetails: medication,
         isProcessed: d.processed || false,
@@ -1402,7 +1405,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         disbursements: disbursementItems.length > 0 ? disbursementItems : [{
           medication: '',
           quantity: 1,
-          multiplier: 1,
+          multiplier: '',  // Allow empty multiplier
           notes: '',
         }]
       };

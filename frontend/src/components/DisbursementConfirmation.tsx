@@ -10,7 +10,7 @@ import {
   ListItem,
   ListItemText,
 } from '@mui/material';
-import { DisbursementItem, MedicationRecord } from './DisbursementForm';
+import type { DisbursementItem, MedicationRecord } from './DisbursementForm';
 import { pb } from '../atoms/auth';
 import { RoleBasedAccess } from './RoleBasedAccess';
 import { Record } from 'pocketbase';
@@ -18,6 +18,7 @@ import { Record } from 'pocketbase';
 interface ExistingDisbursement extends Record {
   medication: string;
   quantity: number;
+  multiplier: number;
   notes: string;
   encounter: string;
 }
@@ -39,6 +40,14 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
 }) => {
   const [processing, setProcessing] = useState(false);
 
+  // Add helper function to safely get numeric multiplier
+  const getNumericMultiplier = (value: string | number | undefined): number => {
+    if (typeof value === 'number') return value;
+    if (!value || value === '') return 0;
+    const num = parseFloat(value);
+    return isNaN(num) ? 0 : num;
+  };
+
   const handleConfirm = async () => {
     if (!encounterId || !queueItemId) {
       console.error('Missing required IDs');
@@ -57,7 +66,8 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
         if (!disbursement.medication || !disbursement.quantity) continue;
 
         const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
-        const quantity = disbursement.quantity * (disbursement.multiplier || 1);
+        const multiplier = getNumericMultiplier(disbursement.multiplier);
+        const quantity = disbursement.quantity * multiplier;
 
         if (disbursement.id) {
           const existing = existingMap.get(disbursement.id);
@@ -81,7 +91,8 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
         if (!disbursement.medication || !disbursement.quantity) continue;
 
         const medication = await pb.collection('inventory').getOne(disbursement.medication) as MedicationRecord;
-        const quantity = disbursement.quantity * (disbursement.multiplier || 1);
+        const multiplier = getNumericMultiplier(disbursement.multiplier);
+        const quantity = disbursement.quantity * multiplier;
 
         if (disbursement.id) {
           // Update existing disbursement
@@ -163,9 +174,11 @@ export const DisbursementConfirmation: React.FC<DisbursementConfirmationProps> =
           </Typography>
           <List>
             {disbursements.map((d, index) => {
-              const quantity = d.quantity * (d.multiplier || 1);
-              const stockChange = d.id && d.originalQuantity && d.originalMultiplier
-                ? quantity - (d.originalQuantity * d.originalMultiplier)
+              const multiplier = getNumericMultiplier(d.multiplier);
+              const quantity = d.quantity * multiplier;
+              const originalMultiplier = getNumericMultiplier(d.originalMultiplier?.toString());
+              const stockChange = d.id && d.originalQuantity
+                ? quantity - (d.originalQuantity * originalMultiplier)
                 : quantity;
               
               return (

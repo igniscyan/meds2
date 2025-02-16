@@ -23,6 +23,9 @@ const isAutoCancelError = (error: any): boolean => {
          error?.status === 0;
 };
 
+// Create a map to store update callbacks
+const updateCallbacks = new Map<string, () => void>();
+
 export function useRealtimeSubscription<T extends PBRecord>(
   collection: string,
   queryParams: { [key: string]: any } = {}
@@ -132,12 +135,16 @@ export function useRealtimeSubscription<T extends PBRecord>(
             authRole: (pb.authStore.model as ExtendedAuthModel)?.role
           });
 
+          // Immediately fetch fresh data when we receive any update
+          loadInitialData();
+
           setRecords(prev => {
             try {
               if (data.action === 'create') {
                 // For new records, fetch with expanded fields
                 pb.collection(collection).getOne(data.record.id, {
-                  expand: stableQueryParams.current.expand
+                  expand: stableQueryParams.current.expand,
+                  $autoCancel: false
                 }).then(expandedRecord => {
                   if (isMounted) {
                     console.log('[useRealtimeSubscription] Fetched expanded record for create:', expandedRecord);
@@ -150,27 +157,27 @@ export function useRealtimeSubscription<T extends PBRecord>(
                 });
                 return prev;
               } else if (data.action === 'update') {
-                // For updates, fetch the updated record with expanded fields
-                pb.collection(collection).getOne(data.record.id, {
-                  expand: stableQueryParams.current.expand
-                }).then(expandedRecord => {
+                // For updates, immediately fetch fresh data
+                pb.collection(collection).getList(1, 1000, {
+                  ...stableQueryParams.current,
+                  $autoCancel: false,
+                  $cancelKey: `${collection}_update_${data.record.id}`
+                }).then(result => {
                   if (isMounted) {
-                    console.log('[useRealtimeSubscription] Fetched expanded record for update:', expandedRecord);
-                    setRecords(prev => 
-                      prev.map(item => item.id === data.record.id ? expandedRecord as T : item)
-                    );
+                    console.log('[useRealtimeSubscription] Fetched fresh data after update:', result.items);
+                    setRecords(result.items as T[]);
                   }
                 }).catch(err => {
                   if (!isAutoCancelError(err)) {
-                    console.error('[useRealtimeSubscription] Error fetching updated record:', err);
+                    console.error('[useRealtimeSubscription] Error fetching fresh data:', err);
                   }
-        });
+                });
                 return prev;
               } else if (data.action === 'delete') {
                 return prev.filter(item => item.id !== data.record.id);
               }
               return prev;
-      } catch (err) {
+            } catch (err) {
               if (!isAutoCancelError(err)) {
                 console.error('[useRealtimeSubscription] Error processing realtime update:', err);
               }
@@ -208,6 +215,9 @@ export function useRealtimeSubscription<T extends PBRecord>(
     };
     window.addEventListener('pocketbase-auth-change', handleAuthChange);
 
+    // Store the update callback for this collection
+    updateCallbacks.set(collection, loadInitialData);
+
     return () => {
       isMounted = false;
       if (unsubscribe) {
@@ -218,8 +228,19 @@ export function useRealtimeSubscription<T extends PBRecord>(
         abortControllerRef.current.abort();
       }
       window.removeEventListener('pocketbase-auth-change', handleAuthChange);
+      updateCallbacks.delete(collection);
     };
   }, [collection, queryParams]);
 
   return { records, loading, error };
 }
+
+// Add a force update function
+useRealtimeSubscription.forceUpdate = (collection: string) => {
+  const updateCallback = updateCallbacks.get(collection);
+  if (updateCallback) {
+    updateCallback();
+  }
+};
+
+export default useRealtimeSubscription;

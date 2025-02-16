@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Record, UnsubscribeFunc } from 'pocketbase';
 import { pb } from '../atoms/auth';
 
@@ -60,40 +60,26 @@ export const useSettings = (): UseSettingsReturn => {
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const settingsRef = useRef<Settings | null>(null);
 
   const loadSettings = async () => {
     try {
+      console.log('Loading settings...');
       const resultList = await pb.collection('settings').getList<Settings>(1, 1, {
         sort: 'created',
-        requestKey: 'settings'
+        $autoCancel: false
       });
+      
       if (resultList.items.length > 0) {
-        setSettings(resultList.items[0]);
-      } else {
-        // If no settings exist, create default settings
-        try {
-          const adminUser = pb.authStore.model;
-          if (adminUser) {
-            const defaultSettings = await pb.collection('settings').create({
-              unit_display: defaultUnitDisplay,
-              display_preferences: defaultDisplayPreferences,
-              updated_by: adminUser.id,
-              last_updated: new Date().toISOString(),
-            });
-            setSettings(defaultSettings as Settings);
-          }
-        } catch (createError: any) {
-          if (createError?.name !== 'ClientResponseError' || createError?.status !== 0) {
-            console.error('Error creating default settings:', createError);
-          }
-        }
+        const newSettings = resultList.items[0];
+        console.log('Settings loaded:', newSettings);
+        setSettings(newSettings);
+        settingsRef.current = newSettings;
       }
       setError(null);
-    } catch (err: any) {
-      if (err?.name !== 'ClientResponseError' || err?.status !== 0) {
-        console.error('Error loading settings:', err);
-        setError('Failed to load settings');
-      }
+    } catch (err) {
+      console.error('Error loading settings:', err);
+      setError('Failed to load settings');
     } finally {
       setLoading(false);
     }
@@ -103,15 +89,19 @@ export const useSettings = (): UseSettingsReturn => {
     let unsubscribe: UnsubscribeFunc | null = null;
     try {
       setSubscriptionError(null);
+      console.log('Subscribing to settings...');
+      
       // Subscribe to the settings collection
       unsubscribe = await pb.collection('settings').subscribe('*', (e) => {
         if (e.action === 'update' || e.action === 'create') {
           setSyncing(true);
           try {
+            console.log('Settings update received:', e.record);
             // Update our local state when settings change
             const updatedSettings = e.record as Settings;
             if (updatedSettings.unit_display && updatedSettings.display_preferences) {
               setSettings(updatedSettings);
+              settingsRef.current = updatedSettings;
             }
           } finally {
             setSyncing(false);
@@ -121,11 +111,12 @@ export const useSettings = (): UseSettingsReturn => {
       return unsubscribe;
     } catch (err) {
       console.error('Error subscribing to settings:', err);
-      setSubscriptionError('Failed to connect to real-time updates. Some changes may be delayed.');
+      setSubscriptionError('Failed to connect to real-time updates');
       return null;
     }
   };
 
+  // Initialize settings and subscription
   useEffect(() => {
     loadSettings();
     let unsubscribe: UnsubscribeFunc | null = null;
@@ -144,6 +135,11 @@ export const useSettings = (): UseSettingsReturn => {
     };
   }, []);
 
+  // Add a force refresh function
+  const refreshSettings = async () => {
+    await loadSettings();
+  };
+
   const reconnect = async () => {
     if (subscriptionError) {
       const newUnsubscribe = await subscribeToSettings();
@@ -154,12 +150,12 @@ export const useSettings = (): UseSettingsReturn => {
   };
 
   return {
-    settings,
+    settings: settingsRef.current || settings,
     loading,
     error,
-    refreshSettings: loadSettings,
-    unitDisplay: settings?.unit_display || defaultUnitDisplay,
-    displayPreferences: settings?.display_preferences || defaultDisplayPreferences,
+    refreshSettings,
+    unitDisplay: settingsRef.current?.unit_display || settings?.unit_display || defaultUnitDisplay,
+    displayPreferences: settingsRef.current?.display_preferences || settings?.display_preferences || defaultDisplayPreferences,
     syncing,
     subscriptionError,
     reconnect

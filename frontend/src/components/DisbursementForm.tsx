@@ -38,7 +38,7 @@ export interface DisbursementItem {
   medication: string;
   medicationDetails?: MedicationRecord;
   quantity: number;
-  multiplier: number;
+  multiplier: string;  // Always store as string for input handling
   notes?: string;
   originalQuantity?: number;
   originalMultiplier?: number;
@@ -118,7 +118,7 @@ export const DisbursementForm = forwardRef<
   // Track initial state of medications when the encounter was loaded
   const [initialMedicationState, setInitialMedicationState] = useState<Map<string, { 
     quantity: number;
-    multiplier: number;
+    multiplier: string;
     id: string;
     medicationDetails?: MedicationRecord;
     associated_diagnosis?: string;
@@ -130,7 +130,7 @@ export const DisbursementForm = forwardRef<
   // Track medications that were deleted from their initial state
   const [deletedMedications, setDeletedMedications] = useState<Map<string, {
     quantity: number;
-    multiplier: number;
+    multiplier: string;
     wasRestored: boolean;
   }>>(new Map());
 
@@ -138,7 +138,7 @@ export const DisbursementForm = forwardRef<
   const [initialDisbursementState, setInitialDisbursementState] = useState<{
     medication: string;
     quantity: number;
-    multiplier: number;
+    multiplier: string;
     medicationDetails?: MedicationRecord;
     notes?: string;
     frequency?: string;
@@ -191,7 +191,7 @@ export const DisbursementForm = forwardRef<
           
           newInitialState.set(d.medication, {
             quantity: d.quantity,
-            multiplier: d.multiplier || 1,  // Use stored multiplier or default to 1
+            multiplier: d.multiplier?.toString() || '',  // Don't coerce to 1
             id: d.id,
             medicationDetails: d.medicationDetails,
             associated_diagnosis: d.associated_diagnosis,
@@ -207,9 +207,9 @@ export const DisbursementForm = forwardRef<
         // Ensure multiplier is set and reset original values after saving
         const processedDisbursement = { 
           ...d, 
-          multiplier: d.multiplier || 1,
-          originalMultiplier: d.multiplier || 1,  // Reset original to current after save
-          originalQuantity: d.quantity,  // Reset original quantity too
+          multiplier: d.multiplier || '',  // Don't coerce to 1
+          originalMultiplier: d.multiplier || '',  // Don't coerce to 1
+          originalQuantity: d.quantity,
           markedForDeletion: shouldBeDeleted ?? false 
         };
 
@@ -251,7 +251,7 @@ export const DisbursementForm = forwardRef<
       const newDatabaseValues = new Map();
       processedDisbursements.forEach(d => {
         if (d.id) {
-          newDatabaseValues.set(d.id, d.multiplier || 1);
+          newDatabaseValues.set(d.id, d.multiplier === '' ? 0 : parseFloat(d.multiplier) || 0);  // Empty becomes 0
         }
       });
       setDatabaseValues(newDatabaseValues);
@@ -262,9 +262,9 @@ export const DisbursementForm = forwardRef<
     const newDisbursement = {
       medication: '',
       quantity: 1,
-      multiplier: 1,
+      multiplier: '',  // Start with empty multiplier
       notes: '',
-      frequency: 'QD' as const, // Set default frequency
+      frequency: 'QD' as const,
     };
     
     console.log('STOCK DEBUG: [ADD] Adding new disbursement:', {
@@ -354,13 +354,16 @@ export const DisbursementForm = forwardRef<
   const renderMedicationSelect = (index: number, disbursement: DisbursementItem) => {
     const availableMedications = getAvailableMedications(index);
     const isDeleted = disbursement.markedForDeletion;
+    const isProcessed = disbursement.isProcessed;
 
     return (
       <Autocomplete
         value={disbursement.medicationDetails || null}
-        onChange={(_, newValue) => handleDisbursementChange(index, 'medication', newValue)}
+        onChange={(_, newValue) => {
+          handleDisbursementChange(index, 'medication', newValue || undefined);
+        }}
         options={availableMedications}
-        getOptionLabel={(option) => option.drug_name || ''}
+        getOptionLabel={(option) => option?.drug_name || ''}
         renderInput={(params) => (
           <TextField
             {...params}
@@ -370,7 +373,7 @@ export const DisbursementForm = forwardRef<
             error={!disbursement.medication && !isDeleted}
           />
         )}
-        disabled={disabled || isDeleted}
+        disabled={disabled || isProcessed || isDeleted}
         sx={{
           opacity: isDeleted ? 0.5 : 1,
           textDecoration: isDeleted ? 'line-through' : 'none',
@@ -378,71 +381,87 @@ export const DisbursementForm = forwardRef<
           '& .MuiInputBase-root': {
             minHeight: '40px',
             height: 'auto',
-            paddingRight: '39px !important' // Ensure space for dropdown arrow
+            paddingRight: '39px !important'
           },
           '& .MuiAutocomplete-input': {
-            padding: '0 !important'  // Remove extra padding from input
+            padding: '0 !important'
           }
         }}
       />
     );
   };
 
-  // Modify the main component to track database values
+  const getNumericMultiplier = (value: string | number): number => {
+    // Return 0 for empty values
+    if (value === '' || value === undefined || value === null) return 0;
+    
+    // For non-empty values, convert to number
+    if (typeof value === 'number') return value;
+    const num = parseFloat(value);
+    return isNaN(num) ? 0 : num;
+  };
+
+  const calculateTotalQuantity = (disbursement: DisbursementItem) => {
+    return disbursement.quantity * getNumericMultiplier(disbursement.multiplier);
+  };
+
   const calculateStockChange = (disbursement: DisbursementItem, index: number) => {
     if (!disbursement.medicationDetails || !disbursement.medication || disbursement.markedForDeletion) {
       return null;
     }
 
-    // Get the current database value for this disbursement
-    const databaseMultiplier = disbursement.id ? (databaseValues.get(disbursement.id) ?? 1) : 1;
+    const currentStock = disbursement.medicationDetails.stock || 0;
+    const fixedQuantity = disbursement.medicationDetails.fixed_quantity || 0;
+    const currentAmount = fixedQuantity * getNumericMultiplier(disbursement.multiplier);
     
-    // Calculate current amount using fixed_quantity and multiplier
-    const currentAmount = (disbursement.medicationDetails.fixed_quantity || 0) * (disbursement.multiplier || 1);
-    
-    // Calculate database amount
-    const databaseAmount = disbursement.id 
-      ? (disbursement.medicationDetails.fixed_quantity || 0) * databaseMultiplier
-      : 0;
-
-    console.log('DEBUG: Calculated amounts:', {
-      currentAmount,
-      databaseAmount,
-      difference: currentAmount - databaseAmount
-    });
-
     // Get all current disbursements for this medication (excluding marked for deletion and current one)
-    const allDisbursementsForMed = disbursements.filter((d, idx) => 
+    const otherDisbursements = disbursements.filter((d, idx) => 
       d.medication === disbursement.medication && 
       !d.markedForDeletion &&
-      idx !== index  // Exclude current disbursement to avoid double counting
+      idx !== index
     );
 
-    // Calculate total amount being disbursed for this medication
-    const totalDisbursedAmount = allDisbursementsForMed.reduce((total, d) => 
-      total + (d.medicationDetails?.fixed_quantity || 0) * (d.multiplier || 1), 0
-    ) + currentAmount;
+    // Calculate total amount being disbursed for this medication by other disbursements
+    const otherDisbursementsTotal = otherDisbursements.reduce((total, d) => {
+      const qty = d.medicationDetails?.fixed_quantity || 0;
+      const mult = getNumericMultiplier(d.multiplier);
+      return total + (qty * mult);
+    }, 0);
 
-    // Compare against database value instead of original value
-    const stockChange = disbursement.id ? (currentAmount - databaseAmount) : -currentAmount;
+    // For existing disbursements, we need to account for the initial state
+    const initialState = disbursement.id ? initialMedicationState.get(disbursement.medication) : null;
+    const initialAmount = initialState 
+      ? (initialState.medicationDetails?.fixed_quantity || 0) * getNumericMultiplier(initialState.multiplier)
+      : 0;
 
-    // Also check if we exceed stock
-    const exceedsStock = (currentAmount + totalDisbursedAmount) > (disbursement.medicationDetails?.stock || 0);
+    // Calculate the actual stock change
+    const stockChange = disbursement.id 
+      ? currentAmount - initialAmount  // For existing: only count the difference
+      : currentAmount;                 // For new: count the full amount
+
+    // Check if total disbursements would exceed current stock
+    const exceedsStock = (currentAmount + otherDisbursementsTotal) > currentStock;
     
-    console.log('DEBUG: Final calculations:', {
-      stockChange,
-      exceedsStock,
-      totalDisbursedAmount,
-      hasStockChange: Math.abs(stockChange) > 0.001
-    });
+    return { 
+      stockChange, 
+      exceedsStock, 
+      totalDisbursedAmount: currentAmount + otherDisbursementsTotal 
+    };
+  };
 
-    return { stockChange, exceedsStock, totalDisbursedAmount };
+  const isValidMultiplier = (value: any): boolean => {
+    // Allow empty values for input purposes
+    if (value === '' || value === undefined || value === null) return false;
+    
+    // For non-empty values, must be a positive number
+    const num = parseFloat(value);
+    return !isNaN(num) && num > 0;
   };
 
   const handleDisbursementChange = (
     index: number,
     field: keyof DisbursementItem,
-    value: any
+    value: DisbursementItem[keyof DisbursementItem]
   ) => {
     console.log('DEBUG: handleDisbursementChange called', {
       index,
@@ -455,13 +474,13 @@ export const DisbursementForm = forwardRef<
     const disbursement = {...newDisbursements[index]};
 
     // If this is a medication being restored, clear the deletion flag
-    if (field === 'markedForDeletion' && value === false) {
+    if (field === 'markedForDeletion' && typeof value === 'boolean') {
       console.log('DEBUG: Attempting to restore medication', {
         previousState: disbursement.markedForDeletion,
         newState: value
       });
       
-      disbursement.markedForDeletion = false;
+      disbursement.markedForDeletion = value;
       
       // Clear local state change
       if (disbursement.id) {
@@ -483,42 +502,30 @@ export const DisbursementForm = forwardRef<
       const medicationId = typeof value === 'object' ? value?.id : value;
       
       disbursement.markedForDeletion = false;
-      disbursement.medication = medicationId;
-      disbursement.medicationDetails = value;
+      disbursement.medication = medicationId as string;
+      disbursement.medicationDetails = value as MedicationRecord;
       
       // Reset quantity and multiplier when medication changes
-      disbursement.quantity = value?.fixed_quantity || 1;
-      disbursement.multiplier = 1;
-    } else {
-      // For quantity and multiplier changes, validate against current stock
-      if (field === 'quantity' || field === 'multiplier') {
-        const newValue = Number(value) || 0;
-        const currentStock = disbursement.medicationDetails?.stock || 0;
-        const otherDisbursementsTotal = disbursements
-          .filter((d, idx) => d.medication === disbursement.medication && idx !== index && !d.markedForDeletion)
-          .reduce((total, d) => total + (d.quantity * (d.multiplier || 1)), 0);
-        
-        // Calculate total after this change
-        const newTotal = field === 'quantity' 
-          ? newValue * (disbursement.multiplier || 1)
-          : (disbursement.quantity || 0) * newValue;
-        
-        // Only update if we have enough stock
-        if (newTotal + otherDisbursementsTotal <= currentStock) {
-          disbursement[field] = newValue;
-        }
-      } else {
-        disbursement[field] = value;
-      }
+      disbursement.quantity = (value as MedicationRecord)?.fixed_quantity || 1;
+      disbursement.multiplier = '';  // Initialize with empty multiplier
+    } else if (field === 'multiplier') {
+      // Store the raw input value without any coercion
+      disbursement.multiplier = value as string;
+    } else if (field === 'quantity' && typeof value === 'number') {
+      disbursement.quantity = value;
+    } else if (field === 'notes' && typeof value === 'string') {
+      disbursement.notes = value;
+    } else if (field === 'frequency' && typeof value === 'string') {
+      disbursement.frequency = value;
+    } else if (field === 'frequency_hours' && (typeof value === 'number' || value === undefined)) {
+      disbursement.frequency_hours = value;
+    } else if (field === 'associated_diagnosis' && (typeof value === 'string' || value === undefined)) {
+      disbursement.associated_diagnosis = value;
     }
 
     newDisbursements[index] = disbursement;
     setDisbursements(newDisbursements);
     onDisbursementsChange(newDisbursements);
-  };
-
-  const calculateTotalQuantity = (disbursement: DisbursementItem) => {
-    return disbursement.quantity * disbursement.multiplier;
   };
 
   const handleConfirmDisbursement = () => {
@@ -612,19 +619,19 @@ export const DisbursementForm = forwardRef<
             const medication = disbursement.medicationDetails;
             const currentStock = medication?.stock || 0;
             const isProcessed = mode === 'pharmacy' && disbursement.isProcessed;
-            const totalQuantity = disbursement.quantity * (disbursement.multiplier || 1);
+            const totalQuantity = disbursement.quantity * getNumericMultiplier(disbursement.multiplier);
             
             // Only calculate stock-related values if a medication is selected
             const hasMedication = !!disbursement.medication;
             const otherDisbursementsTotal = hasMedication ? disbursements
               .filter((d, idx) => d.medication === disbursement.medication && idx !== index && !d.markedForDeletion)
-              .reduce((total, d) => total + (d.quantity * (d.multiplier || 1)), 0) : 0;
+              .reduce((total, d) => total + (d.quantity * getNumericMultiplier(d.multiplier)), 0) : 0;
             
             // Calculate the actual change in stock, accounting for initial state
             const initialState = disbursement.id ? initialMedicationState.get(disbursement.medication) : null;
-            const currentAmount = (disbursement.medicationDetails?.fixed_quantity || 0) * (disbursement.multiplier || 1);
+            const currentAmount = (disbursement.medicationDetails?.fixed_quantity || 0) * getNumericMultiplier(disbursement.multiplier);
             const initialAmount = initialState 
-              ? (initialState.medicationDetails?.fixed_quantity || 0) * (initialState.multiplier || 1)
+              ? (initialState.medicationDetails?.fixed_quantity || 0) * getNumericMultiplier(initialState.multiplier)
               : 0;
             
             // For new medications, show the full deduction
@@ -696,14 +703,24 @@ export const DisbursementForm = forwardRef<
                     <TextField
                       fullWidth
                       label="×"
-                      type="number"
+                      type="text"
                       size="small"
-                      value={disbursement.multiplier}
-                      onChange={(e) => handleDisbursementChange(index, 'multiplier', e.target.value)}
+                      value={disbursement.multiplier?.toString() || ''}
+                      onChange={(e) => {
+                        const inputValue = e.target.value;
+                        // Allow empty values, don't coerce
+                        handleDisbursementChange(index, 'multiplier', inputValue);
+                      }}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       InputLabelProps={{ shrink: true }}
-                      error={hasMedication && exceedsStock}
-                      helperText={hasMedication && exceedsStock ? "Exceeds available stock" : ""}
+                      error={hasMedication && (exceedsStock || !isValidMultiplier(disbursement.multiplier))}
+                      helperText={
+                        hasMedication && exceedsStock 
+                          ? "Exceeds available stock" 
+                          : !isValidMultiplier(disbursement.multiplier) 
+                            ? "Must be a positive number" 
+                            : ""
+                      }
                     />
                   </Grid>
                   <Grid item xs={12} sm={4}>
