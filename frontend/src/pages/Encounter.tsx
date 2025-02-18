@@ -19,6 +19,7 @@ import {
   FormControlLabel,
   Checkbox,
   Collapse,
+  Alert,
 } from '@mui/material';
 import ArrowBack from '@mui/icons-material/ArrowBack';
 import { pb } from '../atoms/auth';
@@ -34,6 +35,7 @@ import { useAtomValue } from 'jotai';
 import { isLoadingAtom, authModelAtom } from '../atoms/auth';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import { UnsubscribeFunc } from 'pocketbase';
 
 type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'at_checkout' | 'completed';
 
@@ -136,9 +138,15 @@ interface EncounterRecord extends BaseModel {
   assessment?: string;
   plan?: string;
   disbursements: DisbursementWithId[];
+  active_editor?: string | null;
+  last_edit_activity?: string | null;
   expand?: {
     chief_complaint?: ChiefComplaint[];
     diagnosis?: Diagnosis[];
+    active_editor?: {
+      id: string;
+      name?: string;
+    };
   };
 }
 
@@ -199,6 +207,12 @@ interface EncounterResponseRecord extends BaseModel {
 }
 
 export type EncounterMode = 'create' | 'edit' | 'view' | 'pharmacy' | 'checkout';
+
+interface UserRecord extends BaseModel {
+  name: string;
+  username: string;
+  role: string;
+}
 
 // Add debug panel component
 const DisbursementDebugPanel: React.FC<{
@@ -262,6 +276,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   const [patient, setPatient] = useState<Patient | null>(null);
   const [isNewEncounter, setIsNewEncounter] = useState(true);
   const [currentQueueItem, setCurrentQueueItem] = useState<QueueItem | null>(null);
+  const [activeEditorWarning, setActiveEditorWarning] = useState<string | null>(null);
   const { unitDisplay, displayPreferences } = useSettings();
   const isAuthLoading = useAtomValue(isLoadingAtom);
   const authModel = useAtomValue(authModelAtom);
@@ -460,7 +475,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         if (encounterId && (currentMode === 'view' || currentMode === 'edit' || currentMode === 'pharmacy' || currentMode === 'checkout')) {
             const [encounterRecord, disbursements] = await Promise.all([
               pb.collection('encounters').getOne<EncounterRecord>(encounterId, { 
-                expand: 'chief_complaint,diagnosis',
+                expand: 'chief_complaint,diagnosis,active_editor',
                 $autoCancel: false
               }),
               pb.collection('disbursements').getList(1, 50, {
@@ -1016,6 +1031,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             disbursementFormRef.current.resetLocalState();
           }
 
+          // Clean up active editor after successful save
+          await cleanupActiveEditor();
+
           return true;
         } catch (error: any) {
           console.error('DEBUG: Error saving encounter:', {
@@ -1058,7 +1076,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   };
 
   const handleBack = () => {
-    // Always go back to patient dashboard when viewing an encounter
+    cleanupActiveEditor();
     navigate(`/patient/${patientId}`);
   };
 
@@ -1593,6 +1611,156 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   // Add ref for DisbursementForm
   const disbursementFormRef = useRef<any>(null);
 
+  // Add cleanup function for active editor
+  const cleanupActiveEditor = useCallback(async () => {
+    if (encounterId && (currentMode === 'edit' || currentMode === 'pharmacy')) {
+      try {
+        await pb.collection('encounters').update(encounterId, {
+          active_editor: null,
+          last_edit_activity: null
+        });
+      } catch (error) {
+        console.error('Error cleaning up active editor:', error);
+      }
+    }
+  }, [encounterId, currentMode]);
+
+  // Add cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanupActiveEditor();
+    };
+  }, [cleanupActiveEditor]);
+
+  // Add active editor check and update
+  useEffect(() => {
+    const checkAndUpdateActiveEditor = async (encounterId: string, currentMode: EncounterMode) => {
+      if (!encounterId || (currentMode !== 'edit' && currentMode !== 'pharmacy')) {
+        return;
+      }
+
+      try {
+        // Subscribe to encounter changes to get real-time updates of active editor
+        const unsubscribe = await pb.collection('encounters').subscribe(
+          encounterId,
+          async (e) => {
+            if (e.action === 'update') {
+              const updatedEncounter = e.record as EncounterRecord;
+              
+              // If we're not the active editor and someone else is, show warning
+              if (updatedEncounter.active_editor && 
+                  updatedEncounter.active_editor !== pb.authStore.model?.id) {
+                try {
+                  const editor = await pb.collection('users').getOne<UserRecord>(updatedEncounter.active_editor);
+                  setActiveEditorWarning(
+                    `This encounter is currently being edited by ${editor.name || 'another user'}. ` +
+                    'Your changes may conflict with theirs.'
+                  );
+                } catch (error) {
+                  console.error('Error fetching editor details:', error);
+                  setActiveEditorWarning(
+                    'This encounter is currently being edited by another user. ' +
+                    'Your changes may conflict with theirs.'
+                  );
+                }
+              } else {
+                setActiveEditorWarning(null);
+              }
+            }
+          }
+        );
+
+        // Initial check of active editor
+        const encounter = await pb.collection('encounters').getOne<EncounterRecord>(encounterId, {
+          expand: 'active_editor'
+        });
+
+        // Check if there's an active editor and their last activity
+        if (encounter.active_editor) {
+          const lastActivity = new Date(encounter.last_edit_activity || 0);
+          const now = new Date();
+          const timeDiff = now.getTime() - lastActivity.getTime();
+          const timeoutPeriod = 10 * 60 * 1000; // 10 minutes in milliseconds
+
+          // If the active editor is us, just update the timestamp
+          if (encounter.active_editor === pb.authStore.model?.id) {
+            await pb.collection('encounters').update<EncounterRecord>(encounterId, {
+              last_edit_activity: new Date().toISOString()
+            });
+            setActiveEditorWarning(null);
+            return unsubscribe;
+          }
+
+          // If the last activity is older than the timeout period, take over as editor
+          if (timeDiff > timeoutPeriod) {
+            await pb.collection('encounters').update<EncounterRecord>(encounterId, {
+              active_editor: pb.authStore.model?.id,
+              last_edit_activity: new Date().toISOString()
+            });
+            setActiveEditorWarning(null);
+            return unsubscribe;
+          }
+
+          // Someone else is actively editing, show warning
+          const editor = encounter.expand?.active_editor;
+          setActiveEditorWarning(
+            `This encounter is currently being edited by ${editor?.name || 'another user'}. ` +
+            'Your changes may conflict with theirs.'
+          );
+          return unsubscribe;
+        }
+
+        // No active editor, set ourselves as the active editor
+        await pb.collection('encounters').update<EncounterRecord>(encounterId, {
+          active_editor: pb.authStore.model?.id,
+          last_edit_activity: new Date().toISOString()
+        });
+        setActiveEditorWarning(null);
+
+        return unsubscribe;
+      } catch (error) {
+        console.error('Error checking active editor:', error);
+        return null;
+      }
+    };
+
+    // Only call if encounterId exists
+    let unsubscribe: UnsubscribeFunc | null = null;
+    if (encounterId) {
+      checkAndUpdateActiveEditor(encounterId, currentMode)
+        .then(unsub => {
+          if (unsub) {
+            unsubscribe = unsub;
+          }
+        });
+    }
+
+    // Set up interval to update last_edit_activity
+    const interval = setInterval(async () => {
+      if (encounterId && (currentMode === 'edit' || currentMode === 'pharmacy')) {
+        try {
+          const encounter = await pb.collection('encounters').getOne<EncounterRecord>(encounterId);
+          
+          // Only update timestamp if we are the active editor
+          if (encounter.active_editor === pb.authStore.model?.id) {
+            await pb.collection('encounters').update(encounterId, {
+              last_edit_activity: new Date().toISOString()
+            });
+          }
+        } catch (error) {
+          console.error('Error updating last edit activity:', error);
+        }
+      }
+    }, 30000); // Update every 30 seconds
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+      clearInterval(interval);
+    };
+  }, [encounterId, currentMode]);
+
   if (isAuthLoading) {
     return <Typography>Initializing...</Typography>;
   }
@@ -1608,6 +1776,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   return (
     <Box sx={{ p: 3 }}>
       <Paper sx={{ p: 3 }}>
+        {activeEditorWarning && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {activeEditorWarning}
+          </Alert>
+        )}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
           <Box>
             <Typography variant="h4" sx={{ mb: 0.5 }}>
@@ -2131,4 +2304,5 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 };
 
 export default Encounter;
+
 

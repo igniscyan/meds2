@@ -20,6 +20,7 @@ import AuthGuard from './components/AuthGuard';
 import { authModelAtom, isLoadingAtom, useAuthChangeEffect } from './atoms/auth';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
+import { ActiveEditorCleanup } from './components/ActiveEditorCleanup';
 
 const App: React.FC = () => {
   const user = useAtomValue(authModelAtom);
@@ -62,6 +63,7 @@ const App: React.FC = () => {
         <CssBaseline />
         <LocalizationProvider dateAdapter={AdapterDateFns}>
           {process.env.NODE_ENV === 'development' && <DevTools />}
+          <ActiveEditorCleanup />
           <Routes>
             <Route 
               path="/" 
