@@ -344,10 +344,16 @@ export const DisbursementForm = forwardRef<
     // For existing items that were marked for deletion, we still need to exclude them
     const selectedMedications = disbursements
       .filter((d, idx) => idx !== currentIndex && !d.markedForDeletion)
-      .map(d => d.medication);
+      .map(d => ({
+        id: d.medication,
+        drugName: d.medicationDetails?.drug_name,
+        unitSize: d.medicationDetails?.unit_size
+      }));
     
-    // Return only medications that aren't already selected
-    return medications.filter(med => !selectedMedications.includes(med.id));
+    // Return only medications that aren't already selected with the same drug name and unit size
+    return medications.filter(med => !selectedMedications.some(selected => 
+      selected.drugName === med.drug_name && selected.unitSize === med.unit_size
+    ));
   }, [medications, disbursements]);
 
   // Modify the medication selection rendering to use available medications
@@ -363,7 +369,12 @@ export const DisbursementForm = forwardRef<
           handleDisbursementChange(index, 'medication', newValue || undefined);
         }}
         options={availableMedications}
-        getOptionLabel={(option) => option?.drug_name || ''}
+        getOptionLabel={(option) => `${option?.drug_name} ${option?.dose} (${option?.unit_size})`}
+        renderOption={(props, option) => (
+          <li {...props} key={`${option.id}-${option.unit_size}`}>
+            {option.drug_name} {option.dose} ({option.unit_size})
+          </li>
+        )}
         renderInput={(params) => (
           <TextField
             {...params}
@@ -415,8 +426,10 @@ export const DisbursementForm = forwardRef<
     const currentAmount = fixedQuantity * getNumericMultiplier(disbursement.multiplier);
     
     // Get all current disbursements for this medication (excluding marked for deletion and current one)
+    // Now considering both drug name and unit size
     const otherDisbursements = disbursements.filter((d, idx) => 
-      d.medication === disbursement.medication && 
+      d.medicationDetails?.drug_name === disbursement.medicationDetails?.drug_name &&
+      d.medicationDetails?.unit_size === disbursement.medicationDetails?.unit_size &&
       !d.markedForDeletion &&
       idx !== index
     );
@@ -734,7 +747,7 @@ export const DisbursementForm = forwardRef<
                       minHeight: '40px'
                     }}>
                       <Typography variant="body2" color="text.secondary">
-                        Stock: {hasMedication ? currentStock : '-'}
+                        Current Stock: {hasMedication ? currentStock : '-'}
                       </Typography>
                       {hasMedication && !isDeleted && hasStockChange && (
                         <Typography 
@@ -745,7 +758,7 @@ export const DisbursementForm = forwardRef<
                             color: 'error.main'
                           }}
                         >
-                          ({-stockChangeAmount})
+                          Change: {-stockChangeAmount}
                         </Typography>
                       )}
                     </Box>
