@@ -1374,15 +1374,18 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     encounterId ? {
       filter: `encounter = "${encounterId}"`,
       expand: 'medication'
-    } : {}
+    } : undefined  // Don't subscribe if no encounterId
   );
 
   // Update form data when disbursements change
   useEffect(() => {
-    if (!disbursementRecords) return;
+    if (!disbursementRecords || !encounterId) return;  // Also check for encounterId here
+
+    // Only process disbursements that match our encounter
+    const relevantDisbursements = disbursementRecords.filter(d => d.encounter === encounterId);
 
     // Convert disbursements to DisbursementItems
-    const disbursementItems = disbursementRecords.map(d => {
+    const disbursementItems = relevantDisbursements.map(d => {
       const medication = d.expand?.medication as MedicationRecord;
       const multiplier = medication ? d.quantity / medication.fixed_quantity : 1;
       
