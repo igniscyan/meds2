@@ -726,25 +726,18 @@ export const DisbursementForm = forwardRef<
                       }}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       InputLabelProps={{ shrink: true }}
-                      error={hasMedication && (exceedsStock || !isValidMultiplier(disbursement.multiplier))}
-                      helperText={
-                        hasMedication && exceedsStock 
-                          ? "Exceeds available stock" 
-                          : !isValidMultiplier(disbursement.multiplier) 
-                            ? "Must be a positive number" 
-                            : ""
-                      }
+                      error={hasMedication && exceedsStock}
+                      helperText={hasMedication && exceedsStock ? "Exceeds available stock" : ""}
                     />
                   </Grid>
                   <Grid item xs={12} sm={4}>
                     <Box sx={{ 
                       display: 'flex', 
-                      flexDirection: { xs: 'row', sm: 'column' }, 
-                      alignItems: 'center',
-                      justifyContent: { xs: 'space-between', sm: 'center' },
-                      px: { xs: 0, sm: 1 },
-                      height: '100%',
-                      minHeight: '40px'
+                      flexDirection: 'column', 
+                      alignItems: 'flex-start',
+                      justifyContent: 'flex-start',
+                      paddingTop: '8px',
+                      height: '100%'
                     }}>
                       <Typography variant="body2" color="text.secondary">
                         Current Stock: {hasMedication ? currentStock : '-'}
@@ -754,7 +747,6 @@ export const DisbursementForm = forwardRef<
                           variant="body2" 
                           sx={{ 
                             fontWeight: 'medium',
-                            ml: { xs: 2, sm: 0 },
                             color: 'error.main'
                           }}
                         >

@@ -627,7 +627,8 @@ func init() {
 					Type:     "select",
 					Required: true,
 					Options: &schema.SelectOptions{
-						Values: []string{"counter", "survey"},
+						Values:    []string{"counter", "survey"},
+						MaxSelect: 1,
 					},
 				},
 				&schema.SchemaField{
