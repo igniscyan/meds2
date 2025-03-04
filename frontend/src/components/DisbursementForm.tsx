@@ -426,7 +426,6 @@ export const DisbursementForm = forwardRef<
     const currentAmount = fixedQuantity * getNumericMultiplier(disbursement.multiplier);
     
     // Get all current disbursements for this medication (excluding marked for deletion and current one)
-    // Now considering both drug name and unit size
     const otherDisbursements = disbursements.filter((d, idx) => 
       d.medicationDetails?.drug_name === disbursement.medicationDetails?.drug_name &&
       d.medicationDetails?.unit_size === disbursement.medicationDetails?.unit_size &&
@@ -441,13 +440,24 @@ export const DisbursementForm = forwardRef<
       return total + (qty * mult);
     }, 0);
 
-    // For existing disbursements, we need to account for the initial state
+    // For pharmacy mode, we always show the absolute change from current stock
+    if (mode === 'pharmacy') {
+      const stockChange = currentAmount;
+      const exceedsStock = (currentAmount + otherDisbursementsTotal) > currentStock;
+      return { 
+        stockChange, 
+        exceedsStock, 
+        totalDisbursedAmount: currentAmount + otherDisbursementsTotal 
+      };
+    }
+
+    // For other modes (provider view), we show the change relative to initial state
     const initialState = disbursement.id ? initialMedicationState.get(disbursement.medication) : null;
     const initialAmount = initialState 
       ? (initialState.medicationDetails?.fixed_quantity || 0) * getNumericMultiplier(initialState.multiplier)
       : 0;
 
-    // Calculate the actual stock change
+    // Calculate the relative stock change
     const stockChange = disbursement.id 
       ? currentAmount - initialAmount  // For existing: only count the difference
       : currentAmount;                 // For new: count the full amount
@@ -660,19 +670,18 @@ export const DisbursementForm = forwardRef<
             return (
               <Grid 
                 container 
-                spacing={2} 
+                spacing={1} 
                 alignItems="center" 
                 key={index} 
                 sx={{ 
-                  mb: 2, 
+                  mb: 1, 
                   opacity: isDeleted ? 0.7 : 1,
                   backgroundColor: isDeleted ? 'rgba(0, 0, 0, 0.05)' : 'transparent',
                   transition: 'opacity 0.3s ease-in-out, background-color 0.3s ease-in-out',
-                  padding: 1,
+                  padding: 0.5,
                   borderRadius: 1,
                   position: 'relative',
                   border: isDeleted ? '1px solid rgba(0, 0, 0, 0.1)' : 'none',
-                  minHeight: '80px',
                   '&::before': isDeleted ? {
                     content: '"Marked for Deletion"',
                     position: 'absolute',
@@ -690,92 +699,120 @@ export const DisbursementForm = forwardRef<
                   } : {}
                 }}
               >
-                {/* Medication Selection */}
-                <Grid item xs={12} sm={12} md={3} sx={{ 
-                  opacity: isDeleted ? 0.3 : 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  minHeight: '40px'
-                }}>
+                {/* Medication Name */}
+                <Grid item xs={3}>
                   {renderMedicationSelect(index, disbursement)}
-                  {hasMedication && (
-                    <Typography 
-                      variant="caption" 
-                      color="text.secondary" 
-                      sx={{ 
-                        mt: 0.5,
-                        fontSize: { xs: '0.75rem', sm: '0.75rem' }
-                      }}
-                    >
-                      Current Stock: {currentStock}
-                    </Typography>
-                  )}
                 </Grid>
 
-                {/* Quantity and Multiplier Group */}
-                <Grid item container xs={12} sm={6} md={3} spacing={1} sx={{ 
-                  opacity: isDeleted ? 0.3 : 1,
-                  minHeight: '40px'
-                }}>
-                  <Grid item xs={6} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="Qty"
-                      type="number"
-                      size="small"
-                      value={disbursement.quantity}
-                      disabled={true}
-                      InputLabelProps={{ shrink: true }}
-                      error={hasMedication && exceedsStock}
-                      sx={{ minHeight: '40px' }}
-                    />
-                  </Grid>
-                  <Grid item xs={6} sm={6} sx={{ display: 'flex', flexDirection: 'column' }}>
-                    <TextField
-                      fullWidth
-                      label="×"
-                      type="text"
-                      size="small"
-                      value={disbursement.multiplier?.toString() || ''}
-                      onChange={(e) => {
-                        const inputValue = e.target.value;
-                        handleDisbursementChange(index, 'multiplier', inputValue);
-                      }}
-                      disabled={disabled || isProcessed || isDeleted || !hasMedication}
-                      InputLabelProps={{ shrink: true }}
-                      error={hasMedication && exceedsStock}
-                      sx={{ minHeight: '40px' }}
-                    />
-                    {hasMedication && !isDeleted && hasStockChange && (
+                {/* Quantity */}
+                <Grid item style={{ width: '80px' }}>
+                  <TextField
+                    label="Qty"
+                    type="number"
+                    size="small"
+                    value={disbursement.quantity}
+                    disabled={true}
+                    InputLabelProps={{ shrink: true }}
+                    error={hasMedication && exceedsStock}
+                    sx={{ 
+                      width: '100%',
+                      '& .MuiInputBase-root': {
+                        height: '32px',
+                        fontSize: '0.875rem'
+                      },
+                      '& .MuiInputLabel-root': {
+                        transform: 'translate(14px, -12px) scale(0.75)'
+                      }
+                    }}
+                  />
+                </Grid>
+
+                {/* × symbol */}
+                <Grid item sx={{ px: 0, width: 'auto' }}>
+                  <Typography>×</Typography>
+                </Grid>
+
+                {/* Multiplier */}
+                <Grid item style={{ width: '80px' }}>
+                  <TextField
+                    label="Mult."
+                    type="text"
+                    size="small"
+                    value={disbursement.multiplier?.toString() || ''}
+                    onChange={(e) => {
+                      const inputValue = e.target.value;
+                      handleDisbursementChange(index, 'multiplier', inputValue);
+                    }}
+                    disabled={disabled || isProcessed || isDeleted || !hasMedication}
+                    InputLabelProps={{ shrink: true }}
+                    error={hasMedication && exceedsStock}
+                    sx={{ 
+                      width: '100%',
+                      '& .MuiInputBase-root': {
+                        height: '32px',
+                        fontSize: '0.875rem'
+                      },
+                      '& .MuiInputLabel-root': {
+                        transform: 'translate(14px, -12px) scale(0.75)'
+                      }
+                    }}
+                  />
+                </Grid>
+
+                {/* Stock and Change */}
+                {hasMedication && (
+                  <Grid item style={{ width: 'auto' }}>
+                    <Box sx={{ 
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      lineHeight: 1.2
+                    }}>
                       <Typography 
-                        variant="caption" 
+                        variant="body2" 
+                        color="text.secondary"
                         sx={{ 
-                          color: exceedsStock ? 'error.main' : 'text.secondary',
-                          mt: 0.5,
-                          fontSize: { xs: '0.75rem', sm: '0.75rem' }
+                          fontSize: '0.75rem',
+                          whiteSpace: 'nowrap'
                         }}
                       >
-                        Change: {-stockChangeAmount}
-                        {exceedsStock && " (Exceeds stock)"}
+                        Stock: {currentStock}
                       </Typography>
-                    )}
+                      {hasStockChange && !isDeleted && (
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: exceedsStock ? 'error.main' : 'text.secondary',
+                            fontSize: '0.75rem',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          Change: {-stockChangeAmount}{exceedsStock && " (!)" }
+                        </Typography>
+                      )}
+                    </Box>
                   </Grid>
-                </Grid>
+                )}
 
-                {/* Frequency Group */}
-                <Grid item xs={12} sm={6} md={2} sx={{ 
-                  opacity: isDeleted ? 0.3 : 1,
-                  minHeight: '40px',
-                  mt: { xs: 1, sm: 0 }
-                }}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Frequency</InputLabel>
+                {/* Frequency */}
+                <Grid item style={{ width: '100px' }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel sx={{ transform: 'translate(14px, -12px) scale(0.75)' }}>
+                      Freq.
+                    </InputLabel>
                     <Select
                       value={disbursement.frequency || 'QD'}
                       onChange={(e) => handleDisbursementChange(index, 'frequency', e.target.value)}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
-                      label="Frequency"
-                      sx={{ minHeight: '40px' }}
+                      label="Freq."
+                      sx={{ 
+                        height: '32px',
+                        '.MuiSelect-select': {
+                          fontSize: '0.875rem',
+                          paddingTop: '4px',
+                          paddingBottom: '4px'
+                        }
+                      }}
                     >
                       <MenuItem value="QD">QD</MenuItem>
                       <MenuItem value="BID">BID</MenuItem>
@@ -793,13 +830,8 @@ export const DisbursementForm = forwardRef<
 
                 {/* Hours field - only show if Q#H selected */}
                 {disbursement.frequency === 'Q#H' && (
-                  <Grid item xs={6} sm={3} md={1} sx={{ 
-                    opacity: isDeleted ? 0.3 : 1,
-                    minHeight: '40px',
-                    mt: { xs: 1, sm: 0 }
-                  }}>
+                  <Grid item style={{ width: '70px' }}>
                     <TextField
-                      fullWidth
                       label="Hours"
                       type="number"
                       size="small"
@@ -807,25 +839,39 @@ export const DisbursementForm = forwardRef<
                       onChange={(e) => handleDisbursementChange(index, 'frequency_hours', e.target.value)}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       InputLabelProps={{ shrink: true }}
-                      sx={{ minHeight: '40px' }}
+                      sx={{ 
+                        width: '100%',
+                        '& .MuiInputBase-root': {
+                          height: '32px',
+                          fontSize: '0.875rem'
+                        },
+                        '& .MuiInputLabel-root': {
+                          transform: 'translate(14px, -12px) scale(0.75)'
+                        }
+                      }}
                     />
                   </Grid>
                 )}
 
-                {/* Associated Diagnosis */}
-                <Grid item xs={12} sm={6} md={2} sx={{ 
-                  opacity: isDeleted ? 0.3 : 1,
-                  minHeight: '40px',
-                  mt: { xs: 1, sm: 0 }
-                }}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Diagnosis</InputLabel>
+                {/* Diagnosis */}
+                <Grid item xs={2}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel sx={{ transform: 'translate(14px, -12px) scale(0.75)' }}>
+                      Diagnosis
+                    </InputLabel>
                     <Select
                       value={disbursement.associated_diagnosis || ''}
                       onChange={(e) => handleDisbursementChange(index, 'associated_diagnosis', e.target.value)}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       label="Diagnosis"
-                      sx={{ minHeight: '40px' }}
+                      sx={{ 
+                        height: '32px',
+                        '.MuiSelect-select': {
+                          fontSize: '0.875rem',
+                          paddingTop: '4px',
+                          paddingBottom: '4px'
+                        }
+                      }}
                     >
                       <MenuItem value="">None</MenuItem>
                       {currentDiagnoses.map((diagnosis) => (
@@ -838,39 +884,41 @@ export const DisbursementForm = forwardRef<
                 </Grid>
 
                 {/* Notes */}
-                <Grid item xs={12} sm={6} md={disbursement.frequency === 'Q#H' ? 1.5 : 1.5} sx={{ 
-                  opacity: isDeleted ? 0.3 : 1,
-                  minHeight: '40px',
-                  mt: { xs: 1, sm: 0 }
-                }}>
+                <Grid item xs>
                   <TextField
-                    fullWidth
                     label="Notes"
                     size="small"
-                    value={disbursement.notes}
+                    value={disbursement.notes || ''}
                     onChange={(e) => handleDisbursementChange(index, 'notes', e.target.value)}
                     disabled={disabled || isProcessed || isDeleted || !hasMedication}
-                    sx={{ minHeight: '40px' }}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ 
+                      width: '100%',
+                      '& .MuiInputBase-root': {
+                        height: '32px',
+                        fontSize: '0.875rem'
+                      },
+                      '& .MuiInputLabel-root': {
+                        transform: 'translate(14px, -12px) scale(0.75)'
+                      }
+                    }}
                   />
                 </Grid>
 
                 {/* Delete/Restore Button */}
-                <Grid item xs={12} sm={1} md={0.5} sx={{ 
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: { xs: 'flex-start', sm: 'center' },
-                  minHeight: '40px',
-                  mt: { xs: 1, sm: 0 }
-                }}>
+                <Grid item>
                   <IconButton
                     onClick={() => isDeleted ? 
                       handleDisbursementChange(index, 'markedForDeletion', false) : 
                       handleRemoveDisbursement(index)}
                     disabled={disabled || isProcessed}
                     color={isDeleted ? "primary" : "default"}
-                    sx={{ opacity: 1 }}
+                    size="small"
+                    sx={{ 
+                      padding: '4px'
+                    }}
                   >
-                    {isDeleted ? <UndoIcon /> : <DeleteIcon />}
+                    {isDeleted ? <UndoIcon fontSize="small" /> : <DeleteIcon fontSize="small" />}
                   </IconButton>
                 </Grid>
               </Grid>
