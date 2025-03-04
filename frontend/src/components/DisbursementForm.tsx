@@ -667,11 +667,12 @@ export const DisbursementForm = forwardRef<
                   mb: 2, 
                   opacity: isDeleted ? 0.7 : 1,
                   backgroundColor: isDeleted ? 'rgba(0, 0, 0, 0.05)' : 'transparent',
-                  transition: 'all 0.3s ease-in-out',
+                  transition: 'opacity 0.3s ease-in-out, background-color 0.3s ease-in-out',
                   padding: 1,
                   borderRadius: 1,
                   position: 'relative',
                   border: isDeleted ? '1px solid rgba(0, 0, 0, 0.1)' : 'none',
+                  minHeight: '80px',
                   '&::before': isDeleted ? {
                     content: '"Marked for Deletion"',
                     position: 'absolute',
@@ -690,17 +691,33 @@ export const DisbursementForm = forwardRef<
                 }}
               >
                 {/* Medication Selection */}
-                <Grid item xs={12} sm={3} sx={{ 
+                <Grid item xs={12} sm={12} md={3} sx={{ 
                   opacity: isDeleted ? 0.3 : 1,
                   display: 'flex',
-                  alignItems: 'center'
+                  flexDirection: 'column',
+                  minHeight: '40px'
                 }}>
                   {renderMedicationSelect(index, disbursement)}
+                  {hasMedication && (
+                    <Typography 
+                      variant="caption" 
+                      color="text.secondary" 
+                      sx={{ 
+                        mt: 0.5,
+                        fontSize: { xs: '0.75rem', sm: '0.75rem' }
+                      }}
+                    >
+                      Current Stock: {currentStock}
+                    </Typography>
+                  )}
                 </Grid>
 
                 {/* Quantity and Multiplier Group */}
-                <Grid item container xs={12} sm={3} spacing={1} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
-                  <Grid item xs={6} sm={4}>
+                <Grid item container xs={12} sm={6} md={3} spacing={1} sx={{ 
+                  opacity: isDeleted ? 0.3 : 1,
+                  minHeight: '40px'
+                }}>
+                  <Grid item xs={6} sm={6}>
                     <TextField
                       fullWidth
                       label="Qty"
@@ -710,9 +727,10 @@ export const DisbursementForm = forwardRef<
                       disabled={true}
                       InputLabelProps={{ shrink: true }}
                       error={hasMedication && exceedsStock}
+                      sx={{ minHeight: '40px' }}
                     />
                   </Grid>
-                  <Grid item xs={6} sm={4}>
+                  <Grid item xs={6} sm={6} sx={{ display: 'flex', flexDirection: 'column' }}>
                     <TextField
                       fullWidth
                       label="×"
@@ -721,44 +739,35 @@ export const DisbursementForm = forwardRef<
                       value={disbursement.multiplier?.toString() || ''}
                       onChange={(e) => {
                         const inputValue = e.target.value;
-                        // Allow empty values, don't coerce
                         handleDisbursementChange(index, 'multiplier', inputValue);
                       }}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       InputLabelProps={{ shrink: true }}
                       error={hasMedication && exceedsStock}
-                      helperText={hasMedication && exceedsStock ? "Exceeds available stock" : ""}
+                      sx={{ minHeight: '40px' }}
                     />
-                  </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <Box sx={{ 
-                      display: 'flex', 
-                      flexDirection: 'column', 
-                      alignItems: 'flex-start',
-                      justifyContent: 'flex-start',
-                      paddingTop: '8px',
-                      height: '100%'
-                    }}>
-                      <Typography variant="body2" color="text.secondary">
-                        Current Stock: {hasMedication ? currentStock : '-'}
+                    {hasMedication && !isDeleted && hasStockChange && (
+                      <Typography 
+                        variant="caption" 
+                        sx={{ 
+                          color: exceedsStock ? 'error.main' : 'text.secondary',
+                          mt: 0.5,
+                          fontSize: { xs: '0.75rem', sm: '0.75rem' }
+                        }}
+                      >
+                        Change: {-stockChangeAmount}
+                        {exceedsStock && " (Exceeds stock)"}
                       </Typography>
-                      {hasMedication && !isDeleted && hasStockChange && (
-                        <Typography 
-                          variant="body2" 
-                          sx={{ 
-                            fontWeight: 'medium',
-                            color: 'error.main'
-                          }}
-                        >
-                          Change: {-stockChangeAmount}
-                        </Typography>
-                      )}
-                    </Box>
+                    )}
                   </Grid>
                 </Grid>
 
                 {/* Frequency Group */}
-                <Grid item xs={12} sm={2} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
+                <Grid item xs={12} sm={6} md={2} sx={{ 
+                  opacity: isDeleted ? 0.3 : 1,
+                  minHeight: '40px',
+                  mt: { xs: 1, sm: 0 }
+                }}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Frequency</InputLabel>
                     <Select
@@ -766,6 +775,7 @@ export const DisbursementForm = forwardRef<
                       onChange={(e) => handleDisbursementChange(index, 'frequency', e.target.value)}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       label="Frequency"
+                      sx={{ minHeight: '40px' }}
                     >
                       <MenuItem value="QD">QD</MenuItem>
                       <MenuItem value="BID">BID</MenuItem>
@@ -783,7 +793,11 @@ export const DisbursementForm = forwardRef<
 
                 {/* Hours field - only show if Q#H selected */}
                 {disbursement.frequency === 'Q#H' && (
-                  <Grid item xs={6} sm={1} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
+                  <Grid item xs={6} sm={3} md={1} sx={{ 
+                    opacity: isDeleted ? 0.3 : 1,
+                    minHeight: '40px',
+                    mt: { xs: 1, sm: 0 }
+                  }}>
                     <TextField
                       fullWidth
                       label="Hours"
@@ -793,12 +807,17 @@ export const DisbursementForm = forwardRef<
                       onChange={(e) => handleDisbursementChange(index, 'frequency_hours', e.target.value)}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       InputLabelProps={{ shrink: true }}
+                      sx={{ minHeight: '40px' }}
                     />
                   </Grid>
                 )}
 
                 {/* Associated Diagnosis */}
-                <Grid item xs={12} sm={2} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
+                <Grid item xs={12} sm={6} md={2} sx={{ 
+                  opacity: isDeleted ? 0.3 : 1,
+                  minHeight: '40px',
+                  mt: { xs: 1, sm: 0 }
+                }}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Diagnosis</InputLabel>
                     <Select
@@ -806,6 +825,7 @@ export const DisbursementForm = forwardRef<
                       onChange={(e) => handleDisbursementChange(index, 'associated_diagnosis', e.target.value)}
                       disabled={disabled || isProcessed || isDeleted || !hasMedication}
                       label="Diagnosis"
+                      sx={{ minHeight: '40px' }}
                     >
                       <MenuItem value="">None</MenuItem>
                       {currentDiagnoses.map((diagnosis) => (
@@ -818,7 +838,11 @@ export const DisbursementForm = forwardRef<
                 </Grid>
 
                 {/* Notes */}
-                <Grid item xs={12} sm={disbursement.frequency === 'Q#H' ? 1.5 : 1.5} sx={{ opacity: isDeleted ? 0.3 : 1 }}>
+                <Grid item xs={12} sm={6} md={disbursement.frequency === 'Q#H' ? 1.5 : 1.5} sx={{ 
+                  opacity: isDeleted ? 0.3 : 1,
+                  minHeight: '40px',
+                  mt: { xs: 1, sm: 0 }
+                }}>
                   <TextField
                     fullWidth
                     label="Notes"
@@ -826,18 +850,25 @@ export const DisbursementForm = forwardRef<
                     value={disbursement.notes}
                     onChange={(e) => handleDisbursementChange(index, 'notes', e.target.value)}
                     disabled={disabled || isProcessed || isDeleted || !hasMedication}
+                    sx={{ minHeight: '40px' }}
                   />
                 </Grid>
 
-                {/* Delete/Restore Button - No opacity reduction */}
-                <Grid item xs={12} sm={0.5}>
+                {/* Delete/Restore Button */}
+                <Grid item xs={12} sm={1} md={0.5} sx={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: { xs: 'flex-start', sm: 'center' },
+                  minHeight: '40px',
+                  mt: { xs: 1, sm: 0 }
+                }}>
                   <IconButton
                     onClick={() => isDeleted ? 
                       handleDisbursementChange(index, 'markedForDeletion', false) : 
                       handleRemoveDisbursement(index)}
                     disabled={disabled || isProcessed}
                     color={isDeleted ? "primary" : "default"}
-                    sx={{ opacity: 1 }}  // Force full opacity for the undo button
+                    sx={{ opacity: 1 }}
                   >
                     {isDeleted ? <UndoIcon /> : <DeleteIcon />}
                   </IconButton>

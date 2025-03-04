@@ -1368,24 +1368,47 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     }
   };
 
-  // Add realtime subscription for disbursements
+  // Add realtime subscription for disbursements with strict filtering
   const { records: disbursementRecords } = useRealtimeSubscription<Disbursement>(
     'disbursements',
     encounterId ? {
       filter: `encounter = "${encounterId}"`,
-      expand: 'medication'
-    } : undefined  // Don't subscribe if no encounterId
+      expand: 'medication',
+      $autoCancel: false,  // Prevent auto-cancellation of subscription
+      $cancelKey: `disbursements-${encounterId}` // Unique key per encounter
+    } : undefined
   );
 
   // Update form data when disbursements change
   useEffect(() => {
-    if (!disbursementRecords || !encounterId) return;  // Also check for encounterId here
+    if (!disbursementRecords || !encounterId) return;
 
-    // Only process disbursements that match our encounter
-    const relevantDisbursements = disbursementRecords.filter(d => d.encounter === encounterId);
+    // Add debug logging
+    console.log('DEBUG: Received disbursement update', {
+      encounterId,
+      recordCount: disbursementRecords.length,
+      records: disbursementRecords.map(d => ({
+        id: d.id,
+        encounter: d.encounter,
+        medication: d.expand?.medication?.drug_name
+      }))
+    });
+
+    // Double-check that ALL records are for this encounter
+    const hasInvalidRecords = disbursementRecords.some(d => d.encounter !== encounterId);
+    if (hasInvalidRecords) {
+      console.error('ERROR: Received disbursement records for wrong encounter!', {
+        encounterId,
+        records: disbursementRecords.map(d => ({
+          id: d.id,
+          encounter: d.encounter
+        }))
+      });
+      return; // Don't process if we have any invalid records
+    }
 
     // Convert disbursements to DisbursementItems
-    const disbursementItems = relevantDisbursements.map(d => {
+    const disbursementItems = disbursementRecords.map(d => {
       const medication = d.expand?.medication as MedicationRecord;
       const multiplier = medication ? d.quantity / medication.fixed_quantity : 1;
       
@@ -1393,7 +1416,7 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         id: d.id,
         medication: d.medication,
         quantity: medication?.fixed_quantity || d.quantity,
-        multiplier: multiplier.toString(),  // Convert to string for form input
+        multiplier: multiplier.toString(),
         notes: d.notes || '',
         medicationDetails: medication,
         isProcessed: d.processed || false,
@@ -1426,12 +1449,20 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         disbursements: disbursementItems.length > 0 ? disbursementItems : [{
           medication: '',
           quantity: 1,
-          multiplier: '',  // Allow empty multiplier
+          multiplier: '',
           notes: '',
         }]
       };
     });
-  }, [disbursementRecords]);
+  }, [disbursementRecords, encounterId]);
+
+  // Add cleanup for subscription when component unmounts
+  useEffect(() => {
+    return () => {
+      // Any cleanup needed for the subscription
+      console.log('DEBUG: Cleaning up disbursement subscription for encounter:', encounterId);
+    };
+  }, [encounterId]);
 
   // Subscribe to inventory changes
   const { records: inventoryRecords } = useRealtimeSubscription<InventoryItem>(
@@ -1482,8 +1513,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     try {
       if (!currentQueueItem?.id) {
         console.error('No current queue item found');
-        return;
-      }
+      return;
+    }
 
       // Create a form element and synthetic event
       const form = document.createElement('form');
