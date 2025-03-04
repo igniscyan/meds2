@@ -634,7 +634,7 @@ func init() {
 				&schema.SchemaField{
 					Name:     "archived",
 					Type:     "bool",
-					Required: true,
+					Required: false,
 				},
 			),
 		}
