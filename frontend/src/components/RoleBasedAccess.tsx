@@ -1,7 +1,7 @@
 import { pb } from '../atoms/auth';
 import { Record } from 'pocketbase';
-import React from 'react';
-import { useSettings } from '../hooks/useSettings';
+import React, { useMemo } from 'react';
+import { getCachedSettings } from '../hooks/useSettings';
 
 interface UserRecord extends Record {
   role?: 'pharmacy' | 'provider' | 'admin';
@@ -23,8 +23,13 @@ export const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({
   requiredRole,
   children
 }) => {
-  const { displayPreferences } = useSettings();
-  const userRole = (pb.authStore.model as UserRecord)?.role;
+  // Use cached settings to prevent unnecessary subscriptions
+  const { displayPreferences } = getCachedSettings();
+  
+  // Memoize the user role to prevent unnecessary re-renders
+  const userRole = useMemo(() => {
+    return (pb.authStore.model as UserRecord)?.role;
+  }, [pb.authStore.model]);
   
   // If no user role, deny access
   if (!userRole) {

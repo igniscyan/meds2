@@ -14,6 +14,7 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  InputLabel,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { BaseModel } from 'pocketbase';
@@ -81,12 +82,21 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
   // Add debug logging for subscriptions
   const { records: categoryRecords, loading: categoriesLoading } = useRealtimeSubscription<Category>(
     'encounter_question_categories',
-    useMemo(() => ({ sort: 'order', filter: 'archived = false' }), [])
+    useMemo(() => ({ 
+      sort: 'order', 
+      filter: 'archived = false',
+      $autoCancel: false // Prevent auto-cancellation of subscription
+    }), [])
   );
 
   const { records: questionRecords, loading: questionsLoading } = useRealtimeSubscription<Question>(
     'encounter_questions',
-    useMemo(() => ({ sort: 'order', filter: 'archived = false', expand: 'category' }), [])
+    useMemo(() => ({ 
+      sort: 'order', 
+      filter: 'archived = false', 
+      expand: 'category',
+      $autoCancel: false // Prevent auto-cancellation of subscription
+    }), [])
   );
 
   const { records: existingResponses, loading: responsesLoading } = useRealtimeSubscription<QuestionResponse>(
@@ -94,10 +104,70 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
     useMemo(() => encounterId 
       ? { 
           filter: `encounter = "${encounterId}"`, 
-          expand: 'question,question.category' 
+          expand: 'question,question.category',
+          $autoCancel: false // Prevent auto-cancellation of subscription
         } 
       : undefined, [encounterId])
   );
+
+  // Add debug logging for real-time updates
+  useEffect(() => {
+    console.log('Real-time update received:', {
+      categories: categoryRecords,
+      questions: questionRecords,
+      responses: existingResponses
+    });
+  }, [categoryRecords, questionRecords, existingResponses]);
+
+  // Force refresh of questions when categories change
+  useEffect(() => {
+    if (categoryRecords?.length > 0) {
+      const loadQuestions = async () => {
+        try {
+          const categoryIds = categoryRecords.map(cat => cat.id);
+          const categoryFilter = categoryIds.map(id => `category = "${id}"`).join(' || ');
+          const questions = await pb.collection('encounter_questions').getList(1, 50, {
+            filter: `(${categoryFilter}) && archived = false`,
+            sort: 'order',
+            expand: 'category'
+          });
+          console.log('Refreshed questions:', questions.items);
+        } catch (err) {
+          console.error('Error refreshing questions:', err);
+        }
+      };
+      loadQuestions();
+    }
+  }, [categoryRecords]);
+
+  // Add error recovery for responses
+  useEffect(() => {
+    if (encounterId && !responsesLoading && existingResponses.length === 0) {
+      console.log('No responses found, checking if recovery needed');
+      const checkResponses = async () => {
+        try {
+          const responses = await pb.collection('encounter_responses').getList<QuestionResponse>(1, 50, {
+            filter: `encounter = "${encounterId}"`,
+            expand: 'question,question.category'
+          });
+          if (responses.items.length > 0) {
+            console.log('Recovered responses:', responses.items);
+            const responseMap: ResponseMap = {};
+            responses.items.forEach(response => {
+              if (response.question && typeof response.question === 'string') {
+                responseMap[response.question] = response;
+              }
+            });
+            setResponses(responseMap);
+            responsesRef.current = responseMap;
+          }
+        } catch (err) {
+          console.error('Error recovering responses:', err);
+        }
+      };
+      checkResponses();
+    }
+  }, [encounterId, responsesLoading, existingResponses]);
 
   const [responses, setResponses] = useState<ResponseMap>({});
 
@@ -203,9 +273,17 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
     // Common props for form controls
     const commonProps = {
       disabled: !isEditable,
-      error: !isEditable && isRequired && !currentValue,
-      helperText: question.description,
       sx: { mb: 2 }
+    };
+
+    // Function to determine if a question has an error
+    const hasError = (questionId: string): boolean => {
+      return !isEditable && isRequired && !responses[questionId]?.response_value;
+    };
+
+    // Function to get helper text for a question
+    const getHelperText = (question: Question): string | undefined => {
+      return question.description;
     };
 
     switch (question.input_type) {
@@ -217,10 +295,11 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
               <Checkbox
                 checked={!!currentValue}
                 onChange={(e) => handleResponseChange(question.id, e.target.checked)}
-                {...commonProps}
+                disabled={commonProps.disabled}
               />
             }
             label={question.question_text}
+            sx={commonProps.sx}
           />
         );
 
@@ -234,7 +313,10 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
             value={currentValue || ''}
             onChange={(e) => handleResponseChange(question.id, e.target.value)}
             required={isRequired && !isEditable}
-            {...commonProps}
+            disabled={commonProps.disabled}
+            sx={commonProps.sx}
+            error={hasError(question.id)}
+            helperText={getHelperText(question)}
           />
         );
 
@@ -246,11 +328,13 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
             fullWidth 
             required={isRequired && !isEditable}
             {...commonProps}
+            error={hasError(question.id)}
           >
-            <FormLabel>{question.question_text}</FormLabel>
+            <InputLabel>{question.question_text}</InputLabel>
             <Select
               value={currentValue || ''}
               onChange={(e) => handleResponseChange(question.id, e.target.value)}
+              label={question.question_text}
             >
               <MenuItem value="">
                 <em>Select an option</em>
@@ -261,8 +345,8 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
                 </MenuItem>
               ))}
             </Select>
-            {commonProps.helperText && (
-              <FormHelperText>{commonProps.helperText}</FormHelperText>
+            {question.description && (
+              <FormHelperText error={hasError(question.id)}>{question.description}</FormHelperText>
             )}
           </FormControl>
         );

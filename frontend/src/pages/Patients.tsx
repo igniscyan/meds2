@@ -28,7 +28,7 @@ import {
   FormatListBulleted as ListIcon,
   Search as SearchIcon,
 } from '@mui/icons-material';
-import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
+import { useRealtimeCollection } from '../hooks/useRealtimeCollection';
 import { Record } from 'pocketbase';
 import PatientModal from '../components/PatientModal';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
@@ -121,11 +121,11 @@ export const Patients = () => {
     currentTime: new Date().toISOString()
   });
 
-  const { records: patients, loading: patientsLoading } = useRealtimeSubscription<Patient>('patients', {
+  const { records: patients, loading: patientsLoading } = useRealtimeCollection<Patient>('patients', {
     sort: '-created',
   });
 
-  const { records: queueItems, loading: queueLoading } = useRealtimeSubscription<QueueItem>('queue', {
+  const { records: queueItems, loading: queueLoading } = useRealtimeCollection<QueueItem>('queue', {
     expand: 'patient',
     sort: '-created',
   });

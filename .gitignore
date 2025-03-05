@@ -91,3 +91,10 @@ jspm_packages/
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+pb_data/data.db-shm
+pb_data/data.db-shm
+pb_data/data.db-wal
+pb_data/logs.db-shm
+pb_data/logs.db-wal
+pb_data/logs.db-wal
+frontend/src/README-realtime.md

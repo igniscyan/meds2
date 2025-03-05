@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, AppBar, Toolbar, Typography, Button, useTheme, useMediaQuery, IconButton, Drawer, List, ListItem, Container, Chip } from '@mui/material';
 import { useNavigate, Outlet } from 'react-router-dom';
-import { useAtom, useSetAtom } from 'jotai';
+import { useAtom, useSetAtom } from 'jotai/react';
 import { logoutAtom, pb } from '../atoms/auth';
 import MenuIcon from '@mui/icons-material/Menu';
 import { RoleBasedAccess } from './RoleBasedAccess';
@@ -39,20 +39,20 @@ export const Layout: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      const success = await logoutSet();
-      if (success) {
-        // Only navigate after successful logout
-        navigate('/login', { 
-          replace: true,
-          state: { loggedOut: true } // Flag to prevent redirect loops
-        });
-      } else {
-        console.error('Logout failed');
-        // Could add a user-facing error message here if needed
-      }
+      console.log('Logging out...');
+      await logoutSet();
+      // Navigate after logout attempt, no need to check return value
+      navigate('/login', { 
+        replace: true,
+        state: { loggedOut: true } // Flag to show logout message
+      });
     } catch (error) {
       console.error('Logout failed:', error);
-      // Could add a user-facing error message here if needed
+      // Force navigation to login page even if logout failed with error
+      navigate('/login', { 
+        replace: true,
+        state: { authError: 'An error occurred during logout. Please try again.' }
+      });
     }
   };
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Grid,
@@ -27,7 +27,7 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { pb } from '../atoms/auth';
-import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
+import { useRealtimeCollection } from '../hooks/useRealtimeCollection';
 import { Record } from 'pocketbase';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
@@ -126,26 +126,27 @@ const Dashboard: React.FC = () => {
   const [processing, setProcessing] = useState<string | null>(null);
   const { displayPreferences, loading: settingsLoading } = useSettings();
   const [selectedTeamFilter, setSelectedTeamFilter] = useState<string>('');
+  const analyticsRequestRef = useRef<AbortController | null>(null);
 
-  // Subscribe to queue changes
-  const { records: queueItems, loading: queueLoading } = useRealtimeSubscription<QueueItem>('queue', {
+  // Subscribe to queue changes with expanded fields
+  const { records: queueItems, loading: queueLoading } = useRealtimeCollection<QueueItem>('queue', {
     sort: '-priority,check_in_time',
     expand: 'patient,assigned_to,intended_provider,encounter',
     filter: 'status != "completed"'
   });
 
-  // Remove provider subscription since we're using care team numbers
+  // Debug logging for display preferences
   useEffect(() => {
     console.log('Display Preferences:', displayPreferences);
   }, [displayPreferences]);
 
-  // Add debug logging for queue items
+  // Debug logging for queue items
   useEffect(() => {
     console.log('Queue items received:', queueItems);
     console.log('Queue items expanded data:', queueItems.map(item => item.expand));
   }, [queueItems]);
 
-  // Add debug logging for auth store
+  // Debug logging for auth store
   useEffect(() => {
     console.log('Auth Store Debug:', {
       model: pb.authStore.model,
@@ -157,7 +158,47 @@ const Dashboard: React.FC = () => {
   // Update analytics when queue items change
   useEffect(() => {
     if (!queueLoading) {
-      fetchAnalytics();
+      // Cancel any previous request
+      if (analyticsRequestRef.current) {
+        analyticsRequestRef.current.abort();
+      }
+      
+      // Create a new abort controller for this request
+      analyticsRequestRef.current = new AbortController();
+      
+      // Debounce the analytics fetch to prevent multiple calls
+      const timer = setTimeout(() => {
+        fetchAnalytics();
+      }, 300);
+      
+      return () => {
+        clearTimeout(timer);
+        if (analyticsRequestRef.current) {
+          analyticsRequestRef.current.abort();
+        }
+      };
+    }
+  }, [queueItems, queueLoading]);
+
+  // Debug logging for display preferences changes
+  useEffect(() => {
+    console.log('Display preferences changed:', {
+      show_care_team_assignment: displayPreferences?.show_care_team_assignment,
+      care_team_count: displayPreferences?.care_team_count,
+      show_gyn_team: displayPreferences?.show_gyn_team,
+      show_optometry_team: displayPreferences?.show_optometry_team
+    });
+  }, [displayPreferences]);
+
+  // Debug logging for queue items and their care team assignments
+  useEffect(() => {
+    if (!queueLoading) {
+      console.log('Queue items updated:', queueItems.map(item => ({
+        id: item.id,
+        patient: item.expand?.patient?.first_name,
+        intended_provider: item.intended_provider,
+        status: item.status
+      })));
     }
   }, [queueItems, queueLoading]);
 
@@ -173,16 +214,46 @@ const Dashboard: React.FC = () => {
   // Update handler for care team changes
   const handleCareTeamChange = async (queueId: string, teamNumber: string | null) => {
     try {
-      await pb.collection('queue').update(queueId, {
-        intended_provider: teamNumber
+      setProcessing(queueId); // Add loading state while updating
+      console.log('Updating care team assignment:', { queueId, teamNumber });
+      
+      // Update the queue item
+      const updatedQueue = await pb.collection('queue').update(queueId, {
+        intended_provider: teamNumber,
+        updated: new Date().toISOString() // Force an update event
       });
-    } catch (error) {
-      console.error('Error updating care team assignment:', error);
-      setError('Failed to update care team assignment');
+      
+      console.log('Queue item updated:', updatedQueue);
+      
+      // Get the full updated queue item with expanded fields
+      const refreshedItem = await pb.collection('queue').getOne<QueueItem>(queueId, {
+        expand: 'patient,assigned_to,intended_provider,encounter'
+      });
+      
+      console.log('Refreshed queue item:', refreshedItem);
+      
+      // Force a refresh of all queue items to ensure consistency
+      const result = await pb.collection('queue').getList<QueueItem>(1, 100, {
+        sort: '-priority,check_in_time',
+        expand: 'patient,assigned_to,intended_provider,encounter',
+        filter: 'status != "completed"',
+        $autoCancel: false
+      });
+      
+      console.log('Queue refresh complete:', result.items);
+      setError(null);
+    } catch (error: any) {
+      // Ignore auto-cancellation errors
+      if (!error.message?.includes('autocancelled')) {
+        console.error('Error updating care team assignment:', error);
+        setError('Failed to update care team assignment');
+      }
+    } finally {
+      setProcessing(null);
     }
   };
 
-  // Fetch analytics data
+  // Update analytics data
   const fetchAnalytics = async () => {
     try {
       // Get today's date in YYYY-MM-DD format
@@ -192,7 +263,9 @@ const Dashboard: React.FC = () => {
       // Get all completed queue items that match today's date
       const queueItems = await pb.collection('queue').getList<QueueItem>(1, 100, {
         filter: `check_in_time ~ "${today}" && status = "completed"`,
-        sort: '-created'
+        sort: '-created',
+        $autoCancel: false, // Disable auto-cancellation to prevent errors
+        signal: analyticsRequestRef.current?.signal // Use the abort controller signal
       });
 
       console.log('STATS DEBUG: Raw queue items:', queueItems.items);
@@ -250,8 +323,23 @@ const Dashboard: React.FC = () => {
       });
     } catch (error: any) {
       console.error('STATS DEBUG: Error in fetchAnalytics:', error);
-      if (!error.message?.includes('autocancelled')) {
-        console.error('STATS DEBUG: Error fetching analytics:', error);
+      
+      // Check if this is an auto-cancellation error
+      const isAutoCancelError = 
+        error?.isAbort || 
+        error?.name === 'AbortError' || 
+        (error?.message && (
+          error.message.includes('autocancelled') || 
+          error.message.includes('aborted') || 
+          error.message.includes('abort') || 
+          error.message.includes('cancel')
+        ));
+      
+      if (!isAutoCancelError) {
+        console.error('STATS DEBUG: Non-cancellation error fetching analytics:', error);
+        setError('Failed to load analytics data');
+      } else {
+        console.log('STATS DEBUG: Request was cancelled - this is normal during navigation');
       }
     }
   };
@@ -259,17 +347,21 @@ const Dashboard: React.FC = () => {
   const handleClaimPatient = async (queueId: string) => {
     try {
       // Get patient ID first
-      const queueItem = await pb.collection('queue').getOne<QueueItem>(queueId) as QueueItem;
+      const queueItem = await pb.collection('queue').getOne<QueueItem>(queueId, {
+        $autoCancel: false // Disable auto-cancellation
+      }) as QueueItem;
       
       console.warn('🔍 QUEUE START ENCOUNTER: Getting patient details...');
-      const patient = await pb.collection('patients').getOne<Patient>(queueItem.patient);
+      const patient = await pb.collection('patients').getOne<Patient>(queueItem.patient, {
+        $autoCancel: false // Disable auto-cancellation
+      });
       console.warn('🔍 QUEUE START ENCOUNTER: Patient found:', patient);
 
       // Check for existing encounters
-      console.warn('🔍 QUEUE START ENCOUNTER: Checking for existing encounters...');
       const result = await pb.collection('encounters').getList(1, 1, {
         filter: `patient = "${queueItem.patient}"`,
-        sort: '-created'
+        sort: '-created',
+        $autoCancel: false // Disable auto-cancellation
       });
 
       console.warn('🔍 QUEUE START ENCOUNTER: Found encounters:', result);
@@ -294,6 +386,8 @@ const Dashboard: React.FC = () => {
           heart_rate: patient.heart_rate ?? null,
           systolic_pressure: patient.systolic_pressure ?? null,
           diastolic_pressure: patient.diastolic_pressure ?? null,
+        }, {
+          $autoCancel: false // Disable auto-cancellation
         });
         console.warn('🔍 QUEUE START ENCOUNTER: Created new encounter:', encounter);
         encounterId = encounter.id;
@@ -306,6 +400,8 @@ const Dashboard: React.FC = () => {
         assigned_to: pb.authStore.model?.id,
         start_time: new Date().toISOString(),
         encounter: encounterId
+      }, {
+        $autoCancel: false // Disable auto-cancellation
       });
       
       // Navigate to the encounter
@@ -843,6 +939,7 @@ const Dashboard: React.FC = () => {
                 onChange={(e) => handleCareTeamChange(queueItem.id, e.target.value || null)}
                 size="small"
                 displayEmpty
+                disabled={processing === queueItem.id}
                 sx={{ 
                   minWidth: { xs: '100%', sm: 120 },
                   '& .MuiSelect-select': {
