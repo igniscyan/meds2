@@ -1,34 +1,82 @@
-import React, { useState } from 'react';
-import { Box, Button, TextField, Typography, Paper, Container } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { Box, Button, TextField, Typography, Paper, Alert } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useSetAtom } from 'jotai';
-import { authModelAtom, AuthModel, pb } from '../atoms/auth';
+import { useSetAtom, useAtomValue } from 'jotai';
+import { authModelAtom, AuthModel, pb, authErrorAtom, isLoadingAtom } from '../atoms/auth';
 import { AuthResponse } from 'pocketbase';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
   const setAuthModel = useSetAtom(authModelAtom);
+  const globalAuthError = useAtomValue(authErrorAtom);
+  const setAuthError = useSetAtom(authErrorAtom);
+  const setLoading = useSetAtom(isLoadingAtom);
 
-  // Get the redirect URL from query parameters
-  const searchParams = new URLSearchParams(location.search);
-  const redirectTo = searchParams.get('redirect') || '/patients';
+  // Get the redirect URL from location state or query parameters
+  const from = location.state?.from?.pathname || '/patients';
+  const authError = location.state?.authError;
+  const loggedOut = location.state?.loggedOut;
+
+  // Set error message from location state if present and ensure loading state is cleared
+  useEffect(() => {
+    // Ensure we're not in a loading state when on the login page
+    setLoading(false);
+    
+    if (authError) {
+      console.log('[Login] Setting error from location state:', authError);
+      setError(authError);
+      // Clear the location state to prevent showing the message again on refresh
+      window.history.replaceState({}, document.title);
+    }
+    
+    if (loggedOut) {
+      setSuccessMessage('You have been successfully logged out.');
+      // Clear the location state to prevent showing the message again on refresh
+      window.history.replaceState({}, document.title);
+    }
+    
+    // Clear any global auth errors when the login page is shown
+    setAuthError(null);
+  }, [authError, loggedOut, setAuthError, setLoading]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
+    setSuccessMessage('');
+    setLoading(true);
 
     try {
+      console.log('[Login] Attempting login with email:', email);
+      
+      // Use PocketBase's built-in auth method
       const authData = await pb.collection('users').authWithPassword(email, password) as AuthResponse;
-      console.log('Login successful:', authData);
+      
+      console.log('[Login] Login successful:', authData.record?.id);
+      
+      // Set the auth model in our global state
       setAuthModel(authData.record as unknown as AuthModel);
-      navigate(redirectTo, { replace: true });
+      
+      // Navigate to the redirect URL
+      navigate(from, { replace: true });
     } catch (err: any) {
-      console.error('Login error:', err);
-      setError(err.message || 'Failed to login');
+      console.error('[Login] Login error:', err);
+      setLoading(false);
+      
+      // Handle different error types
+      if (err.status === 400) {
+        setError('Invalid email or password');
+      } else if (err.status === 429) {
+        setError('Too many login attempts. Please try again later.');
+      } else if (err.status === 0 || err.message?.includes('network')) {
+        setError('Network error. Please check your connection and try again.');
+      } else {
+        setError(err.message || 'Failed to login. Please try again.');
+      }
     }
   };
 
@@ -59,11 +107,25 @@ const Login: React.FC = () => {
         <Typography variant="h4" component="h1" gutterBottom>
           MEDS Login
         </Typography>
-        {error && (
-          <Typography color="error" sx={{ mb: 2 }}>
-            {error}
-          </Typography>
+        
+        {successMessage && (
+          <Alert severity="success" sx={{ mb: 2 }}>
+            {successMessage}
+          </Alert>
         )}
+        
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
+        
+        {globalAuthError && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {globalAuthError}
+          </Alert>
+        )}
+        
         <form onSubmit={handleSubmit}>
           <TextField
             fullWidth
