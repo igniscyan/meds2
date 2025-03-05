@@ -64,39 +64,57 @@ export const untrackSubscription = (topic: string) => {
 };
 
 // Simple logout function
-export const logoutAtom = atom(
-  null,
-  async (get, set) => {
-    set(isLoadingAtom, true);
-    set(authErrorAtom, null);
-    
+export const logoutAtom = atom(null, async (get, set) => {
+  console.log('[auth] Starting logout process...');
+  
+  // Dispatch pre-logout event to allow components to clean up
+  window.dispatchEvent(new CustomEvent('pocketbase-pre-logout'));
+  
+  // Wait a bit for components to unsubscribe
+  await new Promise(resolve => setTimeout(resolve, 300));
+  
+  try {
+    // Force disconnect from realtime API before clearing auth
     try {
-      // Dispatch a pre-logout event to allow components to clean up subscriptions
-      // before the auth token is cleared
-      window.dispatchEvent(new CustomEvent('pocketbase-pre-logout'));
-      
-      // Small delay to allow components to unsubscribe
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Now it's safe to clear the auth token
-      pb.authStore.clear();
-      
-      // Update our atom state
-      set(authModelAtom, null);
-      
-      // Clear our tracked subscriptions
-      activeSubscriptions.clear();
-      
-      return true;
-    } catch (error) {
-      console.error('Logout error:', error);
-      set(authErrorAtom, 'Failed to log out properly. Please try again.');
-      return false;
-    } finally {
-      set(isLoadingAtom, false);
+      console.log('[auth] Forcing disconnect from realtime API...');
+      // @ts-ignore - accessing private API
+      if (pb.realtime && typeof pb.realtime.disconnect === 'function') {
+        // @ts-ignore - accessing private API
+        await pb.realtime.disconnect();
+        console.log('[auth] Successfully disconnected from realtime API');
+      }
+    } catch (err) {
+      // Don't let this error stop the logout process
+      console.error('[auth] Error disconnecting from realtime API:', err);
     }
+    
+    console.log('[auth] Clearing auth token...');
+    pb.authStore.clear();
+    
+    // Clear tracked subscriptions
+    activeSubscriptions.clear();
+    
+    // Dispatch auth change event
+    window.dispatchEvent(
+      new CustomEvent('pocketbase-auth-change', {
+        detail: { action: 'logout' },
+      })
+    );
+    
+    // Dispatch logout-complete event
+    window.dispatchEvent(new CustomEvent('pocketbase-logout-complete'));
+    
+    console.log('[auth] Logout complete');
+    
+    // Update atoms
+    set(authModelAtom, null);
+    set(isLoadingAtom, false);
+  } catch (err) {
+    console.error('[auth] Error during logout:', err);
+    // Still dispatch logout-complete event even if there was an error
+    window.dispatchEvent(new CustomEvent('pocketbase-logout-complete'));
   }
-);
+});
 
 // Hook for handling auth changes
 export const useAuthChangeEffect = () => {

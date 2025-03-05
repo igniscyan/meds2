@@ -40,21 +40,12 @@ export const Layout: React.FC = () => {
   const handleLogout = async () => {
     try {
       console.log('Logging out...');
-      const success = await logoutSet();
-      if (success) {
-        // Only navigate after successful logout
-        navigate('/login', { 
-          replace: true,
-          state: { loggedOut: true } // Flag to show logout message
-        });
-      } else {
-        console.error('Logout failed');
-        // Force navigation to login page even if logout failed
-        navigate('/login', { 
-          replace: true,
-          state: { authError: 'Logout failed. Please try again.' }
-        });
-      }
+      await logoutSet();
+      // Navigate after logout attempt, no need to check return value
+      navigate('/login', { 
+        replace: true,
+        state: { loggedOut: true } // Flag to show logout message
+      });
     } catch (error) {
       console.error('Logout failed:', error);
       // Force navigation to login page even if logout failed with error

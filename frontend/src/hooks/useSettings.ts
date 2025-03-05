@@ -175,20 +175,76 @@ export const useSettings = (): UseSettingsReturn => {
     const handlePreLogout = () => {
       console.log('[useSettings] Pre-logout event received, cleaning up subscription');
       
+      // Immediately untrack this subscription
+      untrackSubscription(SETTINGS_SUBSCRIPTION_KEY);
+      
       // Clean up subscription before auth token is cleared
-      cleanupSubscription();
+      if (unsubscribeRef.current) {
+        try {
+          // Wrap in a timeout to prevent blocking the logout process
+          // This ensures the logout continues even if unsubscribe hangs
+          const timeoutPromise = new Promise<void>((resolve) => {
+            setTimeout(() => {
+              console.log('[useSettings] Unsubscribe timed out');
+              resolve();
+            }, 200);
+          });
+          
+          // Race between the unsubscribe and the timeout
+          Promise.race([
+            new Promise<void>((resolve) => {
+              try {
+                unsubscribeRef.current?.();
+                console.log('[useSettings] Successfully unsubscribed before logout');
+              } catch (err) {
+                console.error('[useSettings] Error unsubscribing before logout:', err);
+              }
+              resolve();
+            }),
+            timeoutPromise
+          ]);
+        } catch (err) {
+          console.error('[useSettings] Error in unsubscribe process:', err);
+        }
+        
+        // Clear the reference regardless of success/failure
+        unsubscribeRef.current = null;
+      }
       
       // Clear settings
       setSettings(null);
       settingsRef.current = null;
     };
     
+    // Also listen for the logout-complete event
+    const handleLogoutComplete = () => {
+      console.log('[useSettings] Logout complete, ensuring cleanup');
+      
+      // Double-check that everything is cleaned up
+      if (unsubscribeRef.current) {
+        try {
+          unsubscribeRef.current();
+        } catch (err) {
+          // Ignore errors at this point
+        }
+        unsubscribeRef.current = null;
+      }
+      
+      untrackSubscription(SETTINGS_SUBSCRIPTION_KEY);
+      
+      // Clear settings again just to be sure
+      setSettings(null);
+      settingsRef.current = null;
+    };
+    
     window.addEventListener('pocketbase-auth-change', handleAuthChange);
     window.addEventListener('pocketbase-pre-logout', handlePreLogout);
+    window.addEventListener('pocketbase-logout-complete', handleLogoutComplete);
     
     return () => {
       window.removeEventListener('pocketbase-auth-change', handleAuthChange);
       window.removeEventListener('pocketbase-pre-logout', handlePreLogout);
+      window.removeEventListener('pocketbase-logout-complete', handleLogoutComplete);
     };
   }, []);
 

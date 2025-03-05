@@ -246,21 +246,82 @@ export function useRealtimeSubscription<T extends PBRecord>(
     const handlePreLogout = () => {
       console.log('[useRealtimeSubscription] Pre-logout event received, cleaning up subscription:', subscriptionKey);
       
+      // Immediately mark this subscription as inactive to prevent further updates
+      activeSubscriptions.delete(subscriptionKey);
+      untrackSubscription(subscriptionKey);
+      
+      // Cancel any ongoing requests first
+      if (abortControllerRef.current) {
+        try {
+          abortControllerRef.current.abort();
+          console.log('[useRealtimeSubscription] Aborted ongoing requests for:', subscriptionKey);
+        } catch (err) {
+          console.error('[useRealtimeSubscription] Error aborting requests:', err);
+        }
+      }
+      
       // Clean up subscription before auth token is cleared
       if (unsubscribeRef.current) {
         try {
-          unsubscribeRef.current();
-          console.log('[useRealtimeSubscription] Successfully unsubscribed before logout:', subscriptionKey);
+          // Wrap in a timeout to prevent blocking the logout process
+          // This ensures the logout continues even if unsubscribe hangs
+          const timeoutPromise = new Promise<void>((resolve) => {
+            setTimeout(() => {
+              console.log('[useRealtimeSubscription] Unsubscribe timed out for:', subscriptionKey);
+              resolve();
+            }, 200);
+          });
+          
+          // Race between the unsubscribe and the timeout
+          Promise.race([
+            new Promise<void>((resolve) => {
+              try {
+                unsubscribeRef.current?.();
+                console.log('[useRealtimeSubscription] Successfully unsubscribed before logout:', subscriptionKey);
+              } catch (err) {
+                console.error('[useRealtimeSubscription] Error unsubscribing before logout:', err);
+              }
+              resolve();
+            }),
+            timeoutPromise
+          ]);
         } catch (err) {
-          console.error('[useRealtimeSubscription] Error unsubscribing before logout:', err);
+          console.error('[useRealtimeSubscription] Error in unsubscribe process:', err);
         }
+        
+        // Clear the reference regardless of success/failure
         unsubscribeRef.current = null;
-        activeSubscriptions.delete(subscriptionKey);
-        untrackSubscription(subscriptionKey);
+      }
+      
+      // Clear local state to prevent further updates
+      if (isMounted) {
+        setRecords([]);
+        setError(new Error('Logged out'));
+        setLoading(false);
       }
     };
     
     window.addEventListener('pocketbase-pre-logout', handlePreLogout);
+    
+    // Also listen for the logout-complete event
+    const handleLogoutComplete = () => {
+      console.log('[useRealtimeSubscription] Logout complete, ensuring cleanup for:', subscriptionKey);
+      
+      // Double-check that everything is cleaned up
+      if (unsubscribeRef.current) {
+        try {
+          unsubscribeRef.current();
+        } catch (err) {
+          // Ignore errors at this point
+        }
+        unsubscribeRef.current = null;
+      }
+      
+      activeSubscriptions.delete(subscriptionKey);
+      untrackSubscription(subscriptionKey);
+    };
+    
+    window.addEventListener('pocketbase-logout-complete', handleLogoutComplete);
 
     // Store the update callback for this collection
     updateCallbacks.set(collection, loadInitialData);
@@ -271,6 +332,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
       // Clean up event listeners
       window.removeEventListener('pocketbase-auth-change', handleAuthChange);
       window.removeEventListener('pocketbase-pre-logout', handlePreLogout);
+      window.removeEventListener('pocketbase-logout-complete', handleLogoutComplete);
       
       // Clean up subscription
       if (unsubscribeRef.current) {
