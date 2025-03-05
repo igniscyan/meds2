@@ -6,6 +6,7 @@ import { Provider as JotaiProvider } from 'jotai';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DevTools } from 'jotai-devtools';
+import { useAtomsDebugValue } from 'jotai-devtools/utils';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme';
@@ -88,11 +89,22 @@ const App: React.FC = () => {
   );
 };
 
+// Add a component to use the debug hook
+const AtomsDebugger = () => {
+  useAtomsDebugValue();
+  return null;
+};
+
 // Wrap the App component with JotaiProvider and DevTools only in development
 const AppWithProviders: React.FC = () => {
   return (
     <JotaiProvider>
-      {process.env.NODE_ENV === 'development' && <DevTools />}
+      {process.env.NODE_ENV === 'development' && (
+        <>
+          <DevTools />
+          <AtomsDebugger />
+        </>
+      )}
       <App />
     </JotaiProvider>
   );

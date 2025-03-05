@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Grid,
@@ -27,7 +27,7 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { pb } from '../atoms/auth';
-import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
+import { useRealtimeCollection } from '../hooks/useRealtimeCollection';
 import { Record } from 'pocketbase';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
@@ -126,13 +126,13 @@ const Dashboard: React.FC = () => {
   const [processing, setProcessing] = useState<string | null>(null);
   const { displayPreferences, loading: settingsLoading } = useSettings();
   const [selectedTeamFilter, setSelectedTeamFilter] = useState<string>('');
+  const analyticsRequestRef = useRef<AbortController | null>(null);
 
   // Subscribe to queue changes with expanded fields
-  const { records: queueItems, loading: queueLoading } = useRealtimeSubscription<QueueItem>('queue', {
+  const { records: queueItems, loading: queueLoading } = useRealtimeCollection<QueueItem>('queue', {
     sort: '-priority,check_in_time',
     expand: 'patient,assigned_to,intended_provider,encounter',
-    filter: 'status != "completed"',
-    $autoCancel: false // Prevent auto-cancellation
+    filter: 'status != "completed"'
   });
 
   // Debug logging for display preferences
@@ -158,7 +158,25 @@ const Dashboard: React.FC = () => {
   // Update analytics when queue items change
   useEffect(() => {
     if (!queueLoading) {
-      fetchAnalytics();
+      // Cancel any previous request
+      if (analyticsRequestRef.current) {
+        analyticsRequestRef.current.abort();
+      }
+      
+      // Create a new abort controller for this request
+      analyticsRequestRef.current = new AbortController();
+      
+      // Debounce the analytics fetch to prevent multiple calls
+      const timer = setTimeout(() => {
+        fetchAnalytics();
+      }, 300);
+      
+      return () => {
+        clearTimeout(timer);
+        if (analyticsRequestRef.current) {
+          analyticsRequestRef.current.abort();
+        }
+      };
     }
   }, [queueItems, queueLoading]);
 
@@ -245,7 +263,9 @@ const Dashboard: React.FC = () => {
       // Get all completed queue items that match today's date
       const queueItems = await pb.collection('queue').getList<QueueItem>(1, 100, {
         filter: `check_in_time ~ "${today}" && status = "completed"`,
-        sort: '-created'
+        sort: '-created',
+        $autoCancel: false, // Disable auto-cancellation to prevent errors
+        signal: analyticsRequestRef.current?.signal // Use the abort controller signal
       });
 
       console.log('STATS DEBUG: Raw queue items:', queueItems.items);
@@ -303,8 +323,23 @@ const Dashboard: React.FC = () => {
       });
     } catch (error: any) {
       console.error('STATS DEBUG: Error in fetchAnalytics:', error);
-      if (!error.message?.includes('autocancelled')) {
-        console.error('STATS DEBUG: Error fetching analytics:', error);
+      
+      // Check if this is an auto-cancellation error
+      const isAutoCancelError = 
+        error?.isAbort || 
+        error?.name === 'AbortError' || 
+        (error?.message && (
+          error.message.includes('autocancelled') || 
+          error.message.includes('aborted') || 
+          error.message.includes('abort') || 
+          error.message.includes('cancel')
+        ));
+      
+      if (!isAutoCancelError) {
+        console.error('STATS DEBUG: Non-cancellation error fetching analytics:', error);
+        setError('Failed to load analytics data');
+      } else {
+        console.log('STATS DEBUG: Request was cancelled - this is normal during navigation');
       }
     }
   };
@@ -312,17 +347,21 @@ const Dashboard: React.FC = () => {
   const handleClaimPatient = async (queueId: string) => {
     try {
       // Get patient ID first
-      const queueItem = await pb.collection('queue').getOne<QueueItem>(queueId) as QueueItem;
+      const queueItem = await pb.collection('queue').getOne<QueueItem>(queueId, {
+        $autoCancel: false // Disable auto-cancellation
+      }) as QueueItem;
       
       console.warn('🔍 QUEUE START ENCOUNTER: Getting patient details...');
-      const patient = await pb.collection('patients').getOne<Patient>(queueItem.patient);
+      const patient = await pb.collection('patients').getOne<Patient>(queueItem.patient, {
+        $autoCancel: false // Disable auto-cancellation
+      });
       console.warn('🔍 QUEUE START ENCOUNTER: Patient found:', patient);
 
       // Check for existing encounters
-      console.warn('🔍 QUEUE START ENCOUNTER: Checking for existing encounters...');
       const result = await pb.collection('encounters').getList(1, 1, {
         filter: `patient = "${queueItem.patient}"`,
-        sort: '-created'
+        sort: '-created',
+        $autoCancel: false // Disable auto-cancellation
       });
 
       console.warn('🔍 QUEUE START ENCOUNTER: Found encounters:', result);
@@ -347,6 +386,8 @@ const Dashboard: React.FC = () => {
           heart_rate: patient.heart_rate ?? null,
           systolic_pressure: patient.systolic_pressure ?? null,
           diastolic_pressure: patient.diastolic_pressure ?? null,
+        }, {
+          $autoCancel: false // Disable auto-cancellation
         });
         console.warn('🔍 QUEUE START ENCOUNTER: Created new encounter:', encounter);
         encounterId = encounter.id;
@@ -359,6 +400,8 @@ const Dashboard: React.FC = () => {
         assigned_to: pb.authStore.model?.id,
         start_time: new Date().toISOString(),
         encounter: encounterId
+      }, {
+        $autoCancel: false // Disable auto-cancellation
       });
       
       // Navigate to the encounter

@@ -60,5 +60,6 @@ declare module 'pocketbase' {
     constructor(url: string);
     collection(name: string): Collection;
     authStore: BaseAuthStore;
+    autoCancellation(enable: boolean): void;
   }
 }

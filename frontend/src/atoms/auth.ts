@@ -14,10 +14,18 @@ export interface AuthModel extends BaseModel {
 // Create a singleton PocketBase instance
 export const pb = new PocketBase(API_URL);
 
+// Disable auto-cancellation globally to prevent "request was autocancelled" errors
+pb.autoCancellation(false);
+
 // Create atoms for auth state
 export const authModelAtom = atom<AuthModel | null>(null);
+authModelAtom.debugLabel = 'authModelAtom';
+
 export const isLoadingAtom = atom<boolean>(true);
+isLoadingAtom.debugLabel = 'isLoadingAtom';
+
 export const authErrorAtom = atom<string | null>(null);
+authErrorAtom.debugLabel = 'authErrorAtom';
 
 // Track active realtime subscriptions
 const activeSubscriptions = new Set<string>();

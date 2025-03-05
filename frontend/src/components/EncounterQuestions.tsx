@@ -14,6 +14,7 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
+  InputLabel,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { BaseModel } from 'pocketbase';
@@ -272,9 +273,17 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
     // Common props for form controls
     const commonProps = {
       disabled: !isEditable,
-      error: !isEditable && isRequired && !currentValue,
-      helperText: question.description,
       sx: { mb: 2 }
+    };
+
+    // Function to determine if a question has an error
+    const hasError = (questionId: string): boolean => {
+      return !isEditable && isRequired && !responses[questionId]?.response_value;
+    };
+
+    // Function to get helper text for a question
+    const getHelperText = (question: Question): string | undefined => {
+      return question.description;
     };
 
     switch (question.input_type) {
@@ -286,10 +295,11 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
               <Checkbox
                 checked={!!currentValue}
                 onChange={(e) => handleResponseChange(question.id, e.target.checked)}
-                {...commonProps}
+                disabled={commonProps.disabled}
               />
             }
             label={question.question_text}
+            sx={commonProps.sx}
           />
         );
 
@@ -303,7 +313,10 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
             value={currentValue || ''}
             onChange={(e) => handleResponseChange(question.id, e.target.value)}
             required={isRequired && !isEditable}
-            {...commonProps}
+            disabled={commonProps.disabled}
+            sx={commonProps.sx}
+            error={hasError(question.id)}
+            helperText={getHelperText(question)}
           />
         );
 
@@ -315,11 +328,13 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
             fullWidth 
             required={isRequired && !isEditable}
             {...commonProps}
+            error={hasError(question.id)}
           >
-            <FormLabel>{question.question_text}</FormLabel>
+            <InputLabel>{question.question_text}</InputLabel>
             <Select
               value={currentValue || ''}
               onChange={(e) => handleResponseChange(question.id, e.target.value)}
+              label={question.question_text}
             >
               <MenuItem value="">
                 <em>Select an option</em>
@@ -330,8 +345,8 @@ export const EncounterQuestions: React.FC<EncounterQuestionsProps> = ({
                 </MenuItem>
               ))}
             </Select>
-            {commonProps.helperText && (
-              <FormHelperText>{commonProps.helperText}</FormHelperText>
+            {question.description && (
+              <FormHelperText error={hasError(question.id)}>{question.description}</FormHelperText>
             )}
           </FormControl>
         );

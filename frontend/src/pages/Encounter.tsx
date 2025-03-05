@@ -36,6 +36,7 @@ import { isLoadingAtom, authModelAtom } from '../atoms/auth';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { UnsubscribeFunc } from 'pocketbase';
+import { useRealtimeCollection } from '../hooks/useRealtimeCollection';
 
 type QueueStatus = 'checked_in' | 'with_care_team' | 'ready_pharmacy' | 'with_pharmacy' | 'at_checkout' | 'completed';
 
@@ -577,12 +578,11 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   }, [patientId, encounterId, isAuthLoading, authModel, navigate]);
 
   // Subscribe to queue changes with auto-cancellation disabled
-  const { records: queueRecords } = useRealtimeSubscription<QueueItem>(
+  const { records: queueRecords } = useRealtimeCollection<QueueItem>(
     'queue',
     patientId ? {
       filter: `patient = "${patientId}" && status != "completed"`,
-      expand: 'patient,assigned_to,encounter',
-      $autoCancel: false  // Prevent auto-cancellation
+      expand: 'patient,assigned_to,encounter'
     } : {}
   );
 
@@ -1368,15 +1368,13 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     }
   };
 
-  // Add realtime subscription for disbursements with strict filtering
-  const { records: disbursementRecords } = useRealtimeSubscription<Disbursement>(
+  // Subscribe to disbursements for this encounter
+  const { records: disbursementRecords } = useRealtimeCollection<Disbursement>(
     'disbursements',
     encounterId ? {
       filter: `encounter = "${encounterId}"`,
-      expand: 'medication',
-      $autoCancel: false,  // Prevent auto-cancellation of subscription
-      $cancelKey: `disbursements-${encounterId}` // Unique key per encounter
-    } : undefined
+      expand: 'medication'
+    } : {}
   );
 
   // Update form data when disbursements change
@@ -1465,9 +1463,9 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
   }, [encounterId]);
 
   // Subscribe to inventory changes
-  const { records: inventoryRecords } = useRealtimeSubscription<InventoryItem>(
-    'inventory'
-  );
+  const { records: inventoryRecords } = useRealtimeCollection<InventoryItem>('inventory', {
+    sort: 'drug_name'
+  });
 
   // Update disbursement details when inventory changes
   useEffect(() => {
@@ -1626,7 +1624,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
     try {
       const result = await pb.collection('disbursements').getList(1, 100, {
         filter: `encounter = "${encounterId}"`,
-        expand: 'medication'
+        expand: 'medication',
+        $autoCancel: false // Explicitly disable auto-cancellation for this request
       });
       setDatabaseDisbursements(result.items);
       console.log('DEBUG: Fetched database disbursements:', result.items);
@@ -1652,6 +1651,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         await pb.collection('encounters').update(encounterId, {
           active_editor: null,
           last_edit_activity: null
+        }, {
+          $autoCancel: false // Explicitly disable auto-cancellation for this request
         });
       } catch (error) {
         console.error('Error cleaning up active editor:', error);
@@ -1706,7 +1707,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
         // Initial check of active editor
         const encounter = await pb.collection('encounters').getOne<EncounterRecord>(encounterId, {
-          expand: 'active_editor'
+          expand: 'active_editor',
+          $autoCancel: false // Explicitly disable auto-cancellation for this request
         });
 
         // Check if there's an active editor and their last activity
@@ -1720,6 +1722,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
           if (encounter.active_editor === pb.authStore.model?.id) {
             await pb.collection('encounters').update<EncounterRecord>(encounterId, {
               last_edit_activity: new Date().toISOString()
+            }, {
+              $autoCancel: false // Explicitly disable auto-cancellation for this request
             });
             setActiveEditorWarning(null);
             return unsubscribe;
@@ -1730,6 +1734,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
             await pb.collection('encounters').update<EncounterRecord>(encounterId, {
               active_editor: pb.authStore.model?.id,
               last_edit_activity: new Date().toISOString()
+            }, {
+              $autoCancel: false // Explicitly disable auto-cancellation for this request
             });
             setActiveEditorWarning(null);
             return unsubscribe;
@@ -1748,6 +1754,8 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
         await pb.collection('encounters').update<EncounterRecord>(encounterId, {
           active_editor: pb.authStore.model?.id,
           last_edit_activity: new Date().toISOString()
+        }, {
+          $autoCancel: false // Explicitly disable auto-cancellation for this request
         });
         setActiveEditorWarning(null);
 

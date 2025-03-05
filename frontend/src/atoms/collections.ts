@@ -5,8 +5,13 @@ import { pb } from './auth';
 // Generic function to create a collection atom
 const createCollectionAtom = <T extends Record>(collectionName: string) => {
   const recordsAtom = atom<T[]>([]);
+  recordsAtom.debugLabel = `${collectionName}RecordsAtom`;
+  
   const loadingAtom = atom(true);
+  loadingAtom.debugLabel = `${collectionName}LoadingAtom`;
+  
   const errorAtom = atom<Error | null>(null);
+  errorAtom.debugLabel = `${collectionName}ErrorAtom`;
 
   // Action to fetch and subscribe to collection
   const subscribeAction = atom(null, async (get, set) => {
@@ -39,6 +44,7 @@ const createCollectionAtom = <T extends Record>(collectionName: string) => {
       set(loadingAtom, false);
     }
   });
+  subscribeAction.debugLabel = `${collectionName}SubscribeAction`;
 
   return {
     recordsAtom,
