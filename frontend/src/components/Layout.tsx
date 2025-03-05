@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, AppBar, Toolbar, Typography, Button, useTheme, useMediaQuery, IconButton, Drawer, List, ListItem, Container, Chip } from '@mui/material';
 import { useNavigate, Outlet } from 'react-router-dom';
-import { useAtom, useSetAtom } from 'jotai';
+import { useAtom, useSetAtom } from 'jotai/react';
 import { logoutAtom, pb } from '../atoms/auth';
 import MenuIcon from '@mui/icons-material/Menu';
 import { RoleBasedAccess } from './RoleBasedAccess';

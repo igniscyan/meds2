@@ -1,4 +1,5 @@
-import { atom, useSetAtom } from 'jotai';
+import { atom } from 'jotai/vanilla';
+import { useSetAtom } from 'jotai/react';
 import PocketBase, { BaseModel, AuthModel as PBAuthModel, ClientResponseError } from 'pocketbase';
 import { useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../config';

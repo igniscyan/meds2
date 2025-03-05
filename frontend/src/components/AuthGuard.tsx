@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAtomValue } from 'jotai';
+import { useAtomValue } from 'jotai/react';
 import { authModelAtom, isLoadingAtom, pb, authErrorAtom } from '../atoms/auth';
 import { Box, CircularProgress, Typography } from '@mui/material';
 

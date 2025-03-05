@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Button, TextField, Typography, Paper, Alert } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useSetAtom, useAtomValue } from 'jotai';
+import { useSetAtom, useAtomValue } from 'jotai/react';
 import { authModelAtom, AuthModel, pb, authErrorAtom, isLoadingAtom } from '../atoms/auth';
 import { AuthResponse } from 'pocketbase';
 

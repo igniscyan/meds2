@@ -1,8 +1,8 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
-import { useAtomValue } from 'jotai';
-import { Provider as JotaiProvider } from 'jotai';
+import { useAtomValue } from 'jotai/react';
+import { Provider as JotaiProvider } from 'jotai/react';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DevTools } from 'jotai-devtools';

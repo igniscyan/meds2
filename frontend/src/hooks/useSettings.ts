@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Record } from 'pocketbase';
 import { useRealtimeCollection } from './useRealtimeCollection';
 import { getCollectionData } from '../atoms/realtimeAtoms';
-import { atom, useAtom } from 'jotai';
+import { atom } from 'jotai/vanilla';
+import { useAtom } from 'jotai/react';
 
 interface UnitDisplay {
   height: string;

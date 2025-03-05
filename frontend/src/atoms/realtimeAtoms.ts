@@ -1,5 +1,5 @@
-import { atom } from 'jotai';
-import { atomFamily } from 'jotai/utils';
+import { atom } from 'jotai/vanilla';
+import { atomFamily } from 'jotai/vanilla/utils';
 import { pb } from './auth';
 import type { Record as PBRecord } from 'pocketbase';
 

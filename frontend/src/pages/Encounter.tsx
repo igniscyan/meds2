@@ -31,7 +31,7 @@ import EncounterQuestions from '../components/EncounterQuestions';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { useSettings } from '../hooks/useSettings';
 import AddIcon from '@mui/icons-material/Add';
-import { useAtomValue } from 'jotai';
+import { useAtomValue } from 'jotai/react';
 import { isLoadingAtom, authModelAtom } from '../atoms/auth';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';

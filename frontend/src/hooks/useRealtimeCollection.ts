@@ -1,4 +1,4 @@
-import { useAtom } from 'jotai';
+import { useAtom } from 'jotai/react';
 import { useEffect, useMemo, useRef } from 'react';
 import type { Record as PBRecord } from 'pocketbase';
 import { collectionAtomFamily } from '../atoms/realtimeAtoms';
