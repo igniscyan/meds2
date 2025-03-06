@@ -129,7 +129,7 @@ initializeSettings().catch(console.error);
 export const useSettings = (): UseSettingsReturn => {
   const [settings, setSettings] = useAtom(settingsAtom);
   
-  // Subscribe to realtime updates only in components that need live updates
+  // Subscribe to realtime updates
   const options = useMemo(() => ({
     sort: 'created',
     limit: 1,

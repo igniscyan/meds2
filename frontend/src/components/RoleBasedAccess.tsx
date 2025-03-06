@@ -1,7 +1,7 @@
 import { pb } from '../atoms/auth';
 import { Record } from 'pocketbase';
 import React, { useMemo } from 'react';
-import { getCachedSettings } from '../hooks/useSettings';
+import useSettings from '../hooks/useSettings';
 
 interface UserRecord extends Record {
   role?: 'pharmacy' | 'provider' | 'admin';
@@ -23,8 +23,8 @@ export const RoleBasedAccess: React.FC<RoleBasedAccessProps> = ({
   requiredRole,
   children
 }) => {
-  // Use cached settings to prevent unnecessary subscriptions
-  const { displayPreferences } = getCachedSettings();
+  // Use useSettings instead of getCachedSettings to ensure we get the latest settings
+  const { displayPreferences } = useSettings();
   
   // Memoize the user role to prevent unnecessary re-renders
   const userRole = useMemo(() => {

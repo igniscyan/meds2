@@ -340,23 +340,30 @@ export const Encounter: React.FC<EncounterProps> = ({ mode: initialMode = 'creat
 
   // Helper function to determine if a field should be disabled
   const isFieldDisabled = (section: 'vitals' | 'subjective' | 'disbursement' | 'questions') => {
+    // Get the current mode from state
+    const mode = currentMode;
+    
     // If field restrictions are overridden for admin or all roles, enable all fields
-    if (displayPreferences?.override_field_restrictions && (
-      (pb.authStore.model as any)?.role === 'admin' || 
+    if (
+      (displayPreferences?.override_field_restrictions && (pb.authStore.model as any)?.role === 'admin') || 
       displayPreferences?.override_field_restrictions_all_roles
-    )) {
+    ) {
       return false;
     }
     
-    if (currentMode === 'view') return true;
+    if (mode === 'view') return true;
     
     // In pharmacy mode, only disbursement section is editable
-    if (currentMode === 'pharmacy') {
+    if (mode === 'pharmacy') {
+      // If unified_roles is enabled and the user is a provider, allow editing all sections
+      if (displayPreferences?.unified_roles && (pb.authStore.model as any)?.role === 'provider') {
+        return false;
+      }
       return section !== 'disbursement';
     }
     
     // In checkout mode, only questions section is editable
-    if (currentMode === 'checkout') {
+    if (mode === 'checkout') {
       return section !== 'questions';
     }
     
