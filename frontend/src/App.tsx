@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import { useAtomValue } from 'jotai/react';
@@ -22,6 +22,7 @@ import { authModelAtom, isLoadingAtom, useAuthChangeEffect } from './atoms/auth'
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import { ActiveEditorCleanup } from './components/ActiveEditorCleanup';
+import settingsService from './services/settingsService';
 
 const App: React.FC = () => {
   const user = useAtomValue(authModelAtom);
@@ -29,6 +30,23 @@ const App: React.FC = () => {
 
   // Initialize auth change listener
   useAuthChangeEffect();
+  
+  // Initialize settings service
+  useEffect(() => {
+    // Only initialize settings if user is authenticated
+    if (user) {
+      console.log('[App] Initializing settings service');
+      settingsService.initialize().catch(error => {
+        console.error('[App] Error initializing settings service:', error);
+      });
+    }
+    
+    // Clean up settings service on unmount
+    return () => {
+      console.log('[App] Cleaning up settings service');
+      settingsService.cleanup();
+    };
+  }, [user]);
 
   // Show loading state while validating auth
   if (loading) {

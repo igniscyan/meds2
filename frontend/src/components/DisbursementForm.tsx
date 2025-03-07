@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle, useReducer } from 'react';
 import {
   Box,
   Grid,
@@ -23,6 +23,12 @@ import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { DisbursementConfirmation } from './DisbursementConfirmation';
+import { 
+  parseMultiplier, 
+  isValidMultiplier, 
+  calculateDisbursementQuantity,
+  calculateSingleDisbursementStockChange
+} from '../utils/disbursementUtils';
 
 export interface MedicationRecord extends Record {
   drug_name: string;
@@ -402,29 +408,11 @@ export const DisbursementForm = forwardRef<
     );
   };
 
-  const getNumericMultiplier = (value: string | number): number => {
-    // Return 0 for empty values
-    if (value === '' || value === undefined || value === null) return 0;
-    
-    // For non-empty values, convert to number
-    if (typeof value === 'number') return value;
-    const num = parseFloat(value);
-    return isNaN(num) ? 0 : num;
-  };
-
-  const calculateTotalQuantity = (disbursement: DisbursementItem) => {
-    return disbursement.quantity * getNumericMultiplier(disbursement.multiplier);
-  };
-
   const calculateStockChange = (disbursement: DisbursementItem, index: number) => {
     if (!disbursement.medicationDetails || !disbursement.medication || disbursement.markedForDeletion) {
       return null;
     }
 
-    const currentStock = disbursement.medicationDetails.stock || 0;
-    const fixedQuantity = disbursement.medicationDetails.fixed_quantity || 0;
-    const currentAmount = fixedQuantity * getNumericMultiplier(disbursement.multiplier);
-    
     // Get all current disbursements for this medication (excluding marked for deletion and current one)
     const otherDisbursements = disbursements.filter((d, idx) => 
       d.medicationDetails?.drug_name === disbursement.medicationDetails?.drug_name &&
@@ -433,52 +421,18 @@ export const DisbursementForm = forwardRef<
       idx !== index
     );
 
-    // Calculate total amount being disbursed for this medication by other disbursements
-    const otherDisbursementsTotal = otherDisbursements.reduce((total, d) => {
-      const qty = d.medicationDetails?.fixed_quantity || 0;
-      const mult = getNumericMultiplier(d.multiplier);
-      return total + (qty * mult);
-    }, 0);
+    // Get the original disbursement if it exists
+    const originalDisbursement = disbursement.id 
+      ? initialMedicationState.get(disbursement.id) as DisbursementItem | undefined
+      : null;
 
-    // For pharmacy mode, we always show the absolute change from current stock
-    if (mode === 'pharmacy') {
-      const stockChange = currentAmount;
-      const exceedsStock = (currentAmount + otherDisbursementsTotal) > currentStock;
-      return { 
-        stockChange, 
-        exceedsStock, 
-        totalDisbursedAmount: currentAmount + otherDisbursementsTotal 
-      };
-    }
-
-    // For other modes (provider view), we show the change relative to initial state
-    const initialState = disbursement.id ? initialMedicationState.get(disbursement.medication) : null;
-    const initialAmount = initialState 
-      ? (initialState.medicationDetails?.fixed_quantity || 0) * getNumericMultiplier(initialState.multiplier)
-      : 0;
-
-    // Calculate the relative stock change
-    const stockChange = disbursement.id 
-      ? currentAmount - initialAmount  // For existing: only count the difference
-      : currentAmount;                 // For new: count the full amount
-
-    // Check if total disbursements would exceed current stock
-    const exceedsStock = (currentAmount + otherDisbursementsTotal) > currentStock;
-    
-    return { 
-      stockChange, 
-      exceedsStock, 
-      totalDisbursedAmount: currentAmount + otherDisbursementsTotal 
-    };
-  };
-
-  const isValidMultiplier = (value: any): boolean => {
-    // Allow empty values for input purposes
-    if (value === '' || value === undefined || value === null) return false;
-    
-    // For non-empty values, must be a positive number
-    const num = parseFloat(value);
-    return !isNaN(num) && num > 0;
+    // Use the utility function to calculate stock change
+    return calculateSingleDisbursementStockChange(
+      disbursement,
+      otherDisbursements,
+      originalDisbursement || null,
+      mode === 'pharmacy'
+    );
   };
 
   const handleDisbursementChange = (
@@ -642,19 +596,19 @@ export const DisbursementForm = forwardRef<
             const medication = disbursement.medicationDetails;
             const currentStock = medication?.stock || 0;
             const isProcessed = mode === 'pharmacy' && disbursement.isProcessed;
-            const totalQuantity = disbursement.quantity * getNumericMultiplier(disbursement.multiplier);
+            const totalQuantity = disbursement.quantity * parseMultiplier(disbursement.multiplier);
             
             // Only calculate stock-related values if a medication is selected
             const hasMedication = !!disbursement.medication;
             const otherDisbursementsTotal = hasMedication ? disbursements
               .filter((d, idx) => d.medication === disbursement.medication && idx !== index && !d.markedForDeletion)
-              .reduce((total, d) => total + (d.quantity * getNumericMultiplier(d.multiplier)), 0) : 0;
+              .reduce((total, d) => total + (d.quantity * parseMultiplier(d.multiplier)), 0) : 0;
             
             // Calculate the actual change in stock, accounting for initial state
             const initialState = disbursement.id ? initialMedicationState.get(disbursement.medication) : null;
-            const currentAmount = (disbursement.medicationDetails?.fixed_quantity || 0) * getNumericMultiplier(disbursement.multiplier);
+            const currentAmount = (disbursement.medicationDetails?.fixed_quantity || 0) * parseMultiplier(disbursement.multiplier);
             const initialAmount = initialState 
-              ? (initialState.medicationDetails?.fixed_quantity || 0) * getNumericMultiplier(initialState.multiplier)
+              ? (initialState.medicationDetails?.fixed_quantity || 0) * parseMultiplier(initialState.multiplier)
               : 0;
             
             // For new medications, show the full deduction
