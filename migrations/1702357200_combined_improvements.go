@@ -244,6 +244,7 @@ func init() {
 			"care_team_count":                       6,
 			"show_gyn_team":                         false,
 			"show_optometry_team":                   false,
+			"show_move_to_checkout":                 true,  // When true, shows the Move to Checkout button in the dashboard
 			"unified_roles":                         false, // When true, providers and pharmacy share all permissions
 			"override_field_restrictions":           false, // When true, admin users can edit all fields regardless of mode
 			"override_field_restrictions_all_roles": false, // When true, all roles can edit all fields regardless of mode

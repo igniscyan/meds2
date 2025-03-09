@@ -99,6 +99,7 @@ interface DisplayPreferences {
   care_team_count: number;
   show_gyn_team: boolean;
   show_optometry_team: boolean;
+  show_move_to_checkout: boolean;
 }
 
 // Add helper function to format age display
@@ -447,7 +448,7 @@ const Dashboard: React.FC = () => {
    */
   const handleQueueAction = async (
     queueId: string,
-    action: 'status_change' | 'start_pharmacy' | 'complete_pharmacy' | 'start_checkout' | 'complete_checkout' | 'continue_encounter',
+    action: 'status_change' | 'start_pharmacy' | 'complete_pharmacy' | 'start_checkout' | 'complete_checkout' | 'continue_encounter' | 'start_encounter',
     options?: { newStatus?: QueueStatus; teamNumber?: string | null; scrollTo?: string }
   ) => {
     console.log('handleQueueAction called with:', { queueId, action, options });
@@ -480,6 +481,96 @@ const Dashboard: React.FC = () => {
         }
       }
       
+      // Handle start_encounter action
+      if (action === 'start_encounter') {
+        console.log('Starting encounter process for patient');
+        
+        // Get patient details
+        const patient = await pb.collection('patients').getOne<Patient>(currentQueueItem.patient, {
+          $autoCancel: false
+        });
+        console.log('Patient details:', patient);
+        
+        // Get today's date in YYYY-MM-DD format for filtering
+        const today = new Date().toISOString().split('T')[0];
+        console.log('Checking for encounters from:', today);
+        
+        // Check for existing encounters from today
+        const existingEncounters = await pb.collection('encounters').getList(1, 1, {
+          filter: `patient = "${currentQueueItem.patient}" && created ~ "${today}"`,
+          sort: '-created',
+          $autoCancel: false
+        });
+        
+        let encounterId: string;
+        
+        if (existingEncounters.items.length > 0) {
+          // Use the most recent encounter from today
+          const latestEncounter = existingEncounters.items[0];
+          console.log('Using existing encounter from today:', latestEncounter);
+          encounterId = latestEncounter.id;
+        } else {
+          // Create new encounter if none exists from today
+          console.log('No encounters found today, creating new encounter...');
+          const encounter = await pb.collection('encounters').create({
+            patient: currentQueueItem.patient,
+            created: new Date().toISOString(),
+            // Include vitals from patient if they exist
+            height: patient.height ?? null,
+            weight: patient.weight ?? null,
+            temperature: patient.temperature ?? null,
+            heart_rate: patient.heart_rate ?? null,
+            systolic_pressure: patient.systolic_pressure ?? null,
+            diastolic_pressure: patient.diastolic_pressure ?? null,
+          }, {
+            $autoCancel: false
+          });
+          console.log('Created new encounter:', encounter);
+          encounterId = encounter.id;
+        }
+        
+        // Update queue item status
+        await pb.collection('queue').update(queueId, {
+          status: 'with_care_team',
+          encounter: encounterId,
+          assigned_to: pb.authStore.model?.id,
+          start_time: new Date().toISOString()
+        }, {
+          $autoCancel: false
+        });
+        
+        // Navigate to the encounter
+        console.log('Navigating to encounter:', encounterId);
+        navigate(`/encounter/${currentQueueItem.patient}/${encounterId}`, {
+          state: { mode: 'edit' }
+        });
+        
+        setProcessing(null);
+        return;
+      }
+      
+      // Handle start_checkout action
+      if (action === 'start_checkout') {
+        console.log('Moving patient to checkout');
+        
+        // Check if there's an existing encounter
+        const encounterId = currentQueueItem.expand?.encounter?.id;
+        if (!encounterId) {
+          throw new Error('No encounter found for checkout');
+        }
+        
+        // Update queue item status
+        await pb.collection('queue').update(queueId, {
+          status: 'at_checkout',
+          updated: new Date().toISOString()
+        }, {
+          $autoCancel: false
+        });
+        
+        setProcessing(null);
+        return;
+      }
+      
       // Determine the new status based on the action
       let newStatus: QueueStatus | undefined;
       let updateData: { [key: string]: any } = {};
@@ -497,9 +588,6 @@ const Dashboard: React.FC = () => {
         case 'complete_pharmacy':
           newStatus = 'completed';
           updateData.end_time = new Date().toISOString();
-          break;
-        case 'start_checkout':
-          newStatus = 'at_checkout';
           break;
         case 'complete_checkout':
           newStatus = 'completed';
@@ -644,6 +732,32 @@ const Dashboard: React.FC = () => {
     return 'error.main';
   };
 
+  const handleTeamAssignment = async (queueId: string, teamNumber: string | null) => {
+    console.log('Handling team assignment:', { queueId, teamNumber });
+    setProcessing(queueId);
+    
+    try {
+      // Update the queue item with the new team assignment
+      await pb.collection('queue').update(queueId, {
+        intended_provider: teamNumber,
+        updated: new Date().toISOString() // Force an update event
+      }, {
+        $autoCancel: false
+      });
+      
+      setError(null);
+    } catch (error: any) {
+      if (!error.message?.includes('autocancelled')) {
+        console.error('Error updating team assignment:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        setError(`Failed to update team assignment: ${errorMessage}`);
+        alert('Failed to update team assignment. Please try again.');
+      }
+    } finally {
+      setProcessing(null);
+    }
+  };
+
   // Convert renderQueueItem to a proper React component
   const QueueItemComponent: React.FC<{ item: QueueItem }> = ({ item }) => {
     const [queueItem, setQueueItem] = React.useState<QueueItem>(item);
@@ -717,7 +831,7 @@ const Dashboard: React.FC = () => {
             <Button
               variant="contained"
               color="primary"
-              onClick={() => handleQueueAction(queueItem.id, 'status_change', { newStatus: 'with_care_team' })}
+              onClick={() => handleQueueAction(queueItem.id, 'start_encounter')}
               fullWidth={isMobile}
               size={isMobile ? "small" : "medium"}
             >
@@ -766,18 +880,19 @@ const Dashboard: React.FC = () => {
             </Button>
           </RoleBasedAccess>
         )}
-        {/* Move patients to checkout - only visible to providers */}
         {(queueItem.status === 'ready_pharmacy' || queueItem.status === 'with_pharmacy') && (
           <RoleBasedAccess requiredRole="provider">
-            <Button
-              variant="contained"
-              color="secondary"
-              onClick={() => handleQueueAction(queueItem.id, 'status_change', { newStatus: 'at_checkout' })}
-              fullWidth={isMobile}
-              size={isMobile ? "small" : "medium"}
-            >
-              Move to Checkout
-            </Button>
+            {displayPreferences.show_move_to_checkout && (
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => handleQueueAction(queueItem.id, 'start_checkout')}
+                fullWidth={isMobile}
+                size={isMobile ? "small" : "medium"}
+              >
+                Move to Checkout
+              </Button>
+            )}
           </RoleBasedAccess>
         )}
         {/* Complete checkout - only visible for at_checkout status */}
@@ -949,7 +1064,7 @@ const Dashboard: React.FC = () => {
             {displayPreferences.show_care_team_assignment && (
               <Select
                 value={queueItem.intended_provider || ''}
-                onChange={(e) => handleQueueAction(queueItem.id, 'status_change', { teamNumber: e.target.value || null })}
+                onChange={(e) => handleTeamAssignment(queueItem.id, e.target.value || null)}
                 size="small"
                 displayEmpty
                 disabled={processing === queueItem.id}

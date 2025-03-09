@@ -14,6 +14,7 @@ export interface DisplayPreferences {
   care_team_count: number;
   show_gyn_team: boolean;
   show_optometry_team: boolean;
+  show_move_to_checkout: boolean;
   unified_roles: boolean;
   override_field_restrictions: boolean;
   override_field_restrictions_all_roles: boolean;
@@ -33,11 +34,12 @@ const defaultUnitDisplay: UnitDisplay = {
 };
 
 const defaultDisplayPreferences: DisplayPreferences = {
-  show_priority_dropdown: false,
-  show_care_team_assignment: false,
-  care_team_count: 6,
+  show_priority_dropdown: true,
+  show_care_team_assignment: true,
+  care_team_count: 3,
   show_gyn_team: false,
   show_optometry_team: false,
+  show_move_to_checkout: true,
   unified_roles: false,
   override_field_restrictions: false,
   override_field_restrictions_all_roles: false

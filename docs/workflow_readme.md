@@ -7,66 +7,125 @@ This document provides an overview of the patient workflow in the application, f
 ## Key Components
 
 - **Dashboard**: The main interface for managing patient flow
+  - Queue management
+  - Team assignments
+  - Patient status tracking
+  - Wait time monitoring
 - **Encounter Page**: The detailed patient encounter interface
 - **Queue System**: Manages patient status and transitions
 
 ## Patient Workflow Stages
 
-1. **Check-In**: Patient arrives and is registered in the system
-2. **Waiting Room**: Patient waits to be seen by a provider
-3. **With Care Team**: Patient is being seen by a provider
-4. **Ready for Pharmacy**: Patient needs medications
-5. **With Pharmacy**: Patient's medications are being prepared
-6. **At Checkout**: Patient is completing final steps
-7. **Completed**: Patient has completed their visit
+1. **Check-In**: 
+   - Patient arrives and is registered in the system
+   - Appears in "Waiting Room" queue
+   - Can be assigned to specific care teams
+   - Wait time tracking begins
 
-## Navigation Between Stages
+2. **Team Assignment (Optional)**:
+   - Patients can be assigned to specific teams:
+     - Care Teams (1-n)
+     - Gyn Team (if enabled)
+     - Optometry Team (if enabled)
+   - Assignment can be changed at any time
+   - Helps with patient distribution and specialization
 
-The application uses a combination of status updates and page navigation to move patients through the workflow. For detailed information on how navigation works, see the [Encounter Navigation Documentation](./encounter_navigation.md).
+3. **With Care Team**: 
+   - Provider starts encounter
+   - System uses most recent encounter from today or creates a new one
+   - Patient vitals and history are tracked
 
-### Key Transitions
+4. **Ready for Pharmacy**: 
+   - Provider completes examination
+   - Medications are pending review
 
-- **Waiting Room → With Care Team**: 
-  - Button: "Start Encounter"
-  - Action: Updates status to "with_care_team" and navigates to Encounter page in "edit" mode
+5. **With Pharmacy**: 
+   - Pharmacy team reviews and prepares medications
+   - Disbursements are processed
 
-- **With Care Team → Ready for Pharmacy**: 
-  - Button: "Ready for Pharmacy"
-  - Action: Updates status to "ready_pharmacy"
+6. **At Checkout**: 
+   - Final survey and documentation
+   - Standard items are distributed
 
-- **Ready for Pharmacy → With Pharmacy**: 
-  - Button: "Review Disbursements"
-  - Action: Updates status to "with_pharmacy" and navigates to Encounter page in "pharmacy" mode
+7. **Completed**: 
+   - Visit is finished
+   - Wait time calculation is finalized
 
-- **Ready for Pharmacy/With Pharmacy → At Checkout**: 
-  - Button: "Move to Checkout"
-  - Action: Updates status to "at_checkout"
+## Queue Actions and Transitions
 
-- **At Checkout → Completed**: 
-  - Button: "Complete Checkout"
-  - Action: Navigates to Encounter page in "checkout" mode
-  - Final Step: Saving the encounter completes the process and updates status to "completed"
+### Starting an Encounter
+- **Action**: Click "Start Encounter" button
+- **Result**: 
+  - Checks for existing encounters from today
+  - Uses most recent encounter if one exists
+  - Creates new encounter only if needed
+  - Updates status to "with_care_team"
+  - Navigates to encounter page in edit mode
+  - Preserves patient vitals history
 
-## Status Flags and UI States
+### Team Assignment
+- **Action**: Select team from dropdown
+- **Result**:
+  - Updates patient's assigned team
+  - Maintains current status
+  - Updates queue filtering
 
-Each status has associated UI elements and permissions:
+### Status Changes
+Each status change includes:
+- Appropriate role checks
+- Queue position updates
+- Wait time tracking
+- Team assignment preservation
 
-- **checked_in**: Visible in Waiting Room, can be assigned to teams
-- **with_care_team**: Visible in With Care Team, encounter is editable
-- **ready_pharmacy**: Visible in Ready for Pharmacy, can be reviewed by pharmacy
-- **with_pharmacy**: Visible in With Pharmacy, medications being processed
-- **at_checkout**: Visible in At Checkout, survey can be completed
-- **completed**: No longer visible in active queues
+## Display Preferences
 
-## Related Documentation
+The dashboard supports several display preferences:
+- Show/hide priority levels
+- Enable/disable care team assignments
+- Configure number of care teams
+- Show/hide specialized teams (Gyn, Optometry)
 
-- [Encounter Navigation Documentation](./encounter_navigation.md): Detailed information on navigation modes and flags
-- [Disbursement System Optimization](./readme.md): Information about the medication disbursement system
-- [Disbursement Implementation](./disbursement_implementation.md): Details on the implementation of the disbursement system
+## Analytics
+
+Real-time tracking of:
+- Total patients seen today
+- Average wait times
+- Queue lengths by status
+- Team distribution
 
 ## Best Practices
 
-1. **Status Consistency**: Ensure queue status is always in sync with the current view
-2. **Clear Navigation**: Use appropriate navigation modes when moving between pages
-3. **Role-Based Access**: Respect role permissions for different actions
-4. **Error Handling**: Provide clear feedback when transitions fail 
+1. **Team Assignment**:
+   - Assign teams early in the process
+   - Balance workload across teams
+   - Consider specializations
+
+2. **Queue Management**:
+   - Monitor wait times
+   - Use priority levels appropriately
+   - Keep statuses updated
+
+3. **Encounter Handling**:
+   - Start encounters promptly
+   - Complete all sections
+   - Update status accurately
+
+4. **Error Prevention**:
+   - Verify patient details
+   - Confirm status changes
+   - Check team assignments
+
+## Related Documentation
+
+- [Encounter Navigation](./encounter_navigation.md): Details on encounter page modes and navigation
+- [Queue Management](./queue_management.md): Detailed queue system documentation including encounter creation logic
+- [Team Assignment](./team_assignment.md): Team management and assignment strategies
+
+## Technical Notes
+
+- Queue updates are real-time
+- Team assignments persist across status changes
+- Wait times are calculated continuously
+- Analytics are updated automatically
+- Error handling includes automatic retries
+- All actions are role-protected 

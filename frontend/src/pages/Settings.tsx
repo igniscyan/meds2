@@ -18,7 +18,8 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
-  Snackbar
+  Snackbar,
+  Checkbox
 } from '@mui/material';
 import { pb } from '../atoms/auth';
 import { RoleBasedAccess } from '../components/RoleBasedAccess';
@@ -37,6 +38,7 @@ interface DisplayPreferences {
   care_team_count: number;
   show_gyn_team: boolean;
   show_optometry_team: boolean;
+  show_move_to_checkout: boolean;
   unified_roles: boolean;
   override_field_restrictions: boolean;
   override_field_restrictions_all_roles: boolean;
@@ -56,6 +58,17 @@ const Settings: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [wipeDialogOpen, setWipeDialogOpen] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [displayPreferences, setDisplayPreferences] = useState<DisplayPreferences>({
+    show_priority_dropdown: true,
+    show_care_team_assignment: true,
+    care_team_count: 3,
+    show_gyn_team: false,
+    show_optometry_team: false,
+    show_move_to_checkout: true,
+    unified_roles: false,
+    override_field_restrictions: false,
+    override_field_restrictions_all_roles: false,
+  });
 
   useEffect(() => {
     loadSettings();
@@ -68,6 +81,7 @@ const Settings: React.FC = () => {
       });
       if (resultList.items.length > 0) {
         setSettings(resultList.items[0]);
+        setDisplayPreferences(resultList.items[0].display_preferences);
       }
       setError(null);
     } catch (err) {
@@ -85,17 +99,17 @@ const Settings: React.FC = () => {
     setSaveSuccess(false);
     try {
       // Ensure override_field_restrictions_all_roles is false if override_field_restrictions is false
-      const displayPreferences = {
-        ...settings.display_preferences,
+      const updatedDisplayPreferences = {
+        ...displayPreferences,
         override_field_restrictions_all_roles: 
-          settings.display_preferences.override_field_restrictions 
-            ? settings.display_preferences.override_field_restrictions_all_roles 
+          displayPreferences.override_field_restrictions 
+            ? displayPreferences.override_field_restrictions_all_roles 
             : false
       };
 
       const updatedSettings = await pb.collection('settings').update<Settings>(settings.id, {
         unit_display: settings.unit_display,
-        display_preferences: displayPreferences,
+        display_preferences: updatedDisplayPreferences,
         updated_by: (pb.authStore.model as Admin)?.id
       });
       setSettings(updatedSettings);
@@ -396,6 +410,21 @@ const Settings: React.FC = () => {
             />
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               Enable to show Optometry Team in the care team assignment dropdown. Only available when care team assignment is enabled.
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={settings?.display_preferences.show_move_to_checkout || false}
+                  onChange={handleDisplayPreferenceChange('show_move_to_checkout')}
+                />
+              }
+              label="Show 'Move to Checkout' Button"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Enable to show 'Move to Checkout' button in the Ready for Pharmacy and Pharmacy sections of the dashboard, allowing you to skip pharmacy.
             </Typography>
           </Box>
 
