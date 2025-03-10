@@ -100,10 +100,10 @@ const Settings: React.FC = () => {
     try {
       // Ensure override_field_restrictions_all_roles is false if override_field_restrictions is false
       const updatedDisplayPreferences = {
-        ...displayPreferences,
+        ...settings.display_preferences,
         override_field_restrictions_all_roles: 
-          displayPreferences.override_field_restrictions 
-            ? displayPreferences.override_field_restrictions_all_roles 
+          settings.display_preferences.override_field_restrictions 
+            ? settings.display_preferences.override_field_restrictions_all_roles 
             : false
       };
 
@@ -113,6 +113,7 @@ const Settings: React.FC = () => {
         updated_by: (pb.authStore.model as Admin)?.id
       });
       setSettings(updatedSettings);
+      setDisplayPreferences(updatedSettings.display_preferences);
       setError(null);
       setSaveSuccess(true);
       // Auto-hide success message after 3 seconds
