@@ -9,15 +9,26 @@ RUN npm run build
 # Stage 2: Build Go backend
 FROM golang:1.23-alpine AS backend-builder
 WORKDIR /app
-COPY go.* ./
+
+# Install build dependencies
+RUN apk add --no-cache gcc musl-dev
+
+# Copy only necessary files
+COPY go.mod go.sum ./
 COPY migrations/ ./migrations/
 COPY main.sevalla.go ./main.go
+
+# Download dependencies
 RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -o server
+
+# Build with CGO disabled and for Linux
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags netgo -ldflags '-extldflags "-static"' -o server
 
 # Stage 3: Final stage
 FROM alpine:latest
 WORKDIR /app
+
+# Add CA certificates for HTTPS
 RUN apk --no-cache add ca-certificates
 
 # Copy the built React app

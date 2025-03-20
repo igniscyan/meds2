@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -10,6 +9,7 @@ import (
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 )
 
@@ -37,7 +37,8 @@ func main() {
 			buildDir = "./frontend/build" // fallback for development
 		}
 
-		e.Router.GET("/*", apis.StaticDirectoryHandler(buildDir, false))
+		// Serve static files
+		e.Router.GET("/*", apis.StaticDirectoryHandler(os.DirFS(buildDir), false))
 		return nil
 	})
 
