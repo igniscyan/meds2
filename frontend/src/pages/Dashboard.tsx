@@ -99,6 +99,7 @@ interface DisplayPreferences {
   care_team_count: number;
   show_gyn_team: boolean;
   show_optometry_team: boolean;
+  show_move_to_checkout: boolean;
 }
 
 // Add helper function to format age display
@@ -211,48 +212,6 @@ const Dashboard: React.FC = () => {
     );
   }
 
-  // Update handler for care team changes
-  const handleCareTeamChange = async (queueId: string, teamNumber: string | null) => {
-    try {
-      setProcessing(queueId); // Add loading state while updating
-      console.log('Updating care team assignment:', { queueId, teamNumber });
-      
-      // Update the queue item
-      const updatedQueue = await pb.collection('queue').update(queueId, {
-        intended_provider: teamNumber,
-        updated: new Date().toISOString() // Force an update event
-      });
-      
-      console.log('Queue item updated:', updatedQueue);
-      
-      // Get the full updated queue item with expanded fields
-      const refreshedItem = await pb.collection('queue').getOne<QueueItem>(queueId, {
-        expand: 'patient,assigned_to,intended_provider,encounter'
-      });
-      
-      console.log('Refreshed queue item:', refreshedItem);
-      
-      // Force a refresh of all queue items to ensure consistency
-      const result = await pb.collection('queue').getList<QueueItem>(1, 100, {
-        sort: '-priority,check_in_time',
-        expand: 'patient,assigned_to,intended_provider,encounter',
-        filter: 'status != "completed"',
-        $autoCancel: false
-      });
-      
-      console.log('Queue refresh complete:', result.items);
-      setError(null);
-    } catch (error: any) {
-      // Ignore auto-cancellation errors
-      if (!error.message?.includes('autocancelled')) {
-        console.error('Error updating care team assignment:', error);
-        setError('Failed to update care team assignment');
-      }
-    } finally {
-      setProcessing(null);
-    }
-  };
-
   // Update analytics data
   const fetchAnalytics = async () => {
     try {
@@ -341,77 +300,6 @@ const Dashboard: React.FC = () => {
       } else {
         console.log('STATS DEBUG: Request was cancelled - this is normal during navigation');
       }
-    }
-  };
-
-  const handleClaimPatient = async (queueId: string) => {
-    try {
-      // Get patient ID first
-      const queueItem = await pb.collection('queue').getOne<QueueItem>(queueId, {
-        $autoCancel: false // Disable auto-cancellation
-      }) as QueueItem;
-      
-      console.warn('🔍 QUEUE START ENCOUNTER: Getting patient details...');
-      const patient = await pb.collection('patients').getOne<Patient>(queueItem.patient, {
-        $autoCancel: false // Disable auto-cancellation
-      });
-      console.warn('🔍 QUEUE START ENCOUNTER: Patient found:', patient);
-
-      // Check for existing encounters
-      const result = await pb.collection('encounters').getList(1, 1, {
-        filter: `patient = "${queueItem.patient}"`,
-        sort: '-created',
-        $autoCancel: false // Disable auto-cancellation
-      });
-
-      console.warn('🔍 QUEUE START ENCOUNTER: Found encounters:', result);
-
-      let encounterId;
-      
-      if (result.items.length > 0) {
-        // Use existing encounter
-        const latestEncounter = result.items[0];
-        console.warn('🔍 QUEUE START ENCOUNTER: Using existing encounter:', latestEncounter);
-        encounterId = latestEncounter.id;
-      } else {
-        // Create new encounter
-        console.warn('🔍 QUEUE START ENCOUNTER: Creating new encounter...');
-        const encounter = await pb.collection('encounters').create({
-          patient: queueItem.patient,
-          created: new Date().toISOString(),
-          // Include vitals from patient if they exist
-          height: patient.height ?? null,
-          weight: patient.weight ?? null,
-          temperature: patient.temperature ?? null,
-          heart_rate: patient.heart_rate ?? null,
-          systolic_pressure: patient.systolic_pressure ?? null,
-          diastolic_pressure: patient.diastolic_pressure ?? null,
-        }, {
-          $autoCancel: false // Disable auto-cancellation
-        });
-        console.warn('🔍 QUEUE START ENCOUNTER: Created new encounter:', encounter);
-        encounterId = encounter.id;
-      }
-
-      // Update queue status and encounter reference
-      console.warn('🔍 QUEUE START ENCOUNTER: Updating queue item...');
-      await pb.collection('queue').update(queueId, {
-        status: 'with_care_team',
-        assigned_to: pb.authStore.model?.id,
-        start_time: new Date().toISOString(),
-        encounter: encounterId
-      }, {
-        $autoCancel: false // Disable auto-cancellation
-      });
-      
-      // Navigate to the encounter
-      console.warn('🔍 QUEUE START ENCOUNTER: Navigating to encounter...');
-      navigate(`/encounter/${queueItem.patient}/${encounterId}`, { 
-        state: { mode: 'edit' } 
-      });
-    } catch (error) {
-      console.error('Error claiming patient:', error);
-      alert('Failed to claim patient. Please try again.');
     }
   };
 
@@ -547,39 +435,282 @@ const Dashboard: React.FC = () => {
     }
   ];
 
-  const handleStatusChange = async (queueId: string, newStatus: QueueStatus) => {
-    console.log('handleStatusChange called with:', { queueId, newStatus });
+  /**
+   * Comprehensive queue management function that handles all queue status changes
+   * This consolidates the functionality of:
+   * - handleStatusChange
+   * - handlePharmacyAction
+   * - handleCheckoutAction
+   * 
+   * @param queueId The ID of the queue item to update
+   * @param action The action to perform (status change, start/complete process)
+   * @param options Additional options for the action
+   */
+  const handleQueueAction = async (
+    queueId: string,
+    action: 'status_change' | 'start_pharmacy' | 'complete_pharmacy' | 'start_checkout' | 'complete_checkout' | 'continue_encounter' | 'start_encounter',
+    options?: { newStatus?: QueueStatus; teamNumber?: string | null; scrollTo?: string }
+  ) => {
+    console.log('handleQueueAction called with:', { queueId, action, options });
+    setProcessing(queueId);
+    
     try {
       // First get the current queue item to preserve encounter reference
       console.log('Fetching current queue item');
       const currentQueueItem = await pb.collection('queue').getOne<QueueItem>(queueId, {
-        expand: 'patient,encounter'
+        expand: 'patient,encounter',
+        $autoCancel: false
       });
       console.log('Current queue item:', currentQueueItem);
-
-      console.log('Updating queue status');
-      await pb.collection('queue').update(queueId, {
-        status: newStatus,
-        encounter: currentQueueItem.expand?.encounter?.id,
-        ...(newStatus === 'with_care_team' ? {
+      
+      // Special case for continue_encounter action - just navigate to the encounter
+      if (action === 'continue_encounter') {
+        const encounterId = currentQueueItem.expand?.encounter?.id;
+        if (encounterId) {
+          console.log('Continuing encounter, navigating to:', encounterId);
+          navigate(`/encounter/${currentQueueItem.patient}/${encounterId}`, {
+            state: { 
+              mode: 'edit',
+              ...(options?.scrollTo ? { scrollTo: options.scrollTo } : {})
+            }
+          });
+          setProcessing(null);
+          return;
+        } else {
+          throw new Error('No encounter found to continue');
+        }
+      }
+      
+      // Handle start_encounter action
+      if (action === 'start_encounter') {
+        console.log('Starting encounter process for patient');
+        
+        // Get patient details
+        const patient = await pb.collection('patients').getOne<Patient>(currentQueueItem.patient, {
+          $autoCancel: false
+        });
+        console.log('Patient details:', patient);
+        
+        // Get today's date in YYYY-MM-DD format for filtering
+        const today = new Date().toISOString().split('T')[0];
+        console.log('Checking for encounters from:', today);
+        
+        // Check for existing encounters from today
+        const existingEncounters = await pb.collection('encounters').getList(1, 1, {
+          filter: `patient = "${currentQueueItem.patient}" && created ~ "${today}"`,
+          sort: '-created',
+          $autoCancel: false
+        });
+        
+        let encounterId: string;
+        
+        if (existingEncounters.items.length > 0) {
+          // Use the most recent encounter from today
+          const latestEncounter = existingEncounters.items[0];
+          console.log('Using existing encounter from today:', latestEncounter);
+          encounterId = latestEncounter.id;
+        } else {
+          // Create new encounter if none exists from today
+          console.log('No encounters found today, creating new encounter...');
+          const encounter = await pb.collection('encounters').create({
+            patient: currentQueueItem.patient,
+            created: new Date().toISOString(),
+            // Include vitals from patient if they exist
+            height: patient.height ?? null,
+            weight: patient.weight ?? null,
+            temperature: patient.temperature ?? null,
+            heart_rate: patient.heart_rate ?? null,
+            systolic_pressure: patient.systolic_pressure ?? null,
+            diastolic_pressure: patient.diastolic_pressure ?? null,
+          }, {
+            $autoCancel: false
+          });
+          console.log('Created new encounter:', encounter);
+          encounterId = encounter.id;
+        }
+        
+        // Update queue item status
+        await pb.collection('queue').update(queueId, {
+          status: 'with_care_team',
+          encounter: encounterId,
           assigned_to: pb.authStore.model?.id,
           start_time: new Date().toISOString()
-        } : {}),
-        ...(newStatus === 'with_pharmacy' ? {
-          assigned_to: pb.authStore.model?.id
-        } : {})
+        }, {
+          $autoCancel: false
+        });
+        
+        // Navigate to the encounter
+        console.log('Navigating to encounter:', encounterId);
+        navigate(`/encounter/${currentQueueItem.patient}/${encounterId}`, {
+          state: { mode: 'edit' }
+        });
+        
+        setProcessing(null);
+        return;
+      }
+      
+      // Handle start_checkout action
+      if (action === 'start_checkout') {
+        console.log('Moving patient to checkout');
+        
+        // Check if there's an existing encounter
+        const encounterId = currentQueueItem.expand?.encounter?.id;
+        if (!encounterId) {
+          throw new Error('No encounter found for checkout');
+        }
+        
+        // Update queue item status
+        await pb.collection('queue').update(queueId, {
+          status: 'at_checkout',
+          updated: new Date().toISOString()
+        }, {
+          $autoCancel: false
+        });
+        
+        setProcessing(null);
+        return;
+      }
+      
+      // Determine the new status based on the action
+      let newStatus: QueueStatus | undefined;
+      let updateData: { [key: string]: any } = {};
+      let shouldNavigate = false;
+      let navigateMode: 'edit' | 'pharmacy' | 'view' = 'view';
+      let scrollTo: string | undefined = options?.scrollTo;
+      
+      switch (action) {
+        case 'status_change':
+          newStatus = options?.newStatus;
+          break;
+        case 'start_pharmacy':
+          newStatus = 'with_pharmacy';
+          break;
+        case 'complete_pharmacy':
+          newStatus = 'completed';
+          updateData.end_time = new Date().toISOString();
+          break;
+        case 'complete_checkout':
+          newStatus = 'completed';
+          updateData.end_time = new Date().toISOString();
+          break;
+      }
+      
+      if (!newStatus) {
+        throw new Error('No status specified for queue action');
+      }
+      
+      // If changing to with_care_team status, we need to handle encounter creation/assignment
+      let encounterId = currentQueueItem.expand?.encounter?.id;
+      
+      if (newStatus === 'with_care_team') {
+        console.log('Starting new encounter for patient');
+        
+        // Get patient details
+        const patient = await pb.collection('patients').getOne<Patient>(currentQueueItem.patient, {
+          $autoCancel: false
+        });
+        console.log('Patient details:', patient);
+        
+        // Check for existing encounters
+        const result = await pb.collection('encounters').getList(1, 1, {
+          filter: `patient = "${currentQueueItem.patient}"`,
+          sort: '-created',
+          $autoCancel: false
+        });
+        
+        if (result.items.length > 0) {
+          // Use existing encounter
+          const latestEncounter = result.items[0];
+          console.log('Using existing encounter:', latestEncounter);
+          encounterId = latestEncounter.id;
+        } else {
+          // Create new encounter
+          console.log('Creating new encounter...');
+          const encounter = await pb.collection('encounters').create({
+            patient: currentQueueItem.patient,
+            created: new Date().toISOString(),
+            // Include vitals from patient if they exist
+            height: patient.height ?? null,
+            weight: patient.weight ?? null,
+            temperature: patient.temperature ?? null,
+            heart_rate: patient.heart_rate ?? null,
+            systolic_pressure: patient.systolic_pressure ?? null,
+            diastolic_pressure: patient.diastolic_pressure ?? null,
+          }, {
+            $autoCancel: false
+          });
+          console.log('Created new encounter:', encounter);
+          encounterId = encounter.id;
+        }
+        
+        // Always set navigation for with_care_team
+        shouldNavigate = true;
+        navigateMode = 'edit';
+      }
+      
+      // Build the update data
+      updateData = {
+        ...updateData,
+        status: newStatus,
+        encounter: encounterId,
+      };
+      
+      // Add assigned_to and start_time for certain statuses
+      if (newStatus === 'with_care_team' || newStatus === 'with_pharmacy' || newStatus === 'at_checkout') {
+        updateData.assigned_to = pb.authStore.model?.id;
+        
+        // Only set start_time for with_care_team
+        if (newStatus === 'with_care_team') {
+          updateData.start_time = new Date().toISOString();
+        }
+      }
+      
+      // Handle team assignment if specified
+      if (options?.teamNumber !== undefined) {
+        updateData.intended_provider = options.teamNumber;
+        updateData.updated = new Date().toISOString(); // Force an update event
+      }
+      
+      // Update the queue item
+      console.log('Updating queue with data:', updateData);
+      await pb.collection('queue').update(queueId, updateData, {
+        $autoCancel: false
       });
-
-      // If moving to pharmacy, navigate to encounter in pharmacy mode
-      if (newStatus === 'with_pharmacy' && currentQueueItem.expand?.encounter?.id) {
-        console.log('Navigating to encounter in pharmacy mode');
-        navigate(`/encounter/${(currentQueueItem as QueueItem).patient}/${currentQueueItem.expand.encounter.id}`, {
-          state: { mode: 'pharmacy' }
+      
+      // Navigate if needed - MOVED OUTSIDE OF CONDITIONS to ensure it always happens
+      if (shouldNavigate && encounterId) {
+        console.log(`Navigating to encounter in ${navigateMode} mode with ID:`, encounterId);
+        navigate(`/encounter/${currentQueueItem.patient}/${encounterId}`, {
+          state: { 
+            mode: navigateMode,
+            ...(options?.scrollTo ? { scrollTo: options.scrollTo } : {})
+          }
         });
       }
-    } catch (error) {
-      console.error('Error in handleStatusChange:', error);
-      alert('Failed to update status. Please try again.');
+      
+      // Clear any errors
+      setError(null);
+      
+      // If this was a team assignment, refresh the queue items to ensure consistency
+      if (options?.teamNumber !== undefined) {
+        console.log('Refreshing queue items after team assignment');
+        await pb.collection('queue').getList<QueueItem>(1, 100, {
+          sort: '-priority,check_in_time',
+          expand: 'patient,assigned_to,intended_provider,encounter',
+          filter: 'status != "completed"',
+          $autoCancel: false
+        });
+      }
+    } catch (error: any) {
+      // Handle errors
+      if (!error.message?.includes('autocancelled')) {
+        console.error('Error in handleQueueAction:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        setError(`Failed to perform action: ${errorMessage}`);
+        alert('Failed to update queue. Please try again.');
+      }
+    } finally {
+      setProcessing(null);
     }
   };
 
@@ -594,57 +725,37 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handlePharmacyAction = async (queueId: string, action: 'start' | 'complete') => {
-    setProcessing(queueId);
-    try {
-      if (action === 'start') {
-        await pb.collection('queue').update(queueId, {
-          status: 'with_pharmacy',
-          assigned_to: pb.authStore.model?.id
-        });
-      } else {
-        await pb.collection('queue').update(queueId, {
-          status: 'completed',
-          end_time: new Date().toISOString()
-        });
-      }
-    } catch (error: unknown) {
-      console.error('Error updating pharmacy status:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setError(`Failed to ${action} pharmacy process: ${errorMessage}`);
-    } finally {
-      setProcessing(null);
-    }
-  };
-
-  const handleCheckoutAction = async (queueId: string, action: 'start' | 'complete') => {
-    setProcessing(queueId);
-    try {
-      if (action === 'start') {
-        await pb.collection('queue').update(queueId, {
-          status: 'at_checkout',
-          assigned_to: pb.authStore.model?.id
-        });
-      } else {
-        await pb.collection('queue').update(queueId, {
-          status: 'completed',
-          end_time: new Date().toISOString()
-        });
-      }
-    } catch (error: unknown) {
-      console.error('Error updating checkout status:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setError(`Failed to ${action} checkout process: ${errorMessage}`);
-    } finally {
-      setProcessing(null);
-    }
-  };
-
   const getWaitTimeColor = (minutes: number): string => {
     if (minutes <= 15) return 'success.main';
     if (minutes <= 30) return '#FFA000'; // dark yellow
     if (minutes <= 40) return 'warning.main';
     return 'error.main';
+  };
+
+  const handleTeamAssignment = async (queueId: string, teamNumber: string | null) => {
+    console.log('Handling team assignment:', { queueId, teamNumber });
+    setProcessing(queueId);
+    
+    try {
+      // Update the queue item with the new team assignment
+      await pb.collection('queue').update(queueId, {
+        intended_provider: teamNumber,
+        updated: new Date().toISOString() // Force an update event
+      }, {
+        $autoCancel: false
+      });
+      
+      setError(null);
+    } catch (error: any) {
+      if (!error.message?.includes('autocancelled')) {
+        console.error('Error updating team assignment:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        setError(`Failed to update team assignment: ${errorMessage}`);
+        alert('Failed to update team assignment. Please try again.');
+      }
+    } finally {
+      setProcessing(null);
+    }
   };
 
   // Convert renderQueueItem to a proper React component
@@ -655,6 +766,10 @@ const Dashboard: React.FC = () => {
     const [newLineNumber, setNewLineNumber] = React.useState(item.line_number);
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+    // Use the navigate function from the parent component
+    const navigateToEncounter = (patientId: string, encounterId: string, options: any) => {
+      navigate(`/encounter/${patientId}/${encounterId}`, { state: options });
+    };
 
     const handleLineNumberUpdate = async () => {
       try {
@@ -716,7 +831,7 @@ const Dashboard: React.FC = () => {
             <Button
               variant="contained"
               color="primary"
-              onClick={() => handleClaimPatient(queueItem.id)}
+              onClick={() => handleQueueAction(queueItem.id, 'start_encounter')}
               fullWidth={isMobile}
               size={isMobile ? "small" : "medium"}
             >
@@ -729,7 +844,7 @@ const Dashboard: React.FC = () => {
             <Button
               variant="contained"
               color="primary"
-              onClick={() => navigate(`/encounter/${queueItem.patient}/${queueItem.expand?.encounter?.id}`)}
+              onClick={() => handleQueueAction(queueItem.id, 'continue_encounter')}
               fullWidth={isMobile}
               size={isMobile ? "small" : "medium"}
             >
@@ -738,33 +853,26 @@ const Dashboard: React.FC = () => {
           </RoleBasedAccess>
         )}
         {queueItem.status === 'ready_pharmacy' && (
-          <RoleBasedAccess requiredRole="pharmacy">
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={() => handleReviewDisbursements(queueItem)}
-              fullWidth={isMobile}
-              size={isMobile ? "small" : "medium"}
-            >
-              Review Disbursements
-            </Button>
-          </RoleBasedAccess>
+          <>
+            <RoleBasedAccess requiredRole="pharmacy">
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => handleReviewDisbursements(queueItem)}
+                fullWidth={isMobile}
+                size={isMobile ? "small" : "medium"}
+              >
+                Review Disbursements
+              </Button>
+            </RoleBasedAccess>
+          </>
         )}
         {queueItem.status === 'with_pharmacy' && (
           <RoleBasedAccess requiredRole="pharmacy">
             <Button
               variant="contained"
               color="primary"
-              onClick={() => {
-                if (queueItem.expand?.encounter?.id) {
-                  navigate(`/encounter/${queueItem.patient}/${queueItem.expand.encounter.id}`, {
-                    state: { 
-                      mode: 'pharmacy',
-                      scrollTo: 'disbursement'
-                    }
-                  });
-                }
-              }}
+              onClick={() => handleQueueAction(queueItem.id, 'continue_encounter', { scrollTo: 'disbursement' })}
               fullWidth={isMobile}
               size={isMobile ? "small" : "medium"}
             >
@@ -772,19 +880,39 @@ const Dashboard: React.FC = () => {
             </Button>
           </RoleBasedAccess>
         )}
-        {queueItem.status === 'at_checkout' && (
+        {(queueItem.status === 'ready_pharmacy' || queueItem.status === 'with_pharmacy') && (
+          <RoleBasedAccess requiredRole="provider">
+            {displayPreferences.show_move_to_checkout && (
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => handleQueueAction(queueItem.id, 'start_checkout')}
+                fullWidth={isMobile}
+                size={isMobile ? "small" : "medium"}
+              >
+                Move to Checkout
+              </Button>
+            )}
+          </RoleBasedAccess>
+        )}
+        {/* Complete checkout - only visible for at_checkout status */}
+        {queueItem.status === 'at_checkout' && queueItem.expand?.encounter?.id && (
           <RoleBasedAccess requiredRole="provider">
             <Button
               variant="contained"
               color="primary"
               onClick={() => {
-                if (queueItem.expand?.encounter?.id) {
-                  navigate(`/encounter/${queueItem.patient}/${queueItem.expand.encounter.id}`, {
-                    state: { 
+                // Navigate to the encounter with checkout mode and scroll to questions
+                const encounterId = queueItem.expand?.encounter?.id;
+                if (encounterId) {
+                  navigateToEncounter(
+                    queueItem.patient,
+                    encounterId,
+                    { 
                       mode: 'checkout',
                       scrollTo: 'questions'
                     }
-                  });
+                  );
                 }
               }}
               fullWidth={isMobile}
@@ -936,7 +1064,7 @@ const Dashboard: React.FC = () => {
             {displayPreferences.show_care_team_assignment && (
               <Select
                 value={queueItem.intended_provider || ''}
-                onChange={(e) => handleCareTeamChange(queueItem.id, e.target.value || null)}
+                onChange={(e) => handleTeamAssignment(queueItem.id, e.target.value || null)}
                 size="small"
                 displayEmpty
                 disabled={processing === queueItem.id}
@@ -967,7 +1095,7 @@ const Dashboard: React.FC = () => {
             )}
             <Select
               value={queueItem.status}
-              onChange={(e) => handleStatusChange(queueItem.id, e.target.value as QueueStatus)}
+              onChange={(e) => handleQueueAction(queueItem.id, 'status_change', { newStatus: e.target.value as QueueStatus })}
               size="small"
               sx={{ 
                 minWidth: { xs: '100%', sm: 120 },
@@ -1228,3 +1356,4 @@ const Dashboard: React.FC = () => {
 };
 
 export default Dashboard;
+
