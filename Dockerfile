@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build Go backend
-FROM golang:1.23-alpine AS backend-builder
+FROM golang:1.21-alpine AS backend-builder
 WORKDIR /app
 
 # Install build dependencies
@@ -41,10 +41,10 @@ COPY --from=backend-builder /app/server .
 RUN mkdir -p pb_data
 
 # Expose the port
-EXPOSE 8090
+EXPOSE 8080
 
 # Set environment variables
-ENV PORT=8090
+ENV PORT=8080
 
 # Run the server
 CMD ["./server"] 
