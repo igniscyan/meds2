@@ -42,13 +42,16 @@ func main() {
 		return nil
 	})
 
-	// Start the server
+	// Get port from environment variable
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8090"
 	}
 
-	log.Printf("Starting server on port %s...\n", port)
+	// Set up command line arguments for serve command
+	os.Args = append([]string{os.Args[0], "serve", "--http=0.0.0.0:" + port})
+
+	// Start the server
 	if err := app.Start(); err != nil {
 		log.Fatal(err)
 	}
