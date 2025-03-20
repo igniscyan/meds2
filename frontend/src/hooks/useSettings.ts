@@ -1,32 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Record } from 'pocketbase';
-import { useRealtimeCollection } from './useRealtimeCollection';
-import { getCollectionData } from '../atoms/realtimeAtoms';
-import { atom } from 'jotai/vanilla';
-import { useAtom } from 'jotai/react';
-
-interface UnitDisplay {
-  height: string;
-  weight: string;
-  temperature: string;
-}
-
-interface DisplayPreferences {
-  show_priority_dropdown: boolean;
-  show_care_team_assignment: boolean;
-  care_team_count: number;
-  show_gyn_team: boolean;
-  show_optometry_team: boolean;
-  unified_roles: boolean;
-  override_field_restrictions: boolean;
-  override_field_restrictions_all_roles: boolean;
-}
-
-interface Settings extends Record {
-  unit_display: UnitDisplay;
-  display_preferences: DisplayPreferences;
-  updated_by: string;
-}
+import { useState, useEffect } from 'react';
+import settingsService, { 
+  Settings, 
+  UnitDisplay, 
+  DisplayPreferences 
+} from '../services/settingsService';
 
 interface UseSettingsReturn {
   settings: Settings | null;
@@ -35,146 +12,58 @@ interface UseSettingsReturn {
   refreshSettings: () => void;
   unitDisplay: UnitDisplay;
   displayPreferences: DisplayPreferences;
-  syncing: boolean;
 }
 
-const defaultUnitDisplay: UnitDisplay = {
-  height: 'cm',
-  weight: 'kg',
-  temperature: 'F',
-};
-
-const defaultDisplayPreferences: DisplayPreferences = {
-  show_priority_dropdown: false,
-  show_care_team_assignment: false,
-  care_team_count: 6,
-  show_gyn_team: false,
-  show_optometry_team: false,
-  unified_roles: false,
-  override_field_restrictions: false,
-  override_field_restrictions_all_roles: false
-};
-
-// Create a global atom for settings to share across the app
-const settingsAtom = atom<UseSettingsReturn>({
-  settings: null,
-  loading: true,
-  error: null,
-  refreshSettings: () => {},
-  unitDisplay: defaultUnitDisplay,
-  displayPreferences: defaultDisplayPreferences,
-  syncing: false
-});
-
-// Flag to track if we've initialized the settings
-let settingsInitialized = false;
-
-// Function to initialize settings without a hook
-export const initializeSettings = async (): Promise<void> => {
-  if (settingsInitialized) return;
+/**
+ * Hook to access application settings
+ * 
+ * This hook:
+ * 1. Returns the current settings from the settings service
+ * 2. Subscribes to changes and updates the component
+ * 3. Provides a way to refresh settings
+ */
+export const useSettings = (): UseSettingsReturn => {
+  // Get initial settings state
+  const initialState = settingsService.getSettings();
   
-  try {
-    const records = await getCollectionData<Settings>('settings', {
-      sort: 'created',
-      limit: 1
+  // Set up state
+  const [settings, setSettings] = useState<Settings | null>(initialState.settings);
+  const [loading, setLoading] = useState<boolean>(initialState.loading);
+  const [error, setError] = useState<Error | null>(initialState.error);
+  const [unitDisplay, setUnitDisplay] = useState<UnitDisplay>(initialState.unitDisplay);
+  const [displayPreferences, setDisplayPreferences] = useState<DisplayPreferences>(initialState.displayPreferences);
+
+  // Subscribe to settings changes
+  useEffect(() => {
+    // Make sure the service is initialized
+    settingsService.initialize().catch(console.error);
+    
+    // Subscribe to settings changes
+    const unsubscribe = settingsService.subscribe((newSettings) => {
+      // Get the latest state
+      const currentState = settingsService.getSettings();
+      
+      // Update our state
+      setSettings(currentState.settings);
+      setLoading(currentState.loading);
+      setError(currentState.error);
+      setUnitDisplay(currentState.unitDisplay);
+      setDisplayPreferences(currentState.displayPreferences);
     });
     
-    const settings = records.length > 0 ? records[0] : null;
-    const unitDisplay = settings?.unit_display || defaultUnitDisplay;
-    const displayPreferences = settings?.display_preferences || defaultDisplayPreferences;
-    
-    // Update the global atom
-    settingsAtom.onMount = (setAtom) => {
-      setAtom({
-        settings,
-        loading: false,
-        error: null,
-        refreshSettings: async () => {
-          try {
-            const freshRecords = await getCollectionData<Settings>('settings', {
-              sort: 'created',
-              limit: 1
-            });
-            const freshSettings = freshRecords.length > 0 ? freshRecords[0] : null;
-            setAtom(prev => ({
-              ...prev,
-              settings: freshSettings,
-              unitDisplay: freshSettings?.unit_display || defaultUnitDisplay,
-              displayPreferences: freshSettings?.display_preferences || defaultDisplayPreferences,
-              loading: false,
-              error: null
-            }));
-          } catch (error) {
-            console.error('Error refreshing settings:', error);
-          }
-        },
-        unitDisplay,
-        displayPreferences,
-        syncing: false
-      });
-    };
-    
-    settingsInitialized = true;
-  } catch (error) {
-    console.error('Error initializing settings:', error);
-    // We'll still mark as initialized to prevent endless retries
-    settingsInitialized = true;
-  }
-};
+    // Clean up subscription on unmount
+    return unsubscribe;
+  }, []);
 
-// Call initialize on module load
-initializeSettings().catch(console.error);
-
-// Hook to access settings - now uses the global atom
-export const useSettings = (): UseSettingsReturn => {
-  const [settings, setSettings] = useAtom(settingsAtom);
-  
-  // Subscribe to realtime updates
-  const options = useMemo(() => ({
-    sort: 'created',
-    limit: 1,
-    $autoCancel: false
-  }), []);
-  
-  const { 
-    records, 
-    loading, 
-    error, 
-    refresh: refreshRealtime 
-  } = useRealtimeCollection<Settings>('settings', options);
-  
-  // Update the atom when realtime data changes
-  useEffect(() => {
-    if (records.length > 0) {
-      const newSettings = records[0];
-      setSettings(prev => ({
-        ...prev,
-        settings: newSettings,
-        loading,
-        error,
-        unitDisplay: newSettings?.unit_display || defaultUnitDisplay,
-        displayPreferences: newSettings?.display_preferences || defaultDisplayPreferences
-      }));
-    }
-  }, [records, loading, error, setSettings]);
-  
-  // Create a refresh function that updates both realtime and the atom
-  const refreshSettings = () => {
-    refreshRealtime();
-    settings.refreshSettings();
-  };
-  
-  // Return the combined state
+  // Return the settings and a refresh function
   return {
-    ...settings,
-    refreshSettings
+    settings,
+    loading,
+    error,
+    refreshSettings: settingsService.refreshSettings.bind(settingsService),
+    unitDisplay,
+    displayPreferences
   };
-};
-
-// Export a function to get the settings without subscribing
-export const getCachedSettings = (): UseSettingsReturn => {
-  // Access the atom value directly
-  return settingsAtom.init;
 };
 
 export default useSettings; 
