@@ -377,15 +377,12 @@ func backupDatabase() {
 		}
 		defer writer.Close()
 
-		// Perform backup in a goroutine
-		go func() {
-			err := zipDir(appDataDir, writer)
-			if err != nil {
-				dialog.ShowError(fmt.Errorf("Backup failed: %v", err), nil)
-			} else {
-				dialog.ShowInformation("Backup Complete", "Database backup ZIP created successfully.", nil)
-			}
-		}()
+		err = zipDir(appDataDir, writer)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("Backup failed: %v", err), nil)
+		} else {
+			dialog.ShowInformation("Backup Complete", "Database backup ZIP created successfully.", nil)
+		}
 	}, nil)
 
 	// Set filter for zip files
@@ -407,24 +404,22 @@ func restoreDatabase() {
 			zipPath := reader.URI().Path()
 			reader.Close()
 
-			go func() {
-				if wasRunning {
-					stopServer()
-				}
+			if wasRunning {
+				stopServer()
+			}
 
-				if err := restoreDataFromZip(zipPath, appDataDir); err != nil {
-					if wasRunning {
-						startServer()
-					}
-					dialog.ShowError(fmt.Errorf("Restore failed: %v", err), nil)
-					return
-				}
-
+			if err := restoreDataFromZip(zipPath, appDataDir); err != nil {
 				if wasRunning {
 					startServer()
 				}
-				dialog.ShowInformation("Restore Complete", "Database restore completed successfully.", nil)
-			}()
+				dialog.ShowError(fmt.Errorf("Restore failed: %v", err), nil)
+				return
+			}
+
+			if wasRunning {
+				startServer()
+			}
+			dialog.ShowInformation("Restore Complete", "Database restore completed successfully.", nil)
 		}, nil)
 
 		openDialog.SetFilter(storage.NewExtensionFileFilter([]string{".zip"}))
