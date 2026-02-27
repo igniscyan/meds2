@@ -1,13 +1,16 @@
 package main
 
 import (
+	"archive/zip"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -303,12 +306,21 @@ func stopServer() {
 
 	serverStatus.Set("Stopping...")
 
-	// Stop the server
-	serverRunning = false
-	serverStatus.Set("Stopped")
+	// Trigger PocketBase termination hooks to shut down the HTTP server.
+	err := pbApp.OnTerminate().Trigger(&core.TerminateEvent{
+		App: pbApp,
+	}, func(e *core.TerminateEvent) error {
+		return e.App.ResetBootstrapState()
+	})
+	if err != nil {
+		log.Printf("Server stop error: %v", err)
+		serverStatus.Set("Error")
+		return
+	}
 
-	// The PocketBase library doesn't have a Stop() method, so we'll just set the flag
-	// and let the server stop gracefully when the application exits
+	serverRunning = false
+	pbApp = nil
+	serverStatus.Set("Stopped")
 }
 
 func updateStats() {
@@ -350,21 +362,13 @@ func backupDatabase() {
 		}
 		defer writer.Close()
 
-		// Get the selected path
-		backupPath := writer.URI().Path()
-
-		// Create a directory for the backup
-		backupDir := filepath.Dir(backupPath)
-		timestamp := time.Now().Format("2006-01-02_15-04-05")
-		backupDirWithTimestamp := filepath.Join(backupDir, fmt.Sprintf("pb_data_backup_%s", timestamp))
-
 		// Perform backup in a goroutine
 		go func() {
-			err := copyDir("pb_data", backupDirWithTimestamp)
+			err := zipDir("pb_data", writer)
 			if err != nil {
 				dialog.ShowError(fmt.Errorf("Backup failed: %v", err), nil)
 			} else {
-				dialog.ShowInformation("Backup Complete", fmt.Sprintf("Database backed up to: %s", backupDirWithTimestamp), nil)
+				dialog.ShowInformation("Backup Complete", "Database backup ZIP created successfully.", nil)
 			}
 		}()
 	}, nil)
@@ -375,64 +379,48 @@ func backupDatabase() {
 	saveDialog.Show()
 }
 
-// Helper function to copy a directory
-func copyDir(src, dst string) error {
-	// Create destination directory
-	if err := os.MkdirAll(dst, 0755); err != nil {
-		return err
-	}
+// zipDir writes all files under srcDir to the provided writer as a zip archive.
+func zipDir(srcDir string, out io.Writer) error {
+	zipWriter := zip.NewWriter(out)
+	defer zipWriter.Close()
 
-	// Get directory contents
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		if entry.IsDir() {
-			// Recursively copy subdirectory
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			// Copy file
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return err
-			}
+	return filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-	}
+		if d.IsDir() {
+			return nil
+		}
 
-	return nil
-}
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
 
-// Helper function to copy a file
-func copyFile(src, dst string) error {
-	// Open source file
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
+		zipPath := filepath.ToSlash(relPath)
+		fileWriter, err := zipWriter.Create(zipPath)
+		if err != nil {
+			return err
+		}
 
-	// Create destination file
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
 
-	// Copy contents
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+		_, err = io.Copy(fileWriter, file)
+		closeErr := file.Close()
+		if err != nil {
+			return err
+		}
+		return closeErr
+	})
 }
 
 func openBrowser(url string) {
 	var err error
 
-	switch os.Getenv("GOOS") {
+	switch runtime.GOOS {
 	case "windows":
 		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 	case "darwin":

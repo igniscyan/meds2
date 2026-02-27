@@ -11,14 +11,10 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Collapse,
-  Paper,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import UndoIcon from '@mui/icons-material/Undo';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
@@ -65,41 +61,6 @@ interface DisbursementFormProps {
   onDisbursementComplete?: () => void;
   currentDiagnoses?: { id: string; name: string; }[];
 }
-
-// Add debug panel component
-const DebugPanel: React.FC<{
-  disbursement: DisbursementItem;
-  databaseValue?: number;
-  onCalculateStockChange: (d: DisbursementItem, index: number) => any;
-}> = ({ disbursement, databaseValue, onCalculateStockChange }) => {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Paper sx={{ p: 1, my: 1, backgroundColor: '#f5f5f5' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="subtitle2">Debug Info</Typography>
-        <IconButton size="small" onClick={() => setOpen(!open)}>
-          {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-        </IconButton>
-      </Box>
-      <Collapse in={open}>
-        <Box sx={{ mt: 1 }}>
-          <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap' }}>
-            {JSON.stringify({
-              id: disbursement.id,
-              medication: disbursement.medicationDetails?.drug_name,
-              currentMultiplier: disbursement.multiplier,
-              databaseMultiplier: databaseValue,
-              currentQuantity: disbursement.quantity,
-              fixed_quantity: disbursement.medicationDetails?.fixed_quantity,
-              stockChange: onCalculateStockChange(disbursement, -1)
-            }, null, 2)}
-          </Typography>
-        </Box>
-      </Collapse>
-    </Paper>
-  );
-};
 
 // Update DisbursementConfirmation props interface to match the actual component
 interface DisbursementConfirmationProps {

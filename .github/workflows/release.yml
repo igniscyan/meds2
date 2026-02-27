@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build
+          if-no-files-found: error
+
+  macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    needs: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build macOS app bundle and DMG
+        run: |
+          set -euxo pipefail
+          rm -rf dist
+          mkdir -p dist/MedicalRecordsSystem.app/Contents/MacOS
+          mkdir -p dist/MedicalRecordsSystem.app/Contents/Resources
+
+          go mod download
+          go build -o dist/MedicalRecordsSystem.app/Contents/MacOS/medical-records .
+
+          cat > dist/MedicalRecordsSystem.app/Contents/Info.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>medical-records</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.meds2.medicalrecords</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>Medical Records System</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${{ github.ref_name }}</string>
+              <key>CFBundleVersion</key>
+              <string>${{ github.run_number }}</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          mkdir -p dist/MedicalRecordsSystem.app/Contents/MacOS/frontend/build
+          cp -R frontend/build/. dist/MedicalRecordsSystem.app/Contents/MacOS/frontend/build/
+
+          if [ -f README.md ]; then
+            cp README.md dist/MedicalRecordsSystem.app/Contents/Resources/README.txt
+          fi
+
+          hdiutil create \
+            -volname "Medical Records System" \
+            -srcfolder dist/MedicalRecordsSystem.app \
+            -ov -format UDZO \
+            dist/MedicalRecordsSystem.dmg
+
+          (cd dist && zip -r MedicalRecordsSystem-macOS-app.zip MedicalRecordsSystem.app)
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: |
+            dist/MedicalRecordsSystem.dmg
+            dist/MedicalRecordsSystem-macOS-app.zip
+          if-no-files-found: error
+
+  windows:
+    name: Build Windows EXE + Installer
+    runs-on: windows-latest
+    needs: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/build
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path dist\package\frontend\build | Out-Null
+          New-Item -ItemType Directory -Force -Path dist\package\pb_migrations | Out-Null
+
+          go mod download
+          go build -ldflags="-H windowsgui" -o dist\package\medical-records.exe .
+
+          Copy-Item -Path frontend\build\* -Destination dist\package\frontend\build -Recurse -Force
+          if (Test-Path README.md) {
+            Copy-Item README.md dist\package\README.txt -Force
+          }
+
+          Compress-Archive -Path dist\package\* -DestinationPath dist\MedicalRecordsSystem-windows.zip -Force
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "utils\build\installer.iss"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: |
+            dist/MedicalRecordsSystem-windows.zip
+            dist/MedicalRecordsSystem_Setup.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - macos
+      - windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: List release files
+        run: find release-artifacts -type f | sort
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/macos-dist/MedicalRecordsSystem.dmg
+            release-artifacts/macos-dist/MedicalRecordsSystem-macOS-app.zip
+            release-artifacts/windows-dist/MedicalRecordsSystem-windows.zip
+            release-artifacts/windows-dist/MedicalRecordsSystem_Setup.exe
+          generate_release_notes: true

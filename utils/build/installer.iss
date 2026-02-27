@@ -32,7 +32,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#SourcePath}\..\..\dist\package\medical-records.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourcePath}\..\..\dist\package\frontend\*"; DestDir: "{app}\frontend"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#SourcePath}\..\..\dist\package\pb_migrations\*"; DestDir: "{app}\pb_migrations"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourcePath}\..\..\dist\package\pb_migrations\*"; DestDir: "{app}\pb_migrations"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "{#SourcePath}\..\..\dist\package\README.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 

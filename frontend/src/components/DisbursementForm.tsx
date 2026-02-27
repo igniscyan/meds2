@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle, useReducer } from 'react';
+import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   Box,
   Grid,
@@ -11,24 +11,27 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Collapse,
-  Paper,
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import UndoIcon from '@mui/icons-material/Undo';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import { Record } from 'pocketbase';
 import { pb } from '../atoms/auth';
 import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { DisbursementConfirmation } from './DisbursementConfirmation';
-import { 
-  parseMultiplier, 
-  isValidMultiplier, 
+import {
+  parseMultiplier,
+  isValidMultiplier,
   calculateDisbursementQuantity,
   calculateSingleDisbursementStockChange
 } from '../utils/disbursementUtils';
+
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const debugLog = (...args: unknown[]) => {
+  if (isDevelopment) {
+    console.log(...args);
+  }
+};
 
 export interface MedicationRecord extends Record {
   drug_name: string;
@@ -66,40 +69,6 @@ interface DisbursementFormProps {
   currentDiagnoses?: { id: string; name: string; }[];
 }
 
-// Add debug panel component
-const DebugPanel: React.FC<{
-  disbursement: DisbursementItem;
-  databaseValue?: number;
-  onCalculateStockChange: (d: DisbursementItem, index: number) => any;
-}> = ({ disbursement, databaseValue, onCalculateStockChange }) => {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Paper sx={{ p: 1, my: 1, backgroundColor: '#f5f5f5' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="subtitle2">Debug Info</Typography>
-        <IconButton size="small" onClick={() => setOpen(!open)}>
-          {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
-        </IconButton>
-      </Box>
-      <Collapse in={open}>
-        <Box sx={{ mt: 1 }}>
-          <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap' }}>
-            {JSON.stringify({
-              id: disbursement.id,
-              medication: disbursement.medicationDetails?.drug_name,
-              currentMultiplier: disbursement.multiplier,
-              databaseMultiplier: databaseValue,
-              currentQuantity: disbursement.quantity,
-              fixed_quantity: disbursement.medicationDetails?.fixed_quantity,
-              stockChange: onCalculateStockChange(disbursement, -1)
-            }, null, 2)}
-          </Typography>
-        </Box>
-      </Collapse>
-    </Paper>
-  );
-};
 
 export const DisbursementForm = forwardRef<
   { resetLocalState: () => void },
@@ -155,14 +124,10 @@ export const DisbursementForm = forwardRef<
   // Add a ref to track local state changes
   const [localStateChanges, setLocalStateChanges] = useState<Map<string, boolean>>(new Map());
 
-  // Add state for tracking database values
-  const [databaseValues, setDatabaseValues] = useState<Map<string, number>>(new Map());
-
   // Add imperative handle for ref
   useImperativeHandle(ref, () => ({
     resetLocalState: () => {
       setLocalStateChanges(new Map());
-      setDatabaseValues(new Map());
       setInitialMedicationState(new Map());
     }
   }));
@@ -170,7 +135,7 @@ export const DisbursementForm = forwardRef<
   // Modify useEffect to respect local state changes
   useEffect(() => {
     if (initialDisbursements?.length) {
-      console.log('DEBUG: Initial disbursements received:', initialDisbursements.map(d => ({
+      debugLog('DEBUG: Initial disbursements received:', initialDisbursements.map(d => ({
         id: d.id,
         medication: d.medication,
         quantity: d.quantity,
@@ -187,7 +152,7 @@ export const DisbursementForm = forwardRef<
       const processedDisbursements = initialDisbursements.map(d => {
         // Only track initial state for disbursements that have an ID (exist in database)
         if (d.medication && d.id) {
-          console.log('DEBUG: Processing disbursement for initial state:', {
+          debugLog('DEBUG: Processing disbursement for initial state:', {
             id: d.id,
             medication: d.medicationDetails?.drug_name,
             quantity: d.quantity,
@@ -219,7 +184,7 @@ export const DisbursementForm = forwardRef<
           markedForDeletion: shouldBeDeleted ?? false 
         };
 
-        console.log('DEBUG: Processed disbursement:', {
+        debugLog('DEBUG: Processed disbursement:', {
           id: processedDisbursement.id,
           medication: processedDisbursement.medicationDetails?.drug_name,
           multiplier: processedDisbursement.multiplier,
@@ -231,7 +196,7 @@ export const DisbursementForm = forwardRef<
         return processedDisbursement;
       });
 
-      console.log('DEBUG: Final state:', {
+      debugLog('DEBUG: Final state:', {
         initialState: Array.from(newInitialState.entries()).map(([key, value]) => ({
           medication: key,
           multiplier: value.multiplier,
@@ -253,14 +218,6 @@ export const DisbursementForm = forwardRef<
 
       setDisbursements(processedDisbursements);
 
-      // Update useEffect to track database values
-      const newDatabaseValues = new Map();
-      processedDisbursements.forEach(d => {
-        if (d.id) {
-          newDatabaseValues.set(d.id, d.multiplier === '' ? 0 : parseFloat(d.multiplier) || 0);  // Empty becomes 0
-        }
-      });
-      setDatabaseValues(newDatabaseValues);
     }
   }, [initialDisbursements, localStateChanges]);
 
@@ -273,7 +230,7 @@ export const DisbursementForm = forwardRef<
       frequency: 'QD' as const,
     };
     
-    console.log('STOCK DEBUG: [ADD] Adding new disbursement:', {
+    debugLog('STOCK DEBUG: [ADD] Adding new disbursement:', {
       currentInitialState: Array.from(initialMedicationState.entries()),
       currentDisbursements: disbursements.length,
       preservingInitialState: true
@@ -283,7 +240,7 @@ export const DisbursementForm = forwardRef<
   };
 
   const handleRemoveDisbursement = (index: number) => {
-    console.log('DEBUG: handleRemoveDisbursement called', {
+    debugLog('DEBUG: handleRemoveDisbursement called', {
       index,
       currentDisbursement: disbursements[index],
       allDisbursements: disbursements.map(d => ({
@@ -317,7 +274,7 @@ export const DisbursementForm = forwardRef<
       idx === index ? disbursementToUpdate : d
     );
 
-    console.log('DEBUG: After marking for deletion', {
+    debugLog('DEBUG: After marking for deletion', {
       updatedDisbursement: disbursementToUpdate,
       allNewDisbursements: newDisbursements.map(d => ({
         id: d.id,
@@ -440,7 +397,7 @@ export const DisbursementForm = forwardRef<
     field: keyof DisbursementItem,
     value: DisbursementItem[keyof DisbursementItem]
   ) => {
-    console.log('DEBUG: handleDisbursementChange called', {
+    debugLog('DEBUG: handleDisbursementChange called', {
       index,
       field,
       value,
@@ -452,7 +409,7 @@ export const DisbursementForm = forwardRef<
 
     // If this is a medication being restored, clear the deletion flag
     if (field === 'markedForDeletion' && typeof value === 'boolean') {
-      console.log('DEBUG: Attempting to restore medication', {
+      debugLog('DEBUG: Attempting to restore medication', {
         previousState: disbursement.markedForDeletion,
         newState: value
       });
@@ -555,22 +512,6 @@ export const DisbursementForm = forwardRef<
         <pre style={{ fontSize: '0.8em', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
           {JSON.stringify(debugState, null, 2)}
         </pre>
-      </Box>
-    );
-  };
-
-  // Modify the render function to include debug panel
-  const renderDisbursementRow = (disbursement: DisbursementItem, index: number) => {
-    return (
-      <Box key={index}>
-        {/* Existing row content */}
-        
-        {/* Add debug panel */}
-        <DebugPanel 
-          disbursement={disbursement}
-          databaseValue={disbursement.id ? databaseValues.get(disbursement.id) : undefined}
-          onCalculateStockChange={calculateStockChange}
-        />
       </Box>
     );
   };

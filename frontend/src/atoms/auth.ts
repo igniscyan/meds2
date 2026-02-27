@@ -30,11 +30,17 @@ authErrorAtom.debugLabel = 'authErrorAtom';
 
 // Track active realtime subscriptions
 const activeSubscriptions = new Set<string>();
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const debugLog = (...args: unknown[]) => {
+  if (isDevelopment) {
+    console.log(...args);
+  }
+};
 
 // Simple function to log auth state in development
 const logAuthState = (context: string) => {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[Auth] ${context}:`, {
+  if (isDevelopment) {
+    debugLog(`[Auth] ${context}:`, {
       isValid: pb.authStore.isValid,
       hasModel: !!pb.authStore.model,
       modelId: pb.authStore.model?.id,
@@ -59,22 +65,22 @@ export const getCurrentUser = (): AuthModel | null => {
 // Export a function to track realtime subscriptions
 export const trackSubscription = (topic: string) => {
   activeSubscriptions.add(topic);
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[Auth] Added subscription to ${topic}, total: ${activeSubscriptions.size}`);
+  if (isDevelopment) {
+    debugLog(`[Auth] Added subscription to ${topic}, total: ${activeSubscriptions.size}`);
   }
 };
 
 // Export a function to untrack realtime subscriptions
 export const untrackSubscription = (topic: string) => {
   activeSubscriptions.delete(topic);
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[Auth] Removed subscription to ${topic}, total: ${activeSubscriptions.size}`);
+  if (isDevelopment) {
+    debugLog(`[Auth] Removed subscription to ${topic}, total: ${activeSubscriptions.size}`);
   }
 };
 
 // Simple logout function
 export const logoutAtom = atom(null, async (get, set) => {
-  console.log('[auth] Starting logout process...');
+  debugLog('[auth] Starting logout process...');
   
   // Dispatch pre-logout event to allow components to clean up
   window.dispatchEvent(new CustomEvent('pocketbase-pre-logout'));
@@ -85,19 +91,19 @@ export const logoutAtom = atom(null, async (get, set) => {
   try {
     // Force disconnect from realtime API before clearing auth
     try {
-      console.log('[auth] Forcing disconnect from realtime API...');
+      debugLog('[auth] Forcing disconnect from realtime API...');
       // @ts-ignore - accessing private API
       if (pb.realtime && typeof pb.realtime.disconnect === 'function') {
         // @ts-ignore - accessing private API
         await pb.realtime.disconnect();
-        console.log('[auth] Successfully disconnected from realtime API');
+        debugLog('[auth] Successfully disconnected from realtime API');
       }
     } catch (err) {
       // Don't let this error stop the logout process
       console.error('[auth] Error disconnecting from realtime API:', err);
     }
     
-    console.log('[auth] Clearing auth token...');
+    debugLog('[auth] Clearing auth token...');
     pb.authStore.clear();
     
     // Clear tracked subscriptions
@@ -113,7 +119,7 @@ export const logoutAtom = atom(null, async (get, set) => {
     // Dispatch logout-complete event
     window.dispatchEvent(new CustomEvent('pocketbase-logout-complete'));
     
-    console.log('[auth] Logout complete');
+    debugLog('[auth] Logout complete');
     
     // Update atoms
     set(authModelAtom, null);
