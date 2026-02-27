@@ -4,16 +4,12 @@ import {
   Typography,
   Paper,
   Grid,
-  Card,
-  CardContent,
-  CardActions,
   Button,
   Select,
   MenuItem,
   FormControl,
   InputLabel,
   Alert,
-  TextField,
   Table,
   TableBody,
   TableCell,
@@ -29,11 +25,11 @@ import { useRealtimeSubscription } from '../hooks/useRealtimeSubscription';
 import { Patient } from '../types/patient';
 import { QueueItem } from '../types/queue';
 import DownloadIcon from '@mui/icons-material/Download';
-import { Encounter } from '../types/encounter';
-import { Disbursement } from '../types/disbursement';
 
 type ReportType = 'daily' | 'weekly' | 'custom';
 type ReportCategory = 'patient-analysis' | 'chief-complaint-analysis' | 'diagnosis-analysis' | 'disbursement-analysis' | 'survey-responses';
+type ReportCell = string | number;
+type ReportRow = ReportCell[];
 
 interface ReportConfig {
   type: ReportType;
@@ -97,14 +93,14 @@ const Reports: React.FC = () => {
   });
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [previewData, setPreviewData] = useState<any[]>([]);
+  const [previewData, setPreviewData] = useState<ReportRow[]>([]);
 
   // Fetch all the data we need for reports
   const { records: patients } = useRealtimeSubscription<Patient>('patients', {});
   const { records: queueItems } = useRealtimeSubscription<QueueItem>('queue', {
     expand: 'patient,encounter',
   });
-  const { records: encounters, loading, error: encountersError } = useRealtimeSubscription<EncounterRecord>('encounters', {
+  const { records: encounters } = useRealtimeSubscription<EncounterRecord>('encounters', {
     expand: 'chief_complaint,diagnosis',
   });
   const { records: disbursements } = useRealtimeSubscription<DisbursementRecord>('disbursements', {
@@ -116,23 +112,13 @@ const Reports: React.FC = () => {
     setError(null);
 
     try {
-      let reportData: any[] = [];
+      let reportData: ReportRow[] = [];
 
       if (reportConfig.category === 'patient-analysis') {
         // Patient Analysis
-        const timeFilteredQueue = queueItems.filter(item => {
-          const itemDate = new Date(item.created);
-          const startDate = reportConfig.startDate;
-          if (reportConfig.type === 'daily') {
-            return itemDate.toDateString() === startDate.toDateString();
-          } else if (reportConfig.type === 'weekly') {
-            const weekStart = new Date(startDate);
-            const weekEnd = new Date(startDate);
-            weekEnd.setDate(weekEnd.getDate() + 7);
-            return itemDate >= weekStart && itemDate <= weekEnd;
-          }
-          return true;
-        });
+        const timeFilteredQueue = queueItems.filter(item =>
+          isWithinReportRange(item.created, reportConfig)
+        );
 
         const uniquePatients = new Set(timeFilteredQueue.map(item => item.patient));
         const patientDetails = Array.from(uniquePatients).map(id => 
@@ -146,34 +132,22 @@ const Reports: React.FC = () => {
         reportData = [
           ['Metric', 'Count', 'Percentage'],
           ['Total Patient Encounters', timeFilteredQueue.length, '100%'],
-          ['Unique Patients', uniquePatients.size, `${Math.round((uniquePatients.size / timeFilteredQueue.length) * 100)}%`],
-          ['Gender - Male', genderDistribution.male, `${Math.round(genderDistribution.malePercent)}%`],
-          ['Gender - Female', genderDistribution.female, `${Math.round(genderDistribution.femalePercent)}%`],
-          ['Gender - Other', genderDistribution.other, `${Math.round(genderDistribution.otherPercent)}%`],
-          ['Age 0-17', ageGroups.children, `${Math.round(ageGroups.childrenPercent)}%`],
-          ['Age 18-30', ageGroups.youngAdults, `${Math.round(ageGroups.youngAdultsPercent)}%`],
-          ['Age 31-50', ageGroups.adults, `${Math.round(ageGroups.adultsPercent)}%`],
-          ['Age 51+', ageGroups.seniors, `${Math.round(ageGroups.seniorsPercent)}%`],
-          ['Pregnant Patients', pregnancyCount, `${Math.round((pregnancyCount / uniquePatients.size) * 100)}%`],
+          ['Unique Patients', uniquePatients.size, formatPercent(uniquePatients.size, timeFilteredQueue.length)],
+          ['Gender - Male', genderDistribution.male, formatPercent(genderDistribution.male, patientDetails.length)],
+          ['Gender - Female', genderDistribution.female, formatPercent(genderDistribution.female, patientDetails.length)],
+          ['Gender - Other', genderDistribution.other, formatPercent(genderDistribution.other, patientDetails.length)],
+          ['Age 0-17', ageGroups.children, formatPercent(ageGroups.children, patientDetails.length)],
+          ['Age 18-30', ageGroups.youngAdults, formatPercent(ageGroups.youngAdults, patientDetails.length)],
+          ['Age 31-50', ageGroups.adults, formatPercent(ageGroups.adults, patientDetails.length)],
+          ['Age 51+', ageGroups.seniors, formatPercent(ageGroups.seniors, patientDetails.length)],
+          ['Pregnant Patients', pregnancyCount, formatPercent(pregnancyCount, uniquePatients.size)],
         ];
       }
       else if (reportConfig.category === 'chief-complaint-analysis') {
         // Chief Complaint Analysis
-        const timeFilteredEncounters = encounters.filter(encounter => {
-          const itemDate = new Date(encounter.created);
-          const startDate = reportConfig.startDate;
-          if (reportConfig.type === 'daily') {
-            return itemDate.toDateString() === startDate.toDateString();
-          } else if (reportConfig.type === 'weekly') {
-            const weekStart = new Date(startDate);
-            const weekEnd = new Date(startDate);
-            weekEnd.setDate(weekEnd.getDate() + 7);
-            return itemDate >= weekStart && itemDate <= weekEnd;
-          }
-          return true;
-        });
-
-        console.log('Filtered Encounters:', timeFilteredEncounters);
+        const timeFilteredEncounters = encounters.filter(encounter =>
+          isWithinReportRange(encounter.created, reportConfig)
+        );
         
         // Track standard complaints and other complaints separately
         const standardComplaints: { [key: string]: number } = {};
@@ -200,10 +174,6 @@ const Reports: React.FC = () => {
           });
         });
 
-        console.log('Standard Complaints:', standardComplaints);
-        console.log('Other Complaints:', otherComplaints);
-        console.log('Total Other Count:', totalOtherCount);
-
         const totalComplaints = Object.values(standardComplaints).reduce((a, b) => a + b, 0) + totalOtherCount;
 
         if (totalComplaints > 0) {
@@ -220,14 +190,14 @@ const Reports: React.FC = () => {
             ['Chief Complaint', 'Count', 'Percentage'],
             // Add standard complaints
             ...sortedStandardComplaints.map(([complaint, count]) => 
-              [complaint, count, `${Math.round((count / totalComplaints) * 100)}%`]
+              [complaint, count, formatPercent(count, totalComplaints)]
             ),
             // Add Other category total if there are any
             ...(totalOtherCount > 0 ? [
-              ['OTHER (Custom Text Input)', totalOtherCount, `${Math.round((totalOtherCount / totalComplaints) * 100)}%`],
+              ['OTHER (Custom Text Input)', totalOtherCount, formatPercent(totalOtherCount, totalComplaints)],
               ['Other Complaints Breakdown:', '', ''],
               ...sortedOtherComplaints.map(([complaint, count]) => 
-                [`  • ${complaint}`, count, `${Math.round((count / totalOtherCount) * 100)}% of Other`]
+                [`Other: ${complaint}`, count, `${formatPercentValue(count, totalOtherCount)} of Other`]
               )
             ] : []),
             ['', '', ''],
@@ -242,21 +212,9 @@ const Reports: React.FC = () => {
       }
       else if (reportConfig.category === 'diagnosis-analysis') {
         // Diagnosis Analysis
-        const timeFilteredEncounters = encounters.filter(encounter => {
-          const itemDate = new Date(encounter.created);
-          const startDate = reportConfig.startDate;
-          if (reportConfig.type === 'daily') {
-            return itemDate.toDateString() === startDate.toDateString();
-          } else if (reportConfig.type === 'weekly') {
-            const weekStart = new Date(startDate);
-            const weekEnd = new Date(startDate);
-            weekEnd.setDate(weekEnd.getDate() + 7);
-            return itemDate >= weekStart && itemDate <= weekEnd;
-          }
-          return true;
-        });
-
-        console.log('Filtered Encounters:', timeFilteredEncounters);
+        const timeFilteredEncounters = encounters.filter(encounter =>
+          isWithinReportRange(encounter.created, reportConfig)
+        );
         
         // Track standard diagnoses and other diagnoses separately
         const standardDiagnoses: { [key: string]: number } = {};
@@ -283,10 +241,6 @@ const Reports: React.FC = () => {
           });
         });
 
-        console.log('Standard Diagnoses:', standardDiagnoses);
-        console.log('Other Diagnoses:', otherDiagnoses);
-        console.log('Total Other Count:', totalOtherCount);
-
         const totalDiagnoses = Object.values(standardDiagnoses).reduce((a, b) => a + b, 0) + totalOtherCount;
 
         if (totalDiagnoses > 0) {
@@ -303,14 +257,14 @@ const Reports: React.FC = () => {
             ['Diagnosis', 'Count', 'Percentage'],
             // Add standard diagnoses
             ...sortedStandardDiagnoses.map(([diagnosis, count]) => 
-              [diagnosis, count, `${Math.round((count / totalDiagnoses) * 100)}%`]
+              [diagnosis, count, formatPercent(count, totalDiagnoses)]
             ),
             // Add Other category total if there are any
             ...(totalOtherCount > 0 ? [
-              ['OTHER (Custom Text Input)', totalOtherCount, `${Math.round((totalOtherCount / totalDiagnoses) * 100)}%`],
+              ['OTHER (Custom Text Input)', totalOtherCount, formatPercent(totalOtherCount, totalDiagnoses)],
               ['Other Diagnoses Breakdown:', '', ''],
               ...sortedOtherDiagnoses.map(([diagnosis, count]) => 
-                [`  • ${diagnosis}`, count, `${Math.round((count / totalOtherCount) * 100)}% of Other`]
+                [`Other: ${diagnosis}`, count, `${formatPercentValue(count, totalOtherCount)} of Other`]
               )
             ] : []),
             ['', '', ''],
@@ -325,21 +279,9 @@ const Reports: React.FC = () => {
       }
       else if (reportConfig.category === 'disbursement-analysis') {
         // Disbursement Analysis
-        const timeFilteredDisbursements = disbursements.filter(disbursement => {
-          const itemDate = new Date(disbursement.created);
-          const startDate = reportConfig.startDate;
-          if (reportConfig.type === 'daily') {
-            return itemDate.toDateString() === startDate.toDateString();
-          } else if (reportConfig.type === 'weekly') {
-            const weekStart = new Date(startDate);
-            const weekEnd = new Date(startDate);
-            weekEnd.setDate(weekEnd.getDate() + 7);
-            return itemDate >= weekStart && itemDate <= weekEnd;
-          }
-          return true;
-        });
-
-        console.log('Filtered Disbursements:', timeFilteredDisbursements);
+        const timeFilteredDisbursements = disbursements.filter(disbursement =>
+          isWithinReportRange(disbursement.created, reportConfig)
+        );
 
         // Group by medication
         const medicationStats = timeFilteredDisbursements.reduce((acc: {
@@ -379,32 +321,34 @@ const Reports: React.FC = () => {
           return acc;
         }, {});
 
-        console.log('Medication Stats:', medicationStats);
-
         if (Object.keys(medicationStats).length > 0) {
           reportData = [
-            ['Medication', 'Total Quantity Disbursed', 'Unique Patient Encounters', 'Most Common Quantity', 'Associated Diagnoses'],
+            ['Row Type', 'Medication / Diagnosis', 'Total Quantity', 'Unique Encounters', 'Most Common Quantity', 'Association Count', 'Association %'],
             ...Object.values(medicationStats)
               .sort((a, b) => b.totalQuantity - a.totalQuantity)
               .flatMap(stats => {
                 // Create the main medication row
                 const mainRow = [
+                  'Medication',
                   stats.drugName,
                   stats.totalQuantity,
                   stats.uniqueEncounters.size,
                   calculateMode(stats.quantities),
-                  ''
+                  '',
+                  '',
                 ];
 
                 // Create diagnosis association rows
                 const diagnosisRows = Object.entries(stats.diagnosisAssociations)
                   .sort((a, b) => b[1] - a[1])
                   .map(([diagnosis, count]) => [
-                    `  • ${diagnosis}`,
+                    'Diagnosis Association',
+                    diagnosis,
+                    '',
+                    '',
                     '',
                     count,
-                    '',
-                    `${Math.round((count / stats.uniqueEncounters.size) * 100)}%`
+                    formatPercent(count, stats.uniqueEncounters.size),
                   ]);
 
                 return diagnosisRows.length > 0 ? [mainRow, ...diagnosisRows] : [mainRow];
@@ -412,17 +356,15 @@ const Reports: React.FC = () => {
           ];
         } else {
           reportData = [
-            ['Medication', 'Total Quantity Disbursed', 'Unique Patient Encounters', 'Most Common Quantity', 'Associated Diagnoses'],
-            ['No disbursements found in the selected time period', 0, 0, 0, '']
+            ['Row Type', 'Medication / Diagnosis', 'Total Quantity', 'Unique Encounters', 'Most Common Quantity', 'Association Count', 'Association %'],
+            ['No disbursements found in the selected time period', '', 0, 0, 0, 0, '0%']
           ];
         }
       }
       else if (reportConfig.category === 'survey-responses') {
-        // Placeholder for survey responses - to be implemented
-        reportData = [
-          ['Survey Response Analysis - Coming Soon'],
-          ['This report will be implemented in a future update.']
-        ];
+        setError('Survey Responses report is not available yet.');
+        setPreviewData([]);
+        return;
       }
 
       // Only set preview data, don't download automatically
@@ -440,7 +382,7 @@ const Reports: React.FC = () => {
     try {
       // Create CSV content with proper escaping and formatting
       const csvContent = previewData.map(row => {
-        return row.map((cell: string | number) => {
+        return row.map((cell: ReportCell) => {
           // Handle empty cells
           if (cell === '') return '';
           // Handle cells that contain commas by wrapping in quotes
@@ -469,20 +411,6 @@ const Reports: React.FC = () => {
     }
   };
 
-  // Helper functions for calculations
-  const calculateAverageWaitTime = (items: QueueItem[]): number => {
-    const completedItems = items.filter(item => item.status === 'completed' && item.start_time);
-    if (completedItems.length === 0) return 0;
-
-    const totalWaitTime = completedItems.reduce((acc, item) => {
-      const startTime = new Date(item.start_time!).getTime();
-      const checkInTime = new Date(item.check_in_time).getTime();
-      return acc + (startTime - checkInTime);
-    }, 0);
-
-    return totalWaitTime / (completedItems.length * 60000); // Convert to minutes
-  };
-
   const calculateGenderDistribution = (patientList: Patient[]) => {
     const total = patientList.length;
     const male = patientList.filter(p => p.gender === 'male').length;
@@ -493,9 +421,9 @@ const Reports: React.FC = () => {
       male,
       female,
       other,
-      malePercent: (male / total) * 100,
-      femalePercent: (female / total) * 100,
-      otherPercent: (other / total) * 100,
+      malePercent: total > 0 ? (male / total) * 100 : 0,
+      femalePercent: total > 0 ? (female / total) * 100 : 0,
+      otherPercent: total > 0 ? (other / total) * 100 : 0,
     };
   };
 
@@ -511,26 +439,10 @@ const Reports: React.FC = () => {
       youngAdults,
       adults,
       seniors,
-      childrenPercent: (children / total) * 100,
-      youngAdultsPercent: (youngAdults / total) * 100,
-      adultsPercent: (adults / total) * 100,
-      seniorsPercent: (seniors / total) * 100,
-    };
-  };
-
-  const calculateSmokerStats = (patientList: Patient[]) => {
-    const total = patientList.length;
-    const yes = patientList.filter(p => p.smoker === 'yes').length;
-    const no = patientList.filter(p => p.smoker === 'no').length;
-    const former = patientList.filter(p => p.smoker === 'former').length;
-
-    return {
-      yes,
-      no,
-      former,
-      yesPercent: (yes / total) * 100,
-      noPercent: (no / total) * 100,
-      formerPercent: (former / total) * 100,
+      childrenPercent: total > 0 ? (children / total) * 100 : 0,
+      youngAdultsPercent: total > 0 ? (youngAdults / total) * 100 : 0,
+      adultsPercent: total > 0 ? (adults / total) * 100 : 0,
+      seniorsPercent: total > 0 ? (seniors / total) * 100 : 0,
     };
   };
 
@@ -567,6 +479,39 @@ const Reports: React.FC = () => {
   const parseCommaList = (text: string): string[] => {
     if (!text) return [];
     return text.split(',').map(item => item.trim()).filter(item => item.length > 0);
+  };
+
+  const formatPercent = (numerator: number, denominator: number): string => {
+    return `${formatPercentValue(numerator, denominator)}`;
+  };
+
+  const formatPercentValue = (numerator: number, denominator: number): string => {
+    if (denominator <= 0) return '0%';
+    return `${Math.round((numerator / denominator) * 100)}%`;
+  };
+
+  const isWithinReportRange = (created: string, config: ReportConfig): boolean => {
+    const itemDate = new Date(created);
+    const startDate = new Date(config.startDate);
+
+    if (config.type === 'daily') {
+      return itemDate.toDateString() === startDate.toDateString();
+    }
+
+    if (config.type === 'weekly') {
+      const weekStart = new Date(startDate);
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
+      return itemDate >= weekStart && itemDate <= weekEnd;
+    }
+
+    const customStart = new Date(config.startDate);
+    customStart.setHours(0, 0, 0, 0);
+    const customEnd = new Date(config.endDate);
+    customEnd.setHours(23, 59, 59, 999);
+    return itemDate >= customStart && itemDate <= customEnd;
   };
 
   return (
@@ -614,7 +559,9 @@ const Reports: React.FC = () => {
                   <MenuItem value="chief-complaint-analysis">Chief Complaint Analysis</MenuItem>
                   <MenuItem value="diagnosis-analysis">Diagnosis Analysis</MenuItem>
                   <MenuItem value="disbursement-analysis">Disbursement Analysis</MenuItem>
-                  <MenuItem value="survey-responses">Survey Responses</MenuItem>
+                  <MenuItem value="survey-responses" disabled>
+                    Survey Responses (Coming Soon)
+                  </MenuItem>
                 </Select>
               </FormControl>
 
@@ -673,9 +620,9 @@ const Reports: React.FC = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        {previewData[0].map((header: string, index: number) => (
+                        {previewData[0].map((header: ReportCell, index: number) => (
                           <TableCell key={index} sx={{ fontWeight: 'bold' }}>
-                            {header}
+                            {String(header)}
                           </TableCell>
                         ))}
                       </TableRow>
@@ -683,7 +630,7 @@ const Reports: React.FC = () => {
                     <TableBody>
                       {previewData.slice(1).map((row, rowIndex) => (
                         <TableRow key={rowIndex}>
-                          {row.map((cell: any, cellIndex: number) => (
+                          {row.map((cell: ReportCell, cellIndex: number) => (
                             <TableCell key={cellIndex}>{cell}</TableCell>
                           ))}
                         </TableRow>

@@ -16,20 +16,12 @@ mkdir -p dist/package
 
 echo "Building React app..."
 cd frontend
-npm install
+npm ci
 npm run build
 cd ..
 
-echo "Installing Fyne dependencies..."
-go get fyne.io/fyne/v2@latest
-go get fyne.io/fyne/v2/app@latest
-go get fyne.io/fyne/v2/container@latest
-go get fyne.io/fyne/v2/data/binding@latest
-go get fyne.io/fyne/v2/dialog@latest
-go get fyne.io/fyne/v2/layout@latest
-go get fyne.io/fyne/v2/theme@latest
-go get fyne.io/fyne/v2/widget@latest
-go get fyne.io/fyne/v2/storage@latest
+echo "Downloading Go dependencies..."
+go mod download
 
 echo "Building Go executable..."
 go build -o dist/package/medical-records
@@ -128,23 +120,12 @@ EOF
 cp dist/package/README.txt dist/MedicalRecordsSystem.app/Contents/Resources/
 
 echo "Creating DMG..."
-# Check if create-dmg is installed
-if ! command -v create-dmg &> /dev/null; then
-    echo "create-dmg not found. Installing..."
-    brew install create-dmg
-fi
-
-create-dmg \
-  --volname "Medical Records System" \
-  --volicon "dist/MedicalRecordsSystem.app/Contents/Resources/AppIcon.icns" \
-  --window-pos 200 120 \
-  --window-size 800 400 \
-  --icon-size 100 \
-  --icon "MedicalRecordsSystem.app" 200 190 \
-  --hide-extension "MedicalRecordsSystem.app" \
-  --app-drop-link 600 185 \
-  "dist/MedicalRecordsSystem.dmg" \
-  "dist/MedicalRecordsSystem.app"
+hdiutil create \
+  -volname "Medical Records System" \
+  -srcfolder "dist/MedicalRecordsSystem.app" \
+  -ov \
+  -format UDZO \
+  "dist/MedicalRecordsSystem.dmg"
 
 echo "Build complete!"
 echo ""

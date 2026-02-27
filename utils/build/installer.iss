@@ -44,5 +44,27 @@ Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runascurrentuser
 
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}\pb_data" 
+[Code]
+function GetDataDir: string;
+begin
+  Result := ExpandConstant('{localappdata}\MedicalRecordsSystem\pb_data');
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  DataDir: string;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    DataDir := GetDataDir();
+    if DirExists(DataDir) then
+    begin
+      if MsgBox(
+        'Do you also want to delete local database/data files?' + #13#10 + DataDir,
+        mbConfirmation, MB_YESNO) = IDYES then
+      begin
+        DelTree(DataDir, True, True, True);
+      end;
+    end;
+  end;
+end;

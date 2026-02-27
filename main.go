@@ -40,6 +40,7 @@ var (
 	encounterCount = binding.NewString()
 	serverRunning  = false
 	serverMutex    sync.Mutex
+	appDataDir     = "pb_data"
 )
 
 // Custom log writer to capture logs for the GUI
@@ -68,6 +69,14 @@ func main() {
 	serverStatus.Set("Stopped")
 	patientCount.Set("0")
 	encounterCount.Set("0")
+
+	// Resolve persistent app data directory (and migrate legacy local data on first run).
+	resolvedDataDir, err := resolveDataDir()
+	if err != nil {
+		log.Printf("Warning: using fallback data directory due to resolution error: %v", err)
+	} else {
+		appDataDir = resolvedDataDir
+	}
 
 	// Create Fyne app
 	a := app.New()
@@ -117,7 +126,7 @@ func main() {
 		}
 
 		fmt.Println("\nTo kill the server gracefully, press Ctrl+C")
-		fmt.Println("Data will persist in the ./pb_data directory")
+		fmt.Printf("Data will persist in: %s\n", appDataDir)
 		fmt.Println("===============================")
 	}()
 
@@ -142,8 +151,11 @@ func createDashboardTab() fyne.CanvasObject {
 	encountersValue := widget.NewLabelWithData(encounterCount)
 
 	// Backup section
-	backupButton := widget.NewButton("Backup Database", func() {
+	backupButton := widget.NewButton("Backup / Export", func() {
 		backupDatabase()
+	})
+	restoreButton := widget.NewButton("Import / Restore", func() {
+		restoreDatabase()
 	})
 
 	// Layout
@@ -166,6 +178,7 @@ func createDashboardTab() fyne.CanvasObject {
 	actionsBox := container.NewVBox(
 		widget.NewLabel("Actions"),
 		backupButton,
+		restoreButton,
 	)
 
 	return container.NewVBox(
@@ -231,7 +244,9 @@ func startServer() {
 	serverStatus.Set("Starting...")
 
 	go func() {
-		pbApp = pocketbase.New()
+		pbApp = pocketbase.NewWithConfig(pocketbase.Config{
+			DefaultDataDir: appDataDir,
+		})
 
 		// Register the migration command
 		migratecmd.MustRegister(pbApp, pbApp.RootCmd, migratecmd.Config{
@@ -364,7 +379,7 @@ func backupDatabase() {
 
 		// Perform backup in a goroutine
 		go func() {
-			err := zipDir("pb_data", writer)
+			err := zipDir(appDataDir, writer)
 			if err != nil {
 				dialog.ShowError(fmt.Errorf("Backup failed: %v", err), nil)
 			} else {
@@ -375,8 +390,110 @@ func backupDatabase() {
 
 	// Set filter for zip files
 	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".zip"}))
-	saveDialog.SetFileName("medical_records_backup.zip")
+	saveDialog.SetFileName("medical_records_export.zip")
 	saveDialog.Show()
+}
+
+func restoreDatabase() {
+	runRestore := func(wasRunning bool) {
+		openDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+			if err != nil {
+				dialog.ShowError(err, nil)
+				return
+			}
+			if reader == nil {
+				return
+			}
+			zipPath := reader.URI().Path()
+			reader.Close()
+
+			go func() {
+				if wasRunning {
+					stopServer()
+				}
+
+				if err := restoreDataFromZip(zipPath, appDataDir); err != nil {
+					if wasRunning {
+						startServer()
+					}
+					dialog.ShowError(fmt.Errorf("Restore failed: %v", err), nil)
+					return
+				}
+
+				if wasRunning {
+					startServer()
+				}
+				dialog.ShowInformation("Restore Complete", "Database restore completed successfully.", nil)
+			}()
+		}, nil)
+
+		openDialog.SetFilter(storage.NewExtensionFileFilter([]string{".zip"}))
+		openDialog.Show()
+	}
+
+	serverMutex.Lock()
+	wasRunning := serverRunning
+	serverMutex.Unlock()
+
+	if wasRunning {
+		dialog.ShowConfirm(
+			"Restore Database",
+			"Restoring will stop the server, replace database files, and restart the server. Continue?",
+			func(confirmed bool) {
+				if confirmed {
+					runRestore(true)
+				}
+			},
+			nil,
+		)
+		return
+	}
+
+	runRestore(false)
+}
+
+func resolveDataDir() (string, error) {
+	baseDir, err := userDataBaseDir()
+	if err != nil {
+		return "", err
+	}
+
+	targetDir := filepath.Join(baseDir, "MedicalRecordsSystem", "pb_data")
+	targetExisted := dirExists(targetDir)
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return "", err
+	}
+
+	// First-run migration from legacy "<exe_dir>/pb_data" location.
+	exePath, err := os.Executable()
+	if err == nil {
+		legacyDir := filepath.Join(filepath.Dir(exePath), "pb_data")
+		if dirExists(legacyDir) && !targetExisted {
+			if err := copyDir(legacyDir, targetDir); err != nil {
+				log.Printf("Warning: failed to migrate legacy data directory: %v", err)
+			}
+		}
+	}
+
+	return targetDir, nil
+}
+
+func userDataBaseDir() (string, error) {
+	switch runtime.GOOS {
+	case "windows":
+		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+			return localAppData, nil
+		}
+		return os.UserConfigDir()
+	case "darwin":
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(homeDir, "Library", "Application Support"), nil
+	default:
+		return os.UserConfigDir()
+	}
 }
 
 // zipDir writes all files under srcDir to the provided writer as a zip archive.
@@ -417,6 +534,92 @@ func zipDir(srcDir string, out io.Writer) error {
 	})
 }
 
+func restoreDataFromZip(zipPath, targetDir string) error {
+	tmpDir, err := os.MkdirTemp("", "meds-restore-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := unzipDir(zipPath, tmpDir); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("restore archive is empty")
+	}
+
+	if err := os.RemoveAll(targetDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return err
+	}
+
+	return copyDir(tmpDir, targetDir)
+}
+
+func unzipDir(zipPath, dstDir string) error {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	for _, file := range reader.File {
+		name := filepath.Clean(file.Name)
+		if filepath.IsAbs(name) || strings.HasPrefix(name, ".."+string(os.PathSeparator)) || name == ".." {
+			return fmt.Errorf("invalid archive path: %s", file.Name)
+		}
+		if name == "." {
+			continue
+		}
+
+		dstPath := filepath.Join(dstDir, name)
+
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(dstPath, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			return err
+		}
+
+		srcFile, err := file.Open()
+		if err != nil {
+			return err
+		}
+
+		dstFile, err := os.OpenFile(dstPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, file.Mode())
+		if err != nil {
+			srcFile.Close()
+			return err
+		}
+
+		_, copyErr := io.Copy(dstFile, srcFile)
+		closeDstErr := dstFile.Close()
+		closeSrcErr := srcFile.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeDstErr != nil {
+			return closeDstErr
+		}
+		if closeSrcErr != nil {
+			return closeSrcErr
+		}
+	}
+
+	return nil
+}
+
 func openBrowser(url string) {
 	var err error
 
@@ -437,4 +640,50 @@ func openBrowser(url string) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		targetPath := filepath.Join(dst, relPath)
+
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, 0755)
+		}
+
+		return copyFile(path, targetPath)
+	})
+}
+
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
 }
