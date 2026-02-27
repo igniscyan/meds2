@@ -41,6 +41,7 @@ var (
 	serverRunning  = false
 	serverMutex    sync.Mutex
 	appDataDir     = "pb_data"
+	mainWindow     fyne.Window
 )
 
 // Custom log writer to capture logs for the GUI
@@ -81,6 +82,7 @@ func main() {
 	// Create Fyne app
 	a := app.New()
 	w := a.NewWindow("Medical Records System")
+	mainWindow = w
 	w.Resize(fyne.NewSize(800, 600))
 
 	// Create tabs
@@ -207,7 +209,7 @@ func createLogsTab() fyne.CanvasObject {
 func createSettingsTab() fyne.CanvasObject {
 	// User management section (stretch goal)
 	userManagementButton := widget.NewButton("Manage Users (Coming Soon)", func() {
-		dialog.ShowInformation("Coming Soon", "User management functionality will be available in a future update.", nil)
+		dialog.ShowInformation("Coming Soon", "User management functionality will be available in a future update.", mainWindow)
 	})
 
 	// Open admin UI
@@ -313,17 +315,20 @@ func startServer() {
 
 func stopServer() {
 	serverMutex.Lock()
-	defer serverMutex.Unlock()
-
 	if !serverRunning || pbApp == nil {
+		serverMutex.Unlock()
 		return
 	}
 
+	activeApp := pbApp
+	serverRunning = false
+	pbApp = nil
 	serverStatus.Set("Stopping...")
+	serverMutex.Unlock()
 
 	// Trigger PocketBase termination hooks to shut down the HTTP server.
-	err := pbApp.OnTerminate().Trigger(&core.TerminateEvent{
-		App: pbApp,
+	err := activeApp.OnTerminate().Trigger(&core.TerminateEvent{
+		App: activeApp,
 	}, func(e *core.TerminateEvent) error {
 		return e.App.ResetBootstrapState()
 	})
@@ -333,8 +338,6 @@ func stopServer() {
 		return
 	}
 
-	serverRunning = false
-	pbApp = nil
 	serverStatus.Set("Stopped")
 }
 
@@ -361,14 +364,14 @@ func updateStats() {
 
 func backupDatabase() {
 	if !serverRunning {
-		dialog.ShowInformation("Error", "Server must be running to backup the database.", nil)
+		dialog.ShowInformation("Error", "Server must be running to backup the database.", mainWindow)
 		return
 	}
 
 	// Use a file save dialog instead of a progress dialog
 	saveDialog := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
 		if err != nil {
-			dialog.ShowError(err, nil)
+			dialog.ShowError(err, mainWindow)
 			return
 		}
 		if writer == nil {
@@ -379,11 +382,11 @@ func backupDatabase() {
 
 		err = zipDir(appDataDir, writer)
 		if err != nil {
-			dialog.ShowError(fmt.Errorf("Backup failed: %v", err), nil)
+			dialog.ShowError(fmt.Errorf("Backup failed: %v", err), mainWindow)
 		} else {
-			dialog.ShowInformation("Backup Complete", "Database backup ZIP created successfully.", nil)
+			dialog.ShowInformation("Backup Complete", "Database backup ZIP created successfully.", mainWindow)
 		}
-	}, nil)
+	}, mainWindow)
 
 	// Set filter for zip files
 	saveDialog.SetFilter(storage.NewExtensionFileFilter([]string{".zip"}))
@@ -395,7 +398,7 @@ func restoreDatabase() {
 	runRestore := func(wasRunning bool) {
 		openDialog := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil {
-				dialog.ShowError(err, nil)
+				dialog.ShowError(err, mainWindow)
 				return
 			}
 			if reader == nil {
@@ -412,15 +415,15 @@ func restoreDatabase() {
 				if wasRunning {
 					startServer()
 				}
-				dialog.ShowError(fmt.Errorf("Restore failed: %v", err), nil)
+				dialog.ShowError(fmt.Errorf("Restore failed: %v", err), mainWindow)
 				return
 			}
 
 			if wasRunning {
 				startServer()
 			}
-			dialog.ShowInformation("Restore Complete", "Database restore completed successfully.", nil)
-		}, nil)
+			dialog.ShowInformation("Restore Complete", "Database restore completed successfully.", mainWindow)
+		}, mainWindow)
 
 		openDialog.SetFilter(storage.NewExtensionFileFilter([]string{".zip"}))
 		openDialog.Show()
@@ -439,7 +442,7 @@ func restoreDatabase() {
 					runRestore(true)
 				}
 			},
-			nil,
+			mainWindow,
 		)
 		return
 	}
@@ -628,7 +631,7 @@ func openBrowser(url string) {
 	}
 
 	if err != nil {
-		dialog.ShowError(fmt.Errorf("Failed to open browser: %v", err), nil)
+		dialog.ShowError(fmt.Errorf("Failed to open browser: %v", err), mainWindow)
 	}
 }
 
