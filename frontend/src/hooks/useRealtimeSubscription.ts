@@ -4,6 +4,13 @@ import type { Record as PBRecord, Admin, AuthModel } from 'pocketbase';
 import { pb, trackSubscription, untrackSubscription } from '../atoms/auth';
 import { isEqual } from 'lodash';
 
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const debugLog = (...args: unknown[]) => {
+  if (isDevelopment) {
+    console.log(...args);
+  }
+};
+
 // Extend AuthModel to include role
 interface ExtendedAuthModel extends AuthModel {
   role?: string;
@@ -56,7 +63,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
     const loadInitialData = async () => {
       const authModel = pb.authStore.model as ExtendedAuthModel;
       if (!authModel) {
-        console.log('[useRealtimeSubscription] No auth model found, skipping data load');
+        debugLog('[useRealtimeSubscription] No auth model found, skipping data load');
         if (isMounted) {
           setError(new Error('Not authenticated'));
           setLoading(false);
@@ -64,7 +71,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
         return;
       }
 
-      console.log('[useRealtimeSubscription] Auth model:', {
+      debugLog('[useRealtimeSubscription] Auth model:', {
         id: authModel.id,
         role: authModel.role,
         collection: collection,
@@ -79,7 +86,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
         abortControllerRef.current = new AbortController();
         
         if (!loadedRef.current) {
-          console.log('[useRealtimeSubscription] Loading initial data for collection:', collection);
+          debugLog('[useRealtimeSubscription] Loading initial data for collection:', collection);
           
           const resultList = await pb.collection(collection).getList(1, 1000, {
             ...stableQueryParams.current,
@@ -88,7 +95,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
           });
         
           if (isMounted) {
-            console.log('[useRealtimeSubscription] Data loaded successfully:', {
+            debugLog('[useRealtimeSubscription] Data loaded successfully:', {
               collection,
               itemCount: resultList.items.length
             });
@@ -117,18 +124,18 @@ export function useRealtimeSubscription<T extends PBRecord>(
     const subscribe = async () => {
       // Check if we already have an active subscription for this collection
       if (activeSubscriptions.get(subscriptionKey)) {
-        console.log('[useRealtimeSubscription] Subscription already active for:', subscriptionKey);
+        debugLog('[useRealtimeSubscription] Subscription already active for:', subscriptionKey);
         return;
       }
       
       const authModel = pb.authStore.model as ExtendedAuthModel;
       if (!authModel) {
-        console.log('[useRealtimeSubscription] No auth model found, skipping subscription');
+        debugLog('[useRealtimeSubscription] No auth model found, skipping subscription');
         return;
       }
 
       try {
-        console.log('[useRealtimeSubscription] Subscribing to collection:', {
+        debugLog('[useRealtimeSubscription] Subscribing to collection:', {
           collection,
           authRole: authModel.role,
           subscriptionKey
@@ -149,7 +156,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
         unsubscribeRef.current = await pb.collection(collection).subscribe('*', (data) => {
           if (!isMounted) return;
           
-          console.log('[useRealtimeSubscription] Received realtime update:', {
+          debugLog('[useRealtimeSubscription] Received realtime update:', {
             collection,
             action: data.action,
             record: data.record.id,
@@ -177,7 +184,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
             }
           });
         });
-        console.log('[useRealtimeSubscription] Successfully subscribed to collection:', collection);
+        debugLog('[useRealtimeSubscription] Successfully subscribed to collection:', collection);
       } catch (err: any) {
         if (!isAutoCancelError(err)) {
           console.error('[useRealtimeSubscription] Error subscribing to collection:', {
@@ -207,7 +214,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
       const customEvent = event as CustomEvent;
       const action = customEvent.detail?.action;
       
-      console.log('[useRealtimeSubscription] Auth state changed:', {
+      debugLog('[useRealtimeSubscription] Auth state changed:', {
         collection,
         action,
         newAuthRole: (pb.authStore.model as ExtendedAuthModel)?.role
@@ -244,7 +251,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
 
     // Add a listener for pre-logout events
     const handlePreLogout = () => {
-      console.log('[useRealtimeSubscription] Pre-logout event received, cleaning up subscription:', subscriptionKey);
+      debugLog('[useRealtimeSubscription] Pre-logout event received, cleaning up subscription:', subscriptionKey);
       
       // Immediately mark this subscription as inactive to prevent further updates
       activeSubscriptions.delete(subscriptionKey);
@@ -254,7 +261,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
       if (abortControllerRef.current) {
         try {
           abortControllerRef.current.abort();
-          console.log('[useRealtimeSubscription] Aborted ongoing requests for:', subscriptionKey);
+          debugLog('[useRealtimeSubscription] Aborted ongoing requests for:', subscriptionKey);
         } catch (err) {
           console.error('[useRealtimeSubscription] Error aborting requests:', err);
         }
@@ -267,7 +274,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
           // This ensures the logout continues even if unsubscribe hangs
           const timeoutPromise = new Promise<void>((resolve) => {
             setTimeout(() => {
-              console.log('[useRealtimeSubscription] Unsubscribe timed out for:', subscriptionKey);
+              debugLog('[useRealtimeSubscription] Unsubscribe timed out for:', subscriptionKey);
               resolve();
             }, 200);
           });
@@ -277,7 +284,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
             new Promise<void>((resolve) => {
               try {
                 unsubscribeRef.current?.();
-                console.log('[useRealtimeSubscription] Successfully unsubscribed before logout:', subscriptionKey);
+                debugLog('[useRealtimeSubscription] Successfully unsubscribed before logout:', subscriptionKey);
               } catch (err) {
                 console.error('[useRealtimeSubscription] Error unsubscribing before logout:', err);
               }
@@ -305,7 +312,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
     
     // Also listen for the logout-complete event
     const handleLogoutComplete = () => {
-      console.log('[useRealtimeSubscription] Logout complete, ensuring cleanup for:', subscriptionKey);
+      debugLog('[useRealtimeSubscription] Logout complete, ensuring cleanup for:', subscriptionKey);
       
       // Double-check that everything is cleaned up
       if (unsubscribeRef.current) {
@@ -324,7 +331,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
     window.addEventListener('pocketbase-logout-complete', handleLogoutComplete);
 
     // Store the update callback for this collection
-    updateCallbacks.set(collection, loadInitialData);
+    updateCallbacks.set(subscriptionKey, loadInitialData);
 
     return () => {
       isMounted = false;
@@ -338,7 +345,7 @@ export function useRealtimeSubscription<T extends PBRecord>(
       if (unsubscribeRef.current) {
         try {
           unsubscribeRef.current();
-          console.log('[useRealtimeSubscription] Unsubscribed on unmount:', subscriptionKey);
+          debugLog('[useRealtimeSubscription] Unsubscribed on unmount:', subscriptionKey);
         } catch (err) {
           console.error('[useRealtimeSubscription] Error unsubscribing on unmount:', err);
         }
@@ -346,6 +353,8 @@ export function useRealtimeSubscription<T extends PBRecord>(
         activeSubscriptions.delete(subscriptionKey);
         untrackSubscription(subscriptionKey);
       }
+
+      updateCallbacks.delete(subscriptionKey);
       
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -394,10 +403,18 @@ export function useRealtimeSubscription<T extends PBRecord>(
 
 // Add a static method to force update a collection
 useRealtimeSubscription.forceUpdate = (collection: string) => {
-  const callback = updateCallbacks.get(collection);
-  if (callback) {
-    callback();
+  const exactCallback = updateCallbacks.get(collection);
+  if (exactCallback) {
+    exactCallback();
+    return;
   }
+
+  const prefix = `${collection}_`;
+  updateCallbacks.forEach((callback, key) => {
+    if (key.startsWith(prefix)) {
+      callback();
+    }
+  });
 };
 
 export default useRealtimeSubscription;
