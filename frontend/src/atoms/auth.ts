@@ -1,7 +1,7 @@
 import { atom } from 'jotai/vanilla';
 import { useSetAtom } from 'jotai/react';
-import PocketBase, { BaseModel, AuthModel as PBAuthModel, ClientResponseError } from 'pocketbase';
-import { useEffect, useCallback, useRef } from 'react';
+import PocketBase, { BaseModel } from 'pocketbase';
+import { useEffect, useRef } from 'react';
 import { API_URL } from '../config';
 
 // Define our AuthModel type to match PocketBase's structure
@@ -52,6 +52,10 @@ const logAuthState = (context: string) => {
 // Export a function to check if auth is valid
 export const isAuthValid = (): boolean => {
   return pb.authStore.isValid && !!pb.authStore.model;
+};
+
+const isUnauthorizedError = (error: any): boolean => {
+  return error?.status === 401 || error?.status === 403;
 };
 
 // Export a function to get the current user
@@ -170,8 +174,27 @@ export const useAuthChangeEffect = () => {
       
       try {
         if (pb.authStore.isValid && pb.authStore.model) {
-          logAuthState('Using existing auth from store');
-          setAuthModel(pb.authStore.model as unknown as AuthModel);
+          logAuthState('Found existing auth in store, verifying with server');
+
+          try {
+            // Validate persisted auth with the backend to avoid stale "logged in" UI state.
+            const usersCollection = pb.collection('users') as any;
+            const authData = await usersCollection.authRefresh();
+            setAuthModel(authData.record as unknown as AuthModel);
+            setAuthError(null);
+            logAuthState('Session verified with authRefresh');
+          } catch (refreshError: any) {
+            if (isUnauthorizedError(refreshError)) {
+              console.warn('[Auth] Persisted session is no longer valid, clearing auth state');
+              pb.authStore.clear();
+              setAuthModel(null);
+              setAuthError('Your session expired or became invalid. Please log in again.');
+            } else {
+              // Keep existing auth on transient connectivity issues.
+              console.warn('[Auth] Could not verify session with server; keeping cached session:', refreshError);
+              setAuthModel(pb.authStore.model as unknown as AuthModel);
+            }
+          }
         } else {
           logAuthState('No valid auth found');
           setAuthModel(null);

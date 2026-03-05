@@ -14,7 +14,7 @@ import Inventory from './pages/Inventory';
 import PatientDashboard from './pages/PatientDashboard';
 import Dashboard from './pages/Dashboard';
 import AuthGuard from './components/AuthGuard';
-import { authModelAtom, isLoadingAtom, useAuthChangeEffect } from './atoms/auth';
+import { authModelAtom, isLoadingAtom, pb, useAuthChangeEffect } from './atoms/auth';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import { ActiveEditorCleanup } from './components/ActiveEditorCleanup';
@@ -84,7 +84,7 @@ const App: React.FC = () => {
         <Route 
           path="/login" 
           element={
-            !user ? (
+            !user || !pb.authStore.isValid ? (
               <Login />
             ) : (
               <Navigate 
